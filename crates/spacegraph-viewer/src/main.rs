@@ -4,7 +4,7 @@ mod state;
 use bevy::prelude::*;
 use bevy_egui::{egui, EguiContexts, EguiPlugin};
 use crossbeam_channel::Receiver;
-use state::{GraphState, Incoming, NodeMarker};
+use state::{GraphState, Incoming, NodeMarker, ViewMode};
 use std::collections::HashSet;
 use std::sync::atomic::Ordering;
 use std::time::Instant;
@@ -50,8 +50,8 @@ fn main() {
                 hover_detection,
                 picking_focus,
                 apply_picked_focus,
-                update_layout_and_forces,
-                draw_graph,
+                update_layout_or_timeline,
+                draw_scene,
                 apply_jump_to,
             ),
         )
@@ -82,14 +82,15 @@ fn pump_network(mut st: ResMut<GraphState>, rx: Res<NetRx>) {
 }
 
 fn tick_housekeeping(time: Res<Time>, mut st: ResMut<GraphState>) {
-    // FPS (simple)
     let dt = time.delta_seconds().max(0.0001);
     st.fps = 1.0 / dt;
 
-    // Glow + metrics + GC
     st.tick_glow();
     st.tick_metrics(Instant::now());
     st.tick_gc();
+
+    // timeline housekeeping
+    st.tick_timeline();
 }
 
 fn ui_panel(mut contexts: EguiContexts, mut st: ResMut<GraphState>) {
@@ -99,13 +100,30 @@ fn ui_panel(mut contexts: EguiContexts, mut st: ResMut<GraphState>) {
         ui.label(format!("edges: {}", st.edges.len()));
         ui.separator();
 
-        // Legend
         ui.horizontal(|ui| {
-            ui.label("Legend:");
-            ui.label("● node");
-            ui.label("— edge");
-            ui.label("✨ glowing = recent change");
+            ui.label("View:");
+            ui.selectable_value(&mut st.view_mode, ViewMode::Spatial, "Spatial");
+            ui.selectable_value(&mut st.view_mode, ViewMode::Timeline, "Timeline");
         });
+
+        if st.view_mode == ViewMode::Timeline {
+            ui.add_space(6.0);
+            ui.heading("Timeline / Feynman");
+            ui.horizontal(|ui| {
+                let paused = st.timeline_pause;
+                let mut p = paused;
+                ui.checkbox(&mut p, "Pause");
+                if p != paused {
+                    st.set_timeline_pause(p);
+                }
+            });
+            let mut w = st.timeline_window.as_secs() as i32;
+            ui.add(egui::Slider::new(&mut w, 5..=240).text("window (s)"));
+            st.timeline_window = std::time::Duration::from_secs(w as u64);
+
+            ui.add(egui::Slider::new(&mut st.timeline_scale, 0.05..=1.5).text("x scale"));
+            ui.label(format!("events buffered: {}", st.timeline_events.len()));
+        }
 
         ui.add_space(8.0);
         ui.horizontal(|ui| {
@@ -141,7 +159,7 @@ fn ui_panel(mut contexts: EguiContexts, mut st: ResMut<GraphState>) {
 
         ui.add_space(8.0);
         ui.separator();
-        ui.heading("Layout");
+        ui.heading("Layout (Spatial)");
         ui.checkbox(&mut st.layout_force, "Force layout");
         ui.add(egui::Slider::new(&mut st.link_distance, 1.0..=20.0).text("link dist"));
         ui.add(egui::Slider::new(&mut st.repulsion, 0.0..=120.0).text("repulsion"));
@@ -179,42 +197,42 @@ fn ui_panel(mut contexts: EguiContexts, mut st: ResMut<GraphState>) {
     });
 }
 
-/// Small top-left HUD overlay.
 fn hud_overlay(mut contexts: EguiContexts, st: Res<GraphState>) {
     egui::Area::new("hud")
         .fixed_pos(egui::pos2(10.0, 10.0))
         .show(contexts.ctx_mut(), |ui| {
             ui.group(|ui| {
                 ui.label(format!("FPS: {:.0}", st.fps));
-                ui.label(format!(
-                    "Visible: {} nodes / {} edges",
-                    st.visible_nodes, st.visible_edges
-                ));
+                ui.label(format!("Visible: {} nodes / {} edges", st.visible_nodes, st.visible_edges));
                 ui.label(format!("Event rate: {:.1}/s", st.event_rate));
                 ui.label(format!("Total msgs: {}", st.event_total));
                 if let Some(id) = st.last_batch_id {
                     ui.label(format!("Last batch: {}", id));
                 }
-                if let Some(h) = &st.hovered {
-                    ui.label(format!("Hover: {}", h.0));
-                }
+                ui.label(format!(
+                    "Mode: {}",
+                    if st.view_mode == ViewMode::Spatial { "Spatial" } else { "Timeline" }
+                ));
             });
         });
 }
 
-/// Hover: nearest projected node within radius.
-/// Also opens tooltip with details + "why connected".
+// Hover (spatial only, based on projected positions)
 fn hover_detection(
     windows: Query<&Window>,
     cam_q: Query<(&Camera, &GlobalTransform)>,
     mut contexts: EguiContexts,
     mut st: ResMut<GraphState>,
 ) {
+    if st.view_mode != ViewMode::Spatial {
+        st.hovered = None;
+        return;
+    }
+
     let Ok(window) = windows.get_single() else { return; };
     let Some(cursor) = window.cursor_position() else { st.hovered = None; return; };
     let Ok((camera, cam_tf)) = cam_q.get_single() else { return; };
 
-    // If mouse is over egui, don't change hover (prevents jitter while typing)
     if contexts.ctx_mut().wants_pointer_input() {
         return;
     }
@@ -229,16 +247,13 @@ fn hover_detection(
             }
         }
     }
-
     st.hovered = best.map(|(_, id)| id);
 }
 
-/// Ctrl+P search overlay (Egui). Enter/Click selects and sets jump_to.
-/// We implement keyboard shortcut here (Bevy->Egui).
+// Ctrl+P search overlay (same as v0.1.5)
 fn search_overlay(mut contexts: EguiContexts, mut st: ResMut<GraphState>) {
     let ctx = contexts.ctx_mut();
 
-    // Ctrl+P toggle
     if ctx.input(|i| i.key_pressed(egui::Key::P) && i.modifiers.ctrl) {
         st.search_open = true;
     }
@@ -261,7 +276,6 @@ fn search_overlay(mut contexts: EguiContexts, mut st: ResMut<GraphState>) {
                 }
             });
 
-            // Esc closes
             if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
                 st.search_open = false;
             }
@@ -288,7 +302,6 @@ fn search_overlay(mut contexts: EguiContexts, mut st: ResMut<GraphState>) {
                 }
             });
 
-            // Enter selects first hit
             if ctx.input(|i| i.key_pressed(egui::Key::Enter)) {
                 if let Some(first) = st.search_hits.first() {
                     picked = Some(first.clone());
@@ -311,11 +324,12 @@ fn picking_focus(
     st: Res<GraphState>,
     mut out: EventWriter<Picked>,
 ) {
+    if st.view_mode != ViewMode::Spatial {
+        return;
+    }
     if !buttons.just_pressed(MouseButton::Left) {
         return;
     }
-
-    // Don't pick through UI
     if contexts.ctx_mut().wants_pointer_input() {
         return;
     }
@@ -324,7 +338,6 @@ fn picking_focus(
     let Some(cursor) = window.cursor_position() else { return; };
     let Ok((camera, cam_tf)) = cam_q.get_single() else { return; };
 
-    // pick among positioned nodes (already capped/progressive)
     let mut best: Option<(f32, spacegraph_core::NodeId)> = None;
     for (id, pos) in st.positions.iter() {
         let Some(screen) = camera.world_to_viewport(cam_tf, *pos) else { continue; };
@@ -349,35 +362,38 @@ fn apply_picked_focus(mut st: ResMut<GraphState>, mut ev: EventReader<Picked>) {
     }
 }
 
-fn update_layout_and_forces(time: Res<Time>, mut st: ResMut<GraphState>) {
-    // search overlay must run before we compute vis counts, so it can request jump
-    // we run it here in the same stage for simplicity.
-    // (We also call it in Update ordering via system list: we didn't add it there yet.)
-    // => We'll call it from here.
-    // NOTE: This function is in Update ordering already; we can safely call search overlay in its own system.
-    // But to keep this file self-contained, we call a helper:
-    // (We'll keep the actual overlay system call in the Update list below by adding it.)
-    let _ = time; // keep clippy happy if you remove overlay call elsewhere
+fn update_layout_or_timeline(time: Res<Time>, mut st: ResMut<GraphState>) {
+    // search overlay must run with egui context -> we do it in draw_scene
+    match st.view_mode {
+        ViewMode::Spatial => {
+            let vis: HashSet<_> = st.visible_set_capped();
+            let mut ecount = 0usize;
+            for e in st.edges.iter() {
+                if st.edge_visible(e, &vis) {
+                    ecount += 1;
+                }
+            }
+            st.set_visible_counts(vis.len(), ecount);
 
-    let vis: HashSet<_> = st.visible_set_capped();
-
-    // visible edges count
-    let mut ecount = 0usize;
-    for e in st.edges.iter() {
-        if st.edge_visible(e, &vis) {
-            ecount += 1;
+            st.progressive_prepare(&vis);
+            let dt = time.delta_seconds().min(0.033);
+            st.force_step(&vis, dt);
+        }
+        ViewMode::Timeline => {
+            // In timeline mode we don’t force-layout; counts are still useful:
+            let vis: HashSet<_> = st.visible_set_capped();
+            let mut ecount = 0usize;
+            for e in st.edges.iter() {
+                if st.edge_visible(e, &vis) {
+                    ecount += 1;
+                }
+            }
+            st.set_visible_counts(vis.len(), ecount);
         }
     }
-    st.set_visible_counts(vis.len(), ecount);
-
-    // Progressive init + force
-    st.progressive_prepare(&vis);
-
-    let dt = time.delta_seconds().min(0.033);
-    st.force_step(&vis, dt);
 }
 
-fn draw_graph(
+fn draw_scene(
     mut commands: Commands,
     mut st: ResMut<GraphState>,
     mut meshes: ResMut<Assets<Mesh>>,
@@ -386,15 +402,35 @@ fn draw_graph(
     mut gizmos: Gizmos,
     mut contexts: EguiContexts,
 ) {
-    // run search overlay here (so it always has UI context)
+    // overlay UI
     search_overlay(contexts, st);
 
+    match st.view_mode {
+        ViewMode::Spatial => draw_spatial(commands, st, meshes, mats, query, gizmos, contexts),
+        ViewMode::Timeline => draw_timeline(st, gizmos, contexts),
+    }
+}
+
+fn draw_spatial(
+    mut commands: Commands,
+    mut st: ResMut<GraphState>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut mats: ResMut<Assets<StandardMaterial>>,
+    mut query: Query<(Entity, &NodeMarker)>,
+    mut gizmos: Gizmos,
+    mut contexts: EguiContexts,
+) {
     let vis: HashSet<_> = st.visible_set_capped();
 
-    // Tooltip on hover
+    // Tooltip
     if let Some(hid) = &st.hovered {
         egui::Area::new("tooltip")
-            .fixed_pos(contexts.ctx_mut().input(|i| i.pointer.hover_pos().unwrap_or(egui::pos2(0.0, 0.0))) + egui::vec2(14.0, 14.0))
+            .fixed_pos(
+                contexts
+                    .ctx_mut()
+                    .input(|i| i.pointer.hover_pos().unwrap_or(egui::pos2(0.0, 0.0)))
+                    + egui::vec2(14.0, 14.0),
+            )
             .show(contexts.ctx_mut(), |ui| {
                 ui.group(|ui| {
                     for line in st.node_tooltip_lines(hid) {
@@ -415,7 +451,6 @@ fn draw_graph(
         }
 
         let sphere = meshes.add(Sphere::new(0.28));
-
         let mat_norm = mats.add(StandardMaterial::default());
         let mut mat_glow = StandardMaterial::default();
         mat_glow.emissive = Color::rgb(1.0, 1.0, 1.0);
@@ -429,7 +464,6 @@ fn draw_graph(
                 continue;
             }
             let Some(pos) = st.positions.get(id).cloned() else { continue; };
-
             let use_glow = st.node_is_glowing(id);
 
             commands.spawn((
@@ -450,7 +484,6 @@ fn draw_graph(
                 continue;
             }
             let (Some(a), Some(b)) = (st.positions.get(&e.from), st.positions.get(&e.to)) else { continue; };
-
             if st.edge_is_glowing(e) {
                 gizmos.line(*a, *b, Color::rgb(1.0, 1.0, 1.0));
             }
@@ -459,23 +492,100 @@ fn draw_graph(
     }
 }
 
-/// Apply jump_to by moving camera to look at target node.
-/// Also sets focus to that node (so neighborhood becomes visible).
+// Timeline/Feynman render:
+// X = time (past -> left), Y = lane (user/process/file), Z = stable hash
+fn draw_timeline(mut st: ResMut<GraphState>, mut gizmos: Gizmos, mut contexts: EguiContexts) {
+    // Little legend
+    egui::Area::new("timeline_legend")
+        .fixed_pos(egui::pos2(10.0, 120.0))
+        .show(contexts.ctx_mut(), |ui| {
+            ui.group(|ui| {
+                ui.label("Timeline/Feynman:");
+                ui.label("X = time (past → left), now at x=0");
+                ui.label("Y lanes: user=0, proc=+8, file=-8");
+                ui.label("Z = stable hash spread");
+            });
+        });
+
+    let now = st.timeline_now();
+    let window = st.timeline_window;
+    let scale = st.timeline_scale.max(0.001);
+
+    // Draw axis line (now)
+    gizmos.line(Vec3::new(0.0, -10.0, 0.0), Vec3::new(0.0, 10.0, 0.0), Color::WHITE);
+
+    // Draw lane guides
+    gizmos.line(Vec3::new(-window.as_secs_f32() * scale, 8.0, -20.0), Vec3::new(0.0, 8.0, 20.0), Color::WHITE);
+    gizmos.line(Vec3::new(-window.as_secs_f32() * scale, 0.0, -20.0), Vec3::new(0.0, 0.0, 20.0), Color::WHITE);
+    gizmos.line(Vec3::new(-window.as_secs_f32() * scale, -8.0, -20.0), Vec3::new(0.0, -8.0, 20.0), Color::WHITE);
+
+    // Render events
+    // For each event: compute x = -(now - ts).seconds * scale
+    for ev in st.timeline_events.iter() {
+        let age = now.duration_since(ev.ts).as_secs_f32();
+        if age > window.as_secs_f32() {
+            continue;
+        }
+        let x = -age * scale;
+
+        match &ev.kind {
+            state::TimelineEvtKind::NodeUpsert | state::TimelineEvtKind::NodeRemove => {
+                if let Some(a) = &ev.a {
+                    let base = st.timeline_pos_for_node(a);
+                    let p = Vec3::new(x, base.y, base.z);
+
+                    // draw a tiny cross
+                    let s = 0.25;
+                    gizmos.line(p + Vec3::new(-s, 0.0, 0.0), p + Vec3::new(s, 0.0, 0.0), Color::WHITE);
+                    gizmos.line(p + Vec3::new(0.0, -s, 0.0), p + Vec3::new(0.0, s, 0.0), Color::WHITE);
+                }
+            }
+            state::TimelineEvtKind::EdgeUpsert | state::TimelineEvtKind::EdgeRemove => {
+                let (Some(a), Some(b)) = (&ev.a, &ev.b) else { continue; };
+                let pa = st.timeline_pos_for_node(a);
+                let pb = st.timeline_pos_for_node(b);
+
+                let a3 = Vec3::new(x, pa.y, pa.z);
+                let b3 = Vec3::new(x, pb.y, pb.z);
+
+                // draw interaction line at that time slice
+                gizmos.line(a3, b3, Color::WHITE);
+
+                // draw a small tick at midpoint to show edge kind changes (optional)
+                let mid = (a3 + b3) * 0.5;
+                let s = 0.18;
+                gizmos.line(mid + Vec3::new(0.0, -s, 0.0), mid + Vec3::new(0.0, s, 0.0), Color::WHITE);
+
+                // If you want, we could show edge kind text via egui hover later.
+                let _ = &ev.edge_kind;
+            }
+            state::TimelineEvtKind::BatchBegin(_) | state::TimelineEvtKind::BatchEnd(_) => {
+                // ignore in MVP rendering
+            }
+        }
+    }
+}
+
 fn apply_jump_to(
     mut st: ResMut<GraphState>,
     mut cam_q: Query<&mut Transform, With<Camera>>,
 ) {
     let Some(id) = st.jump_to.take() else { return; };
-    let Some(target) = st.positions.get(&id).cloned() else { return; };
 
-    // Set focus too
+    // Jump affects spatial; timeline doesn’t need camera jump (yet)
+    if st.view_mode != ViewMode::Spatial {
+        st.focus = Some(id);
+        st.selected = Some(id);
+        return;
+    }
+
+    let Some(target) = st.positions.get(&id).cloned() else { return; };
     st.focus = Some(id.clone());
     st.selected = Some(id.clone());
     st.needs_redraw.store(true, Ordering::Relaxed);
 
     let Ok(mut cam_tf) = cam_q.get_single_mut() else { return; };
 
-    // keep current distance, move camera to a fixed offset relative to target
     let current = cam_tf.translation;
     let dist = (current - target).length().max(6.0);
     let offset = Vec3::new(dist * 0.6, dist * 0.5, dist * 0.9);
