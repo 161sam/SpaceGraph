@@ -73,3 +73,123 @@ Ziel ist **Verständnis**, nicht nur Monitoring.
 
 ## 🧩 Architektur (Kurzfassung)
 
+```
+
+Agent(s)
+↓ Events
+Net Layer
+↓ normalized Incoming
+Graph Core
+↓ projection (capped)
+Render (Spatial / Timeline)
+↓
+UI (Panel, HUD, Search, Tooltips)
+
+```
+
+- **Agent** sammelt Systemevents (FS, Prozesse, etc.)
+- **Viewer** ist strikt getrennt in:
+  - Net
+  - Graph (Truth)
+  - Render
+  - UI
+
+Details: siehe `ARCH_VIEWER.md`.
+
+---
+
+## 📁 Repository-Struktur (Viewer)
+
+```
+
+crates/spacegraph-viewer/
+src/
+app/        # Bevy wiring
+net/        # event ingestion
+graph/      # truth & logic
+render/     # spatial/timeline rendering
+ui/         # panels, overlays, search
+util/       # config, helpers
+
+```
+
+Modularisierung ist **kein Nice-to-have**, sondern Kernbestandteil der Roadmap.
+
+---
+
+## 🗺️ Roadmap (kurz)
+
+- **v0.1.x**
+  - stabile Spatial + Timeline Views
+  - erklärbarer Graph
+  - Performance & UX Hardening
+
+- **v0.2.0**
+  - Multi-Node Viewer
+  - mehrere Agenten gleichzeitig
+  - Cluster-/Cloud-ready (ohne Hub)
+
+Details: siehe `ROADMAP_v0.2.0.md`.
+
+---
+
+## 🧪 Qualität & Stabilität
+
+SpaceGraph folgt klaren Qualitäts-Gates:
+- keine Panics in Renderpfaden
+- keine O(E)-Scans im Frame-Loop
+- deterministische Graph-Zustände
+- Tests für Timeline, GC, Search, Aggregation
+
+Details: siehe `ACCEPTANCE.md`.
+
+---
+
+## 🤖 Arbeiten mit Agenten (Codex etc.)
+
+Dieses Projekt ist **agentenfähig**, aber **nicht agenten-beliebig**.
+
+- Klare Rollen
+- Strikte Architekturgrenzen
+- Kleine, reversible Schritte
+- Keine impliziten Entscheidungen
+
+Regeln: siehe `AGENTS.md`.
+
+---
+
+## 🚧 Status
+
+SpaceGraph ist **early-stage**, aber **architektonisch ernst gemeint**.
+
+- APIs sind noch nicht stabil
+- Fokus liegt auf Korrektheit & Verständnis
+- Feedback, Diskussionen & Reviews sind willkommen
+
+---
+
+## 🤝 Mitmachen
+
+Wenn du interessiert bist an:
+- Systemvisualisierung
+- OS-Interna
+- Graphen & Zeitmodelle
+- Rust / Bevy / Low-Level Events
+
+… dann schau in:
+- `ARCH_VIEWER.md`
+- `ROADMAP_v0.2.0.md`
+- `AGENTS.md`
+
+und öffne gern ein Issue oder eine Diskussion.
+
+---
+
+## 📜 Lizenz
+
+(TODO – voraussichtlich Open Source, Lizenz folgt)
+
+---
+
+**SpaceGraph**  
+*Make system interactions visible.*
