@@ -1,0 +1,7 @@
+[workspace]
+resolver = "2"
+members = [
+  "crates/spacegraph-core",
+  "crates/spacegraph-agent",
+  "crates/spacegraph-viewer",
+]
