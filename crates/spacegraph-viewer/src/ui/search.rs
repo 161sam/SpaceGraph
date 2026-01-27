@@ -7,9 +7,6 @@ use crate::graph::GraphState;
 pub fn search_overlay(mut contexts: EguiContexts, mut st: ResMut<GraphState>) {
     let ctx = contexts.ctx_mut();
 
-    if ctx.input(|i| i.key_pressed(egui::Key::P) && i.modifiers.ctrl) {
-        st.ui.search_open = true;
-    }
     if !st.ui.search_open {
         return;
     }
@@ -28,10 +25,6 @@ pub fn search_overlay(mut contexts: EguiContexts, mut st: ResMut<GraphState>) {
                     st.ui.search_open = false;
                 }
             });
-
-            if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
-                st.ui.search_open = false;
-            }
 
             ui.separator();
             ui.label("Hits:");

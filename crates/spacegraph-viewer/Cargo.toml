@@ -7,7 +7,10 @@ edition = "2021"
 spacegraph-core = { path = "../spacegraph-core" }
 
 anyhow = "1"
+directories = "5"
+serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+toml = "0.8"
 
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "io-util", "time"] }
 tokio-util = { version = "0.7", features = ["codec"] }
@@ -33,3 +36,6 @@ bevy_egui = "0.28"
 
 [features]
 audio = ["bevy/bevy_audio"]
+
+[dev-dependencies]
+tempfile = "3"

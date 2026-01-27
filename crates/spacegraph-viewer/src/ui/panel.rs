@@ -3,6 +3,7 @@ use bevy_egui::{egui, EguiContexts};
 use std::sync::atomic::Ordering;
 
 use crate::graph::{GraphState, ViewMode};
+use crate::util::config::{self, LodEdgesMode, ViewerConfig};
 
 pub fn ui_panel(mut contexts: EguiContexts, mut st: ResMut<GraphState>) {
     egui::SidePanel::left("left").show(contexts.ctx_mut(), |ui| {
@@ -118,6 +119,29 @@ pub fn ui_panel(mut contexts: EguiContexts, mut st: ResMut<GraphState>) {
 
         ui.add_space(8.0);
         ui.separator();
+        ui.heading("LOD / Rendering");
+        ui.checkbox(&mut st.cfg.lod_enabled, "Enable LOD");
+        ui.add(
+            egui::Slider::new(&mut st.cfg.lod_threshold_nodes, 500..=20_000).text("LOD threshold"),
+        );
+        egui::ComboBox::from_label("LOD edges")
+            .selected_text(match st.cfg.lod_edges_mode {
+                LodEdgesMode::Off => "Off",
+                LodEdgesMode::FocusOnly => "Focus only",
+                LodEdgesMode::All => "All",
+            })
+            .show_ui(ui, |ui| {
+                ui.selectable_value(&mut st.cfg.lod_edges_mode, LodEdgesMode::Off, "Off");
+                ui.selectable_value(
+                    &mut st.cfg.lod_edges_mode,
+                    LodEdgesMode::FocusOnly,
+                    "Focus only",
+                );
+                ui.selectable_value(&mut st.cfg.lod_edges_mode, LodEdgesMode::All, "All");
+            });
+
+        ui.add_space(8.0);
+        ui.separator();
         ui.heading("Layout (Spatial)");
         ui.checkbox(&mut st.cfg.layout_force, "Force layout");
         ui.add(egui::Slider::new(&mut st.cfg.link_distance, 1.0..=20.0).text("link dist"));
@@ -143,9 +167,23 @@ pub fn ui_panel(mut contexts: EguiContexts, mut st: ResMut<GraphState>) {
         ui.add_space(10.0);
         ui.separator();
         ui.heading("Search");
-        ui.label("Ctrl+P opens search overlay.");
+        ui.label("Ctrl+P opens search overlay. ? toggles help.");
         if ui.button("Open Search (Ctrl+P)").clicked() {
             st.ui.search_open = true;
+        }
+
+        ui.add_space(10.0);
+        ui.separator();
+        ui.heading("Settings");
+        if ui.button("Save Settings").clicked() {
+            let cfg = st.viewer_config();
+            if let Err(err) = config::save(&cfg) {
+                eprintln!("failed to save settings: {err}");
+            }
+        }
+        if ui.button("Reset Defaults").clicked() {
+            let defaults = ViewerConfig::default();
+            st.apply_viewer_config(&defaults);
         }
 
         ui.add_space(10.0);

@@ -4,9 +4,10 @@ use std::collections::HashSet;
 use std::sync::atomic::Ordering;
 
 use crate::app::events::Picked;
-use crate::graph::model::edge_class_name;
+use crate::graph::model::{edge_class_name, AggEdgeKey};
 use crate::graph::{GraphState, ViewMode};
 use crate::ui::tooltips::render_tooltip;
+use crate::util::config::LodEdgesMode;
 
 #[derive(Component)]
 pub struct NodeMarker;
@@ -114,6 +115,11 @@ pub fn draw_spatial(
     mut contexts: EguiContexts,
 ) {
     let vis: HashSet<_> = st.visible_set_capped();
+    let lod_active = st.cfg.lod_active(vis.len());
+    if st.spatial.lod_active != lod_active {
+        st.spatial.lod_active = lod_active;
+        st.needs_redraw.store(true, Ordering::Relaxed);
+    }
 
     // Tooltip
     let hovered = st.ui.hovered.clone();
@@ -156,75 +162,184 @@ pub fn draw_spatial(
             commands.entity(e).despawn_recursive();
         }
 
-        let sphere = meshes.add(Sphere::new(0.28));
-        let mat_norm = mats.add(StandardMaterial::default());
-        let mat_glow = mats.add(StandardMaterial {
-            emissive: Color::srgb(1.0, 1.0, 1.0).into(),
-            ..default()
-        });
+        if !lod_active {
+            let sphere = meshes.add(Sphere::new(0.28));
+            let mat_norm = mats.add(StandardMaterial::default());
+            let mat_glow = mats.add(StandardMaterial {
+                emissive: Color::srgb(1.0, 1.0, 1.0).into(),
+                ..default()
+            });
 
-        for (id, node) in st.model.nodes.iter() {
-            if !vis.contains(id) {
-                continue;
+            for (id, node) in st.model.nodes.iter() {
+                if !vis.contains(id) {
+                    continue;
+                }
+                if !st.passes_filter(id, node) {
+                    continue;
+                }
+                let Some(pos) = st.spatial.positions.get(id).cloned() else {
+                    continue;
+                };
+                let use_glow = st.node_is_glowing(id);
+
+                commands.spawn((
+                    PbrBundle {
+                        mesh: sphere.clone(),
+                        material: if use_glow {
+                            mat_glow.clone()
+                        } else {
+                            mat_norm.clone()
+                        },
+                        transform: Transform::from_translation(pos),
+                        ..default()
+                    },
+                    NodeMarker,
+                ));
             }
-            if !st.passes_filter(id, node) {
-                continue;
-            }
+        }
+    }
+
+    if lod_active {
+        let marker = 0.35;
+        for id in vis.iter() {
             let Some(pos) = st.spatial.positions.get(id).cloned() else {
                 continue;
             };
-            let use_glow = st.node_is_glowing(id);
-
-            commands.spawn((
-                PbrBundle {
-                    mesh: sphere.clone(),
-                    material: if use_glow {
-                        mat_glow.clone()
-                    } else {
-                        mat_norm.clone()
-                    },
-                    transform: Transform::from_translation(pos),
-                    ..default()
-                },
-                NodeMarker,
-            ));
+            let color = if st.node_is_glowing(id) {
+                Color::WHITE
+            } else {
+                Color::srgb(0.7, 0.7, 0.95)
+            };
+            gizmos.line(
+                pos + Vec3::new(-marker, 0.0, 0.0),
+                pos + Vec3::new(marker, 0.0, 0.0),
+                color,
+            );
+            gizmos.line(
+                pos + Vec3::new(0.0, -marker, 0.0),
+                pos + Vec3::new(0.0, marker, 0.0),
+                color,
+            );
+            gizmos.line(
+                pos + Vec3::new(0.0, 0.0, -marker),
+                pos + Vec3::new(0.0, 0.0, marker),
+                color,
+            );
         }
     }
 
     if st.ui.show_edges {
-        if st.cfg.show_agg_edges {
-            for edge in st.model.agg_edges() {
-                if !vis.contains(&edge.key.from) || !vis.contains(&edge.key.to) {
-                    continue;
-                }
-                let (Some(a), Some(b)) = (
-                    st.spatial.positions.get(&edge.key.from),
-                    st.spatial.positions.get(&edge.key.to),
-                ) else {
-                    continue;
-                };
-                gizmos.line(*a, *b, Color::srgb(0.8, 0.8, 1.0));
+        let edges_mode = if lod_active {
+            st.cfg.lod_edges_mode
+        } else {
+            LodEdgesMode::All
+        };
+
+        let mut focus_nodes = HashSet::new();
+        if let Some(id) = st.ui.focus.clone() {
+            if vis.contains(&id) {
+                focus_nodes.insert(id);
             }
         }
-        if st.cfg.show_raw_edges {
-            for id in vis.iter() {
-                for edge in st.model.edges_for_node(id) {
-                    if &edge.from != id {
-                        continue;
+        if let Some(id) = st.ui.selected.clone() {
+            if vis.contains(&id) {
+                focus_nodes.insert(id);
+            }
+        }
+        if let Some(id) = st.ui.selected_a.clone() {
+            if vis.contains(&id) {
+                focus_nodes.insert(id);
+            }
+        }
+        if let Some(id) = st.ui.selected_b.clone() {
+            if vis.contains(&id) {
+                focus_nodes.insert(id);
+            }
+        }
+
+        match edges_mode {
+            LodEdgesMode::Off => {}
+            LodEdgesMode::FocusOnly => {
+                if st.cfg.show_agg_edges && !focus_nodes.is_empty() {
+                    let mut agg_keys = HashSet::new();
+                    for id in focus_nodes.iter() {
+                        for edge in st.model.edges_for_node(id) {
+                            if !st.edge_visible(edge, &vis) {
+                                continue;
+                            }
+                            agg_keys.insert(AggEdgeKey::new(edge));
+                        }
                     }
-                    if !st.edge_visible(edge, &vis) {
-                        continue;
+                    for key in agg_keys {
+                        let (Some(a), Some(b)) = (
+                            st.spatial.positions.get(&key.from),
+                            st.spatial.positions.get(&key.to),
+                        ) else {
+                            continue;
+                        };
+                        gizmos.line(*a, *b, Color::srgb(0.8, 0.8, 1.0));
                     }
-                    let (Some(a), Some(b)) = (
-                        st.spatial.positions.get(&edge.from),
-                        st.spatial.positions.get(&edge.to),
-                    ) else {
-                        continue;
-                    };
-                    if st.edge_is_glowing(edge) {
-                        gizmos.line(*a, *b, Color::srgb(1.0, 1.0, 1.0));
+                }
+                if st.cfg.show_raw_edges && !focus_nodes.is_empty() {
+                    let mut raw_edges = HashSet::new();
+                    for id in focus_nodes.iter() {
+                        for edge in st.model.edges_for_node(id) {
+                            if !st.edge_visible(edge, &vis) {
+                                continue;
+                            }
+                            raw_edges.insert(edge.clone());
+                        }
                     }
-                    gizmos.line(*a, *b, Color::WHITE);
+                    for edge in raw_edges {
+                        let (Some(a), Some(b)) = (
+                            st.spatial.positions.get(&edge.from),
+                            st.spatial.positions.get(&edge.to),
+                        ) else {
+                            continue;
+                        };
+                        if st.edge_is_glowing(&edge) {
+                            gizmos.line(*a, *b, Color::srgb(1.0, 1.0, 1.0));
+                        }
+                        gizmos.line(*a, *b, Color::WHITE);
+                    }
+                }
+            }
+            LodEdgesMode::All => {
+                if st.cfg.show_agg_edges {
+                    for edge in st.model.agg_edges() {
+                        if !vis.contains(&edge.key.from) || !vis.contains(&edge.key.to) {
+                            continue;
+                        }
+                        let (Some(a), Some(b)) = (
+                            st.spatial.positions.get(&edge.key.from),
+                            st.spatial.positions.get(&edge.key.to),
+                        ) else {
+                            continue;
+                        };
+                        gizmos.line(*a, *b, Color::srgb(0.8, 0.8, 1.0));
+                    }
+                }
+                if st.cfg.show_raw_edges {
+                    for id in vis.iter() {
+                        for edge in st.model.edges_for_node(id) {
+                            if &edge.from != id {
+                                continue;
+                            }
+                            if !st.edge_visible(edge, &vis) {
+                                continue;
+                            }
+                            let (Some(a), Some(b)) = (
+                                st.spatial.positions.get(&edge.from),
+                                st.spatial.positions.get(&edge.to),
+                            ) else {
+                                continue;
+                            };
+                            if st.edge_is_glowing(edge) {
+                                gizmos.line(*a, *b, Color::srgb(1.0, 1.0, 1.0));
+                            }
+                            gizmos.line(*a, *b, Color::WHITE);
+                        }
+                    }
                 }
             }
         }
