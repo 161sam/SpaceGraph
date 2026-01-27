@@ -244,7 +244,7 @@ pub fn spawn(node_id: &str, tx: mpsc::Sender<Msg>) -> Result<()> {
             tokio::time::sleep(Duration::from_millis(750)).await;
 
             // refresh passwd occasionally (cheap, keeps usernames accurate)
-            if batch_id % 80 == 0 {
+            if batch_id.is_multiple_of(80) {
                 passwd = parse_passwd();
             }
 
