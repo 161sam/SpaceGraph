@@ -8,6 +8,7 @@ use crate::graph::explain::{self, PathStep};
 use crate::graph::model::GraphModel;
 use crate::graph::timeline::{BatchSpan, NodeLife, TimelineEvt, TimelineEvtKind};
 use crate::net::Incoming;
+use crate::util::config::{LodEdgesMode, ViewerConfig, ViewerViewMode};
 use crate::util::ids::{node_label_long, node_label_short};
 
 #[derive(Default)]
@@ -25,6 +26,7 @@ pub struct SpatialState {
     pub active_vis_cache: Vec<NodeId>,
     pub progressive_cursor: usize,
     pub dirty_layout: bool,
+    pub lod_active: bool,
 }
 
 #[derive(Default)]
@@ -52,6 +54,7 @@ pub struct UiState {
     pub filter: String,
     pub show_3d: bool,
     pub show_edges: bool,
+    pub help_open: bool,
 
     pub focus: Option<NodeId>,
     pub focus_hops: usize,
@@ -129,6 +132,16 @@ pub struct CfgState {
     pub show_raw_edges: bool,
     pub show_agg_edges: bool,
     pub explain_max_depth: usize,
+
+    pub lod_enabled: bool,
+    pub lod_threshold_nodes: usize,
+    pub lod_edges_mode: LodEdgesMode,
+}
+
+impl CfgState {
+    pub fn lod_active(&self, visible_nodes: usize) -> bool {
+        self.lod_enabled && visible_nodes >= self.lod_threshold_nodes
+    }
 }
 
 #[derive(Resource)]
@@ -142,6 +155,24 @@ pub struct GraphState {
     pub explain_cache: Option<ExplainCache>,
 
     pub needs_redraw: AtomicBool,
+}
+
+impl From<ViewerViewMode> for ViewMode {
+    fn from(mode: ViewerViewMode) -> Self {
+        match mode {
+            ViewerViewMode::Spatial => ViewMode::Spatial,
+            ViewerViewMode::Timeline => ViewMode::Timeline,
+        }
+    }
+}
+
+impl From<ViewMode> for ViewerViewMode {
+    fn from(mode: ViewMode) -> Self {
+        match mode {
+            ViewMode::Spatial => ViewerViewMode::Spatial,
+            ViewMode::Timeline => ViewerViewMode::Timeline,
+        }
+    }
 }
 
 impl Default for GraphState {
@@ -160,6 +191,7 @@ impl Default for GraphState {
                 active_vis_cache: Vec::new(),
                 progressive_cursor: 0,
                 dirty_layout: true,
+                lod_active: false,
             },
             timeline: TimelineState {
                 window: Duration::from_secs(60),
@@ -176,6 +208,7 @@ impl Default for GraphState {
                 filter: String::new(),
                 show_3d: true,
                 show_edges: true,
+                help_open: false,
                 focus: None,
                 focus_hops: 2,
                 hovered: None,
@@ -216,6 +249,9 @@ impl Default for GraphState {
                 show_raw_edges: false,
                 show_agg_edges: true,
                 explain_max_depth: 4,
+                lod_enabled: true,
+                lod_threshold_nodes: 1500,
+                lod_edges_mode: LodEdgesMode::FocusOnly,
             },
             needs_redraw: AtomicBool::new(true),
             explain_cache: None,
@@ -238,6 +274,7 @@ impl GraphState {
         self.ui.search_query.clear();
         self.ui.search_hits.clear();
         self.ui.jump_to = None;
+        self.ui.help_open = false;
 
         self.spatial.glow_nodes.clear();
         self.spatial.glow_edges.clear();
@@ -502,6 +539,58 @@ impl GraphState {
             .map(|n| format!("{} ({})", node_label_short(n), id.0))
             .unwrap_or_else(|| id.0.clone())
     }
+
+    pub fn apply_viewer_config(&mut self, cfg: &ViewerConfig) {
+        self.ui.view_mode = cfg.view_mode.into();
+        self.ui.show_3d = cfg.show_3d;
+        self.ui.show_edges = cfg.show_edges;
+        self.ui.focus_hops = cfg.focus_hops.max(1);
+        self.cfg.show_raw_edges = cfg.show_raw_edges;
+        self.cfg.show_agg_edges = cfg.show_agg_edges;
+        self.cfg.max_visible_nodes = cfg.max_visible_nodes.max(1);
+        self.cfg.progressive_nodes_per_frame = cfg.progressive_nodes_per_frame.max(1);
+        self.cfg.layout_force = cfg.layout_force;
+        self.cfg.link_distance = cfg.link_distance;
+        self.cfg.repulsion = cfg.repulsion;
+        self.cfg.damping = cfg.damping;
+        self.cfg.max_step = cfg.max_step;
+        self.timeline.window = Duration::from_secs(cfg.timeline_window_secs.max(1));
+        self.timeline.scale = cfg.timeline_scale.max(0.01);
+        self.cfg.lod_enabled = cfg.lod_enabled;
+        self.cfg.lod_threshold_nodes = cfg.lod_threshold_nodes.max(1);
+        self.cfg.lod_edges_mode = cfg.lod_edges_mode;
+        self.cfg.glow_duration = Duration::from_millis(cfg.glow_duration_ms.max(1));
+        self.cfg.gc_enabled = cfg.gc_enabled;
+        self.cfg.gc_ttl = Duration::from_secs(cfg.gc_ttl_secs.max(1));
+
+        self.needs_redraw.store(true, Ordering::Relaxed);
+    }
+
+    pub fn viewer_config(&self) -> ViewerConfig {
+        ViewerConfig {
+            view_mode: self.ui.view_mode.into(),
+            show_3d: self.ui.show_3d,
+            show_edges: self.ui.show_edges,
+            show_raw_edges: self.cfg.show_raw_edges,
+            show_agg_edges: self.cfg.show_agg_edges,
+            focus_hops: self.ui.focus_hops,
+            max_visible_nodes: self.cfg.max_visible_nodes,
+            progressive_nodes_per_frame: self.cfg.progressive_nodes_per_frame,
+            layout_force: self.cfg.layout_force,
+            link_distance: self.cfg.link_distance,
+            repulsion: self.cfg.repulsion,
+            damping: self.cfg.damping,
+            max_step: self.cfg.max_step,
+            timeline_window_secs: self.timeline.window.as_secs(),
+            timeline_scale: self.timeline.scale,
+            lod_enabled: self.cfg.lod_enabled,
+            lod_threshold_nodes: self.cfg.lod_threshold_nodes,
+            lod_edges_mode: self.cfg.lod_edges_mode,
+            glow_duration_ms: self.cfg.glow_duration.as_millis() as u64,
+            gc_enabled: self.cfg.gc_enabled,
+            gc_ttl_secs: self.cfg.gc_ttl.as_secs(),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -547,5 +636,28 @@ mod tests {
         assert_eq!(st.ui.search_hits.len(), 2);
         assert_eq!(st.ui.search_hits[0].0, "a-node");
         assert_eq!(st.ui.search_hits[1].0, "b-node");
+    }
+
+    #[test]
+    fn lod_active_when_threshold_reached() {
+        let cfg = CfgState {
+            lod_enabled: true,
+            lod_threshold_nodes: 10,
+            ..Default::default()
+        };
+
+        assert!(cfg.lod_active(10));
+        assert!(cfg.lod_active(11));
+    }
+
+    #[test]
+    fn lod_inactive_when_disabled() {
+        let cfg = CfgState {
+            lod_enabled: false,
+            lod_threshold_nodes: 1,
+            ..Default::default()
+        };
+
+        assert!(!cfg.lod_active(100));
     }
 }
