@@ -98,6 +98,8 @@ pub fn apply_picked_focus(mut st: ResMut<GraphState>, mut ev: EventReader<Picked
     for Picked(id) in ev.read() {
         st.ui.focus = Some(id.clone());
         st.ui.selected = Some(id.clone());
+        st.ui.selected_a = Some(id.clone());
+        st.ui.selected_b = None;
         st.needs_redraw.store(true, Ordering::Relaxed);
     }
 }

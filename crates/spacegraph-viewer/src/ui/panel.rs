@@ -24,23 +24,54 @@ pub fn ui_panel(mut contexts: EguiContexts, mut st: ResMut<GraphState>) {
         if st.ui.view_mode == ViewMode::Timeline {
             ui.add_space(6.0);
             ui.heading("Timeline / Feynman");
-            let mut paused = st.timeline.timeline_pause;
+            let mut paused = st.timeline.pause;
             ui.checkbox(&mut paused, "Pause");
-            if paused != st.timeline.timeline_pause {
+            if paused != st.timeline.pause {
                 st.set_timeline_pause(paused);
             }
 
-            let mut w = st.timeline.timeline_window.as_secs() as i32;
+            let mut w = st.timeline.window.as_secs() as i32;
             ui.add(egui::Slider::new(&mut w, 5..=240).text("window (s)"));
-            st.timeline.timeline_window = std::time::Duration::from_secs(w as u64);
+            st.timeline.window = std::time::Duration::from_secs(w as u64);
 
-            ui.add(egui::Slider::new(&mut st.timeline.timeline_scale, 0.05..=1.5).text("x scale"));
-            ui.label(format!(
-                "events buffered: {}",
-                st.timeline.timeline_events.len()
-            ));
+            ui.add(egui::Slider::new(&mut st.timeline.scale, 0.05..=1.5).text("x scale"));
+            if paused {
+                let window_secs = st.timeline.window.as_secs_f32().max(0.1);
+                ui.add(
+                    egui::Slider::new(&mut st.timeline.scrub_seconds, 0.0..=window_secs)
+                        .text("scrub (s)"),
+                );
+                if ui.button("Reset scrub").clicked() {
+                    st.timeline.scrub_seconds = 0.0;
+                }
+                st.timeline.scrub_seconds = st.timeline.scrub_seconds.clamp(0.0, window_secs);
+            }
+            ui.label(format!("events buffered: {}", st.timeline.events.len()));
             ui.label("Worldlines: drawn for visible-set (capped).");
             ui.label("Hover an event vertex/edge → tooltip.");
+
+            ui.add_space(6.0);
+            ui.heading("Selection");
+            if let Some(id) = st.ui.selected_a.as_ref() {
+                ui.label(format!("A: {}", st.node_label_with_id(id)));
+            } else {
+                ui.label("A: (none)");
+            }
+            if let Some(id) = st.ui.selected_b.as_ref() {
+                ui.label(format!("B: {}", st.node_label_with_id(id)));
+            } else {
+                ui.label("B: (none)");
+            }
+            let jump_enabled = st.ui.selected_a.is_some();
+            if ui
+                .add_enabled(jump_enabled, egui::Button::new("Jump to Spatial"))
+                .clicked()
+            {
+                if let Some(id) = st.ui.selected_a.clone() {
+                    st.ui.view_mode = ViewMode::Spatial;
+                    st.request_jump(id);
+                }
+            }
         }
 
         ui.add_space(8.0);
