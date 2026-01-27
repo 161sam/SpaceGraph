@@ -98,6 +98,24 @@ Details: siehe `ARCH_VIEWER.md`.
 
 ---
 
+## 🧑‍💻 Lokal starten (Dev-Modus)
+
+SpaceGraph besteht im Dev-Modus aus **Agent** (Event-Quelle) und **Viewer**
+(Visualisierung). Starte beide Prozesse in getrennten Terminals:
+
+```bash
+# Terminal 1: Agent (Events + UDS-Server)
+cargo run -p spacegraph-agent
+
+# Terminal 2: Viewer (Bevy UI)
+cargo run -p spacegraph-viewer
+```
+
+Standardmäßig kommunizieren beide über eine Unix-Domain-Socket unter
+`$XDG_RUNTIME_DIR/spacegraph.sock` (falls gesetzt) oder `/tmp/spacegraph.sock`.
+
+---
+
 ## 📁 Repository-Struktur (Viewer)
 
 ```
@@ -116,6 +134,18 @@ util/       # config, helpers
 Modularisierung ist **kein Nice-to-have**, sondern Kernbestandteil der Roadmap.
 
 Hinweis: Der Viewer baut standardmäßig ohne Audio-Subsystem (kein ALSA erforderlich). Optional kann Audio über das Feature `audio` aktiviert werden, was u.a. `libasound2-dev` voraussetzt.
+
+---
+
+## 🧪 Tests & Checks
+
+Vor jedem Commit müssen die Quality-Gates laufen:
+
+```bash
+cargo fmt
+cargo clippy -- -D warnings
+cargo test
+```
 
 ---
 
