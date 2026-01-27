@@ -10,7 +10,8 @@ pub async fn run(
     snapshot_msg: Msg,
     bus_tx: tokio::sync::broadcast::Sender<Msg>,
 ) -> Result<()> {
-    let listener = UnixListener::bind(sock_path).with_context(|| format!("bind UDS {sock_path}"))?;
+    let listener =
+        UnixListener::bind(sock_path).with_context(|| format!("bind UDS {sock_path}"))?;
 
     // Restrict perms: 0600
     #[cfg(unix)]
@@ -34,9 +35,20 @@ pub async fn run(
         }
 
         // Send hello + identity + snapshot
-        framed.send(serde_json::to_vec(&Msg::Hello { version: "0.1.0".into() })?.into()).await?;
-        framed.send(serde_json::to_vec(&identity_msg)?.into()).await?;
-        framed.send(serde_json::to_vec(&snapshot_msg)?.into()).await?;
+        framed
+            .send(
+                serde_json::to_vec(&Msg::Hello {
+                    version: "0.1.0".into(),
+                })?
+                .into(),
+            )
+            .await?;
+        framed
+            .send(serde_json::to_vec(&identity_msg)?.into())
+            .await?;
+        framed
+            .send(serde_json::to_vec(&snapshot_msg)?.into())
+            .await?;
 
         // Stream deltas
         loop {

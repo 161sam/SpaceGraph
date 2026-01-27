@@ -8,9 +8,7 @@ use crate::graph::{GraphState, ViewMode};
 use crate::ui::tooltips::render_tooltip;
 
 #[derive(Component)]
-pub struct NodeMarker {
-    pub id: String,
-}
+pub struct NodeMarker;
 
 // Spatial hover only (timeline has its own hover picking based on events)
 pub fn hover_detection_spatial(
@@ -45,10 +43,8 @@ pub fn hover_detection_spatial(
             continue;
         };
         let d = screen.distance(cursor);
-        if d < 18.0 {
-            if best.as_ref().map(|(bd, _)| d < *bd).unwrap_or(true) {
-                best = Some((d, id.clone()));
-            }
+        if d < 18.0 && best.as_ref().map(|(bd, _)| d < *bd).unwrap_or(true) {
+            best = Some((d, id.clone()));
         }
     }
     st.ui.hovered = best.map(|(_, id)| id);
@@ -88,10 +84,8 @@ pub fn picking_focus(
             continue;
         };
         let d = screen.distance(cursor);
-        if d < 14.0 {
-            if best.as_ref().map(|(bd, _)| d < *bd).unwrap_or(true) {
-                best = Some((d, id.clone()));
-            }
+        if d < 14.0 && best.as_ref().map(|(bd, _)| d < *bd).unwrap_or(true) {
+            best = Some((d, id.clone()));
         }
     }
     if let Some((_, picked)) = best {
@@ -102,7 +96,7 @@ pub fn picking_focus(
 pub fn apply_picked_focus(mut st: ResMut<GraphState>, mut ev: EventReader<Picked>) {
     for Picked(id) in ev.read() {
         st.ui.focus = Some(id.clone());
-        st.ui.selected = Some(id);
+        st.ui.selected = Some(id.clone());
         st.needs_redraw.store(true, Ordering::Relaxed);
     }
 }
@@ -140,9 +134,10 @@ pub fn draw_spatial(
 
         let sphere = meshes.add(Sphere::new(0.28));
         let mat_norm = mats.add(StandardMaterial::default());
-        let mut mat_glow = StandardMaterial::default();
-        mat_glow.emissive = Color::rgb(1.0, 1.0, 1.0);
-        let mat_glow = mats.add(mat_glow);
+        let mat_glow = mats.add(StandardMaterial {
+            emissive: Color::srgb(1.0, 1.0, 1.0).into(),
+            ..default()
+        });
 
         for (id, node) in st.model.nodes.iter() {
             if !vis.contains(id) {
@@ -167,7 +162,7 @@ pub fn draw_spatial(
                     transform: Transform::from_translation(pos),
                     ..default()
                 },
-                NodeMarker { id: id.0.clone() },
+                NodeMarker,
             ));
         }
     }
@@ -184,7 +179,7 @@ pub fn draw_spatial(
                 continue;
             };
             if st.edge_is_glowing(e) {
-                gizmos.line(*a, *b, Color::rgb(1.0, 1.0, 1.0));
+                gizmos.line(*a, *b, Color::srgb(1.0, 1.0, 1.0));
             }
             gizmos.line(*a, *b, Color::WHITE);
         }

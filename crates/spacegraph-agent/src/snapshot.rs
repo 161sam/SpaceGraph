@@ -1,8 +1,6 @@
 use anyhow::{Context, Result};
 use procfs::process::Process;
-use spacegraph_core::{
-    id_file, id_process, id_user, Edge, EdgeKind, FileKind, Node, NodeId,
-};
+use spacegraph_core::{id_file, id_process, id_user, Edge, EdgeKind, FileKind, Node, NodeId};
 use std::collections::{HashMap, HashSet};
 use std::fs;
 
@@ -24,6 +22,8 @@ fn parse_passwd() -> Result<HashMap<u32, String>> {
     Ok(map)
 }
 
+type SnapshotData = (Vec<(NodeId, Node)>, Vec<Edge>);
+
 fn file_kind_from_path(p: &str) -> FileKind {
     // MVP heuristic (real kind via metadata later)
     if p.starts_with("socket:") {
@@ -38,19 +38,19 @@ fn file_kind_from_path(p: &str) -> FileKind {
 }
 
 fn inode_for_path(path: &str) -> u64 {
-    fs::metadata(path).map(|m| m.ino()).unwrap_or(0)
-}
-
-#[cfg(unix)]
-trait MetaExt {
-    fn ino(&self) -> u64;
-}
-#[cfg(unix)]
-impl MetaExt for std::fs::Metadata {
-    fn ino(&self) -> u64 {
-        use std::os::unix::fs::MetadataExt;
-        self.ino()
-    }
+    fs::metadata(path)
+        .map(|m| {
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::MetadataExt;
+                m.ino()
+            }
+            #[cfg(not(unix))]
+            {
+                0
+            }
+        })
+        .unwrap_or(0)
 }
 
 fn fd_mode_from_flags(flags: i64) -> String {
@@ -84,7 +84,7 @@ fn fd_flags(pid: i32, fd: i32) -> Option<i64> {
     None
 }
 
-pub fn build_snapshot(node_id: &str) -> Result<(Vec<(NodeId, Node)>, Vec<Edge>)> {
+pub fn build_snapshot(node_id: &str) -> Result<SnapshotData> {
     let passwd = parse_passwd().unwrap_or_default();
 
     let mut nodes: HashMap<NodeId, Node> = HashMap::new();
@@ -106,15 +106,17 @@ pub fn build_snapshot(node_id: &str) -> Result<(Vec<(NodeId, Node)>, Vec<Edge>)>
         let pid = stat.pid;
         let ppid = stat.ppid;
 
-        let uid = pr.status().ok()
-            .and_then(|st| st.ruid.map(|x| x as u32))
-            .unwrap_or(0);
+        let uid = pr.status().ok().map(|st| st.ruid).unwrap_or(0);
 
-        let exe = pr.exe().ok()
+        let exe = pr
+            .exe()
+            .ok()
             .map(|p| p.to_string_lossy().to_string())
             .unwrap_or_else(|| "<unknown>".into());
 
-        let cmdline = pr.cmdline().ok()
+        let cmdline = pr
+            .cmdline()
+            .ok()
             .map(|v| v.join(" "))
             .unwrap_or_else(|| stat.comm.clone());
 
@@ -122,14 +124,29 @@ pub fn build_snapshot(node_id: &str) -> Result<(Vec<(NodeId, Node)>, Vec<Edge>)>
 
         nodes.insert(
             proc_id.clone(),
-            Node::Process { pid, ppid, exe: exe.clone(), cmdline, uid },
+            Node::Process {
+                pid,
+                ppid,
+                exe: exe.clone(),
+                cmdline,
+                uid,
+            },
         );
 
         // user node + edge
-        let uname = passwd.get(&uid).cloned().unwrap_or_else(|| format!("uid{uid}"));
+        let uname = passwd
+            .get(&uid)
+            .cloned()
+            .unwrap_or_else(|| format!("uid{uid}"));
         let user_id = id_user(node_id, uid);
-        nodes.entry(user_id.clone()).or_insert(Node::User { uid, name: uname });
-        edges.insert(Edge { from: proc_id.clone(), to: user_id, kind: EdgeKind::RunsAs });
+        nodes
+            .entry(user_id.clone())
+            .or_insert(Node::User { uid, name: uname });
+        edges.insert(Edge {
+            from: proc_id.clone(),
+            to: user_id,
+            kind: EdgeKind::RunsAs,
+        });
 
         // exe as file node + edge
         let exe_file_id = id_file(node_id, &exe);
@@ -138,7 +155,11 @@ pub fn build_snapshot(node_id: &str) -> Result<(Vec<(NodeId, Node)>, Vec<Edge>)>
             inode: inode_for_path(&exe),
             kind: file_kind_from_path(&exe),
         });
-        edges.insert(Edge { from: proc_id.clone(), to: exe_file_id, kind: EdgeKind::Execs });
+        edges.insert(Edge {
+            from: proc_id.clone(),
+            to: exe_file_id,
+            kind: EdgeKind::Execs,
+        });
 
         // fd edges
         add_fd_edges(node_id, &pr, &proc_id, &mut nodes, &mut edges);
@@ -180,7 +201,9 @@ fn add_fd_edges(
             kind: file_kind_from_path(&target),
         });
 
-        let mode = fd_flags(pid, fd).map(fd_mode_from_flags).unwrap_or_else(|| "?".into());
+        let mode = fd_flags(pid, fd)
+            .map(fd_mode_from_flags)
+            .unwrap_or_else(|| "?".into());
         edges.insert(Edge {
             from: proc_id.clone(),
             to: f_id,

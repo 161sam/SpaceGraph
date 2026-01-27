@@ -17,10 +17,15 @@ fn runtime_sock_path() -> String {
 }
 
 fn default_node_id() -> String {
-    std::env::var("SPACEGRAPH_NODE_ID").ok().filter(|s| !s.trim().is_empty())
-        .unwrap_or_else(|| hostname::get().ok()
-            .and_then(|h| h.into_string().ok())
-            .unwrap_or_else(|| "node".to_string()))
+    std::env::var("SPACEGRAPH_NODE_ID")
+        .ok()
+        .filter(|s| !s.trim().is_empty())
+        .unwrap_or_else(|| {
+            hostname::get()
+                .ok()
+                .and_then(|h| h.into_string().ok())
+                .unwrap_or_else(|| "node".to_string())
+        })
 }
 
 #[tokio::main]
@@ -33,12 +38,18 @@ async fn main() -> Result<()> {
 
     // Build initial snapshot
     let (snap_nodes, snap_edges) = snapshot::build_snapshot(&node_id)?;
-    let snapshot_msg = Msg::Snapshot { nodes: snap_nodes, edges: snap_edges };
+    let snapshot_msg = Msg::Snapshot {
+        nodes: snap_nodes,
+        edges: snap_edges,
+    };
 
     // Identity + capabilities (MVP)
     let ident = NodeIdentity {
         node_id: node_id.clone(),
-        hostname: hostname::get().unwrap_or_default().to_string_lossy().to_string(),
+        hostname: hostname::get()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .to_string(),
         platform: std::env::consts::OS.to_string(),
         arch: std::env::consts::ARCH.to_string(),
     };

@@ -91,7 +91,7 @@ mod tests {
             Node::File {
                 path: "/tmp/test".to_string(),
                 inode: 1,
-                kind: FileKind::File,
+                kind: FileKind::Regular,
             },
         );
         let now = Instant::now();

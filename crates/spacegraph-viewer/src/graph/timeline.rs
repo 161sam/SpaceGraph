@@ -1,5 +1,5 @@
 use spacegraph_core::{EdgeKind, NodeId};
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 use crate::graph::model::node_kind_lane;
 use crate::graph::state::GraphState;
@@ -15,6 +15,7 @@ pub struct TimelineEvt {
 }
 
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub enum TimelineEvtKind {
     NodeUpsert,
     NodeRemove,
@@ -96,6 +97,7 @@ impl GraphState {
 mod tests {
     use super::*;
     use crate::graph::state::GraphState;
+    use std::time::Duration;
 
     #[test]
     fn timeline_trims_old_events() {

@@ -52,7 +52,7 @@ pub fn spawn(node_id: &str, tx: mpsc::Sender<Msg>) -> Result<()> {
     let (raw_tx, mut raw_rx) = tokio::sync::mpsc::channel::<(String, Action)>(8192);
 
     let mut watcher: RecommendedWatcher = Watcher::new(
-        move |res| {
+        move |res: std::result::Result<notify::Event, notify::Error>| {
             if let Ok(event) = res {
                 let action = match classify(&event.kind) {
                     Some(a) => a,

@@ -8,6 +8,8 @@ use std::fs;
 use std::time::Duration;
 use tokio::sync::mpsc;
 
+type ProcDetail = (Vec<(NodeId, Node)>, Vec<Edge>);
+
 fn list_pids() -> HashSet<i32> {
     let mut set = HashSet::new();
     if let Ok(rd) = std::fs::read_dir("/proc") {
@@ -130,7 +132,9 @@ fn add_fd_edges(
             ));
         }
 
-        let mode = fd_flags(pid, fd).map(fd_mode_from_flags).unwrap_or_else(|| "?".into());
+        let mode = fd_flags(pid, fd)
+            .map(fd_mode_from_flags)
+            .unwrap_or_else(|| "?".into());
         edges.push(Edge {
             from: proc_id.clone(),
             to: f_id,
@@ -143,17 +147,13 @@ fn collect_process_detail(
     node_id: &str,
     passwd: &HashMap<u32, String>,
     pid: i32,
-) -> Option<(Vec<(NodeId, Node)>, Vec<Edge>)> {
+) -> Option<ProcDetail> {
     let pr = Process::new(pid).ok()?;
     let stat = pr.stat().ok()?;
 
     let ppid = stat.ppid;
 
-    let uid = pr
-        .status()
-        .ok()
-        .and_then(|st| st.ruid.map(|x| x as u32))
-        .unwrap_or(0);
+    let uid = pr.status().ok().map(|st| st.ruid).unwrap_or(0);
 
     let exe = pr
         .exe()
@@ -220,7 +220,14 @@ fn collect_process_detail(
     });
 
     // fd edges
-    add_fd_edges(node_id, pid, &proc_id, &mut nodes, &mut edges, &mut seen_nodes);
+    add_fd_edges(
+        node_id,
+        pid,
+        &proc_id,
+        &mut nodes,
+        &mut edges,
+        &mut seen_nodes,
+    );
 
     Some((nodes, edges))
 }

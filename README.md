@@ -115,6 +115,8 @@ util/       # config, helpers
 
 Modularisierung ist **kein Nice-to-have**, sondern Kernbestandteil der Roadmap.
 
+Hinweis: Der Viewer baut standardmäßig ohne Audio-Subsystem (kein ALSA erforderlich). Optional kann Audio über das Feature `audio` aktiviert werden, was u.a. `libasound2-dev` voraussetzt.
+
 ---
 
 ## 🗺️ Roadmap (kurz)
