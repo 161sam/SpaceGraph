@@ -1,4 +1,4 @@
-use crate::state::{Incoming};
+use crate::net::Incoming;
 use anyhow::{Context, Result};
 use crossbeam_channel::Sender;
 use futures_util::{SinkExt, StreamExt};
@@ -25,7 +25,9 @@ async fn run(sock_path: String, tx: Sender<Incoming>) -> Result<()> {
     let mut framed = Framed::new(stream, LengthDelimitedCodec::new());
 
     // Send hello (agent tolerates anything)
-    let hello = Msg::Hello { version: "0.1.0".into() };
+    let hello = Msg::Hello {
+        version: "0.1.0".into(),
+    };
     framed.send(serde_json::to_vec(&hello)?.into()).await?;
 
     while let Some(frame) = framed.next().await {
