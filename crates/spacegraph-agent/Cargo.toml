@@ -1,0 +1,13 @@
+[package]
+name = "spacegraph-agent"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+spacegraph-core = { path = "../spacegraph-core" }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "io-util", "time", "sync"] }
+tokio-util = { version = "0.7", features = ["codec"] }
+serde_json = "1"
+procfs = "0.16"
+notify = "6"
+anyhow = "1"
