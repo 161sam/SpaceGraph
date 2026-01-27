@@ -6,7 +6,7 @@ use std::time::{Duration, Instant};
 
 use crate::graph::explain::{self, PathStep};
 use crate::graph::model::GraphModel;
-use crate::graph::timeline::{TimelineEvt, TimelineEvtKind};
+use crate::graph::timeline::{BatchSpan, NodeLife, TimelineEvt, TimelineEvtKind};
 use crate::net::Incoming;
 use crate::util::ids::{node_label_long, node_label_short};
 
@@ -29,12 +29,15 @@ pub struct SpatialState {
 
 #[derive(Default)]
 pub struct TimelineState {
-    pub timeline_window: Duration,
-    pub timeline_scale: f32,
-    pub timeline_pause: bool,
-    pub timeline_frozen_now: Option<Instant>,
-    pub timeline_events: VecDeque<TimelineEvt>,
-    pub timeline_max_events: usize,
+    pub window: Duration,
+    pub scale: f32,
+    pub pause: bool,
+    pub frozen_now: Option<Instant>,
+    pub scrub_seconds: f32,
+    pub events: VecDeque<TimelineEvt>,
+    pub max_events: usize,
+    pub node_life: HashMap<NodeId, NodeLife>,
+    pub batch_spans: VecDeque<BatchSpan>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -55,6 +58,8 @@ pub struct UiState {
 
     pub hovered: Option<NodeId>,
     pub selected: Option<NodeId>,
+    pub selected_a: Option<NodeId>,
+    pub selected_b: Option<NodeId>,
 
     pub search_open: bool,
     pub search_query: String,
@@ -157,12 +162,15 @@ impl Default for GraphState {
                 dirty_layout: true,
             },
             timeline: TimelineState {
-                timeline_window: Duration::from_secs(60),
-                timeline_scale: 0.35,
-                timeline_pause: false,
-                timeline_frozen_now: None,
-                timeline_events: VecDeque::new(),
-                timeline_max_events: 20_000,
+                window: Duration::from_secs(60),
+                scale: 0.35,
+                pause: false,
+                frozen_now: None,
+                scrub_seconds: 0.0,
+                events: VecDeque::new(),
+                max_events: 20_000,
+                node_life: HashMap::new(),
+                batch_spans: VecDeque::new(),
             },
             ui: UiState {
                 filter: String::new(),
@@ -172,6 +180,8 @@ impl Default for GraphState {
                 focus_hops: 2,
                 hovered: None,
                 selected: None,
+                selected_a: None,
+                selected_b: None,
                 search_open: false,
                 search_query: String::new(),
                 search_hits: Vec::new(),
@@ -221,6 +231,8 @@ impl GraphState {
         self.ui.focus = None;
         self.ui.hovered = None;
         self.ui.selected = None;
+        self.ui.selected_a = None;
+        self.ui.selected_b = None;
 
         self.ui.search_open = false;
         self.ui.search_query.clear();
@@ -232,9 +244,12 @@ impl GraphState {
         self.perf.ev_window.clear();
         self.perf.event_total = 0;
 
-        self.timeline.timeline_events.clear();
-        self.timeline.timeline_pause = false;
-        self.timeline.timeline_frozen_now = None;
+        self.timeline.events.clear();
+        self.timeline.pause = false;
+        self.timeline.frozen_now = None;
+        self.timeline.scrub_seconds = 0.0;
+        self.timeline.node_life.clear();
+        self.timeline.batch_spans.clear();
 
         self.spatial.active_vis_cache.clear();
         self.spatial.progressive_cursor = 0;
@@ -251,6 +266,9 @@ impl GraphState {
             Incoming::Snapshot(Msg::Snapshot { nodes, edges }) => {
                 let now = Instant::now();
                 self.model.load_snapshot(nodes, edges, now);
+                for id in self.model.nodes.keys() {
+                    self.timeline.record_node_upsert(id, now);
+                }
                 self.mark_dirty_all();
             }
             Incoming::Event(Msg::Event { delta }) => self.apply_delta(delta),
@@ -259,17 +277,18 @@ impl GraphState {
     }
 
     fn apply_delta(&mut self, d: Delta) {
+        let ts = Instant::now();
         match d {
             Delta::BatchBegin { id } => {
                 self.spatial.in_batch = true;
                 self.spatial.last_batch_id = Some(id);
                 self.spatial.touched_nodes.clear();
                 self.spatial.touched_edges.clear();
-                self.push_timeline(TimelineEvtKind::BatchBegin(id), None, None, None);
+                self.push_timeline_at(ts, TimelineEvtKind::BatchBegin(id), None, None, None);
             }
             Delta::BatchEnd { id } => {
                 self.spatial.in_batch = false;
-                let until = Instant::now() + self.cfg.glow_duration;
+                let until = ts + self.cfg.glow_duration;
 
                 for idn in self.spatial.touched_nodes.drain() {
                     self.spatial.glow_nodes.insert(idn, until);
@@ -277,21 +296,27 @@ impl GraphState {
                 for e in self.spatial.touched_edges.drain() {
                     self.spatial.glow_edges.insert(e, until);
                 }
-                self.push_timeline(TimelineEvtKind::BatchEnd(id), None, None, None);
+                self.push_timeline_at(ts, TimelineEvtKind::BatchEnd(id), None, None, None);
                 self.needs_redraw.store(true, Ordering::Relaxed);
             }
             Delta::UpsertNode { id, node } => {
-                self.model.upsert_node(id.clone(), node, Instant::now());
+                self.model.upsert_node(id.clone(), node, ts);
                 self.spatial.dirty_layout = true;
 
-                self.push_timeline(TimelineEvtKind::NodeUpsert, Some(id.clone()), None, None);
+                self.push_timeline_at(
+                    ts,
+                    TimelineEvtKind::NodeUpsert,
+                    Some(id.clone()),
+                    None,
+                    None,
+                );
 
                 if self.spatial.in_batch {
                     self.spatial.touched_nodes.insert(id);
                 } else {
                     self.spatial
                         .glow_nodes
-                        .insert(id, Instant::now() + self.cfg.glow_duration);
+                        .insert(id, ts + self.cfg.glow_duration);
                 }
                 self.needs_redraw.store(true, Ordering::Relaxed);
             }
@@ -311,11 +336,23 @@ impl GraphState {
                 if self.ui.selected.as_ref() == Some(&id) {
                     self.ui.selected = None;
                 }
+                if self.ui.selected_a.as_ref() == Some(&id) {
+                    self.ui.selected_a = None;
+                }
+                if self.ui.selected_b.as_ref() == Some(&id) {
+                    self.ui.selected_b = None;
+                }
                 if self.ui.hovered.as_ref() == Some(&id) {
                     self.ui.hovered = None;
                 }
 
-                self.push_timeline(TimelineEvtKind::NodeRemove, Some(id.clone()), None, None);
+                self.push_timeline_at(
+                    ts,
+                    TimelineEvtKind::NodeRemove,
+                    Some(id.clone()),
+                    None,
+                    None,
+                );
 
                 self.spatial.dirty_layout = true;
                 if self.spatial.in_batch {
@@ -324,12 +361,13 @@ impl GraphState {
                 self.needs_redraw.store(true, Ordering::Relaxed);
             }
             Delta::UpsertEdge { edge } => {
-                self.model.upsert_edge(edge.clone(), Instant::now());
-                self.touch_node(&edge.from);
-                self.touch_node(&edge.to);
+                self.model.upsert_edge(edge.clone(), ts);
+                self.touch_node_at(&edge.from, ts);
+                self.touch_node_at(&edge.to, ts);
                 self.spatial.dirty_layout = true;
 
-                self.push_timeline(
+                self.push_timeline_at(
+                    ts,
                     TimelineEvtKind::EdgeUpsert,
                     Some(edge.from.clone()),
                     Some(edge.to.clone()),
@@ -343,7 +381,7 @@ impl GraphState {
                 } else {
                     self.spatial
                         .glow_edges
-                        .insert(edge.clone(), Instant::now() + self.cfg.glow_duration);
+                        .insert(edge.clone(), ts + self.cfg.glow_duration);
                 }
                 self.needs_redraw.store(true, Ordering::Relaxed);
             }
@@ -351,7 +389,8 @@ impl GraphState {
                 self.model.remove_edge(&edge);
                 self.spatial.glow_edges.remove(&edge);
 
-                self.push_timeline(
+                self.push_timeline_at(
+                    ts,
                     TimelineEvtKind::EdgeRemove,
                     Some(edge.from.clone()),
                     Some(edge.to.clone()),
@@ -363,8 +402,8 @@ impl GraphState {
         }
     }
 
-    fn touch_node(&mut self, id: &NodeId) {
-        self.model.last_seen.insert(id.clone(), Instant::now());
+    fn touch_node_at(&mut self, id: &NodeId, ts: Instant) {
+        self.model.last_seen.insert(id.clone(), ts);
     }
 
     pub fn node_tooltip_lines(&self, id: &NodeId) -> Vec<String> {

@@ -21,10 +21,11 @@ pub fn draw_scene(
     gizmos: Gizmos,
     contexts: EguiContexts,
     windows: Query<&Window>,
+    buttons: Res<ButtonInput<MouseButton>>,
     cam_q: Query<(&Camera, &GlobalTransform)>,
 ) {
     match st.ui.view_mode {
         ViewMode::Spatial => draw_spatial(commands, st, meshes, mats, query, gizmos, contexts),
-        ViewMode::Timeline => draw_timeline(st, gizmos, contexts, windows, cam_q),
+        ViewMode::Timeline => draw_timeline(st, gizmos, contexts, windows, buttons, cam_q),
     }
 }
