@@ -16,7 +16,13 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ ubuntu-latest, windows-latest ]
+        include:
+          - os: ubuntu-latest
+            artifact: linux
+            bin_suffix: ""
+          - os: windows-latest
+            artifact: windows
+            bin_suffix: ".exe"
 
     steps:
       - uses: actions/checkout@v4
@@ -48,20 +54,10 @@ jobs:
         run: cargo build --release --workspace
 
       # Adjust these paths if your binary names differ.
-      - name: Upload artifacts (Linux)
-        if: runner.os == 'Linux'
+      - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: spacegraph-${{ github.ref_name }}-linux
+          name: spacegraph-${{ github.ref_name }}-${{ matrix.artifact }}
           path: |
-            target/release/spacegraph-viewer
-            target/release/spacegraph-agent
-
-      - name: Upload artifacts (Windows)
-        if: runner.os == 'Windows'
-        uses: actions/upload-artifact@v4
-        with:
-          name: spacegraph-${{ github.ref_name }}-windows
-          path: |
-            target/release/spacegraph-viewer.exe
-            target/release/spacegraph-agent.exe
+            target/release/spacegraph-viewer${{ matrix.bin_suffix }}
+            target/release/spacegraph-agent${{ matrix.bin_suffix }}
