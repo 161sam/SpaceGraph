@@ -8,7 +8,11 @@ pub fn ui_panel(mut contexts: EguiContexts, mut st: ResMut<GraphState>) {
     egui::SidePanel::left("left").show(contexts.ctx_mut(), |ui| {
         ui.heading("SpaceGraph");
         ui.label(format!("nodes: {}", st.model.nodes.len()));
-        ui.label(format!("edges: {}", st.model.edges.len()));
+        ui.label(format!(
+            "edges: raw {} / agg {}",
+            st.model.edges.len(),
+            st.model.agg_edge_count()
+        ));
         ui.separator();
 
         ui.horizontal(|ui| {
@@ -43,6 +47,10 @@ pub fn ui_panel(mut contexts: EguiContexts, mut st: ResMut<GraphState>) {
         ui.horizontal(|ui| {
             ui.checkbox(&mut st.ui.show_3d, "3D");
             ui.checkbox(&mut st.ui.show_edges, "Edges");
+        });
+        ui.horizontal(|ui| {
+            ui.checkbox(&mut st.cfg.show_agg_edges, "Agg edges");
+            ui.checkbox(&mut st.cfg.show_raw_edges, "Raw edges");
         });
 
         ui.add_space(8.0);

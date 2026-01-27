@@ -7,14 +7,8 @@ use crate::graph::state::{GraphState, ViewMode};
 
 pub fn update_layout_or_timeline(time: Res<Time>, mut st: ResMut<GraphState>) {
     let vis: HashSet<_> = st.visible_set_capped();
-
-    let mut ecount = 0usize;
-    for e in st.model.edges.iter() {
-        if st.edge_visible(e, &vis) {
-            ecount += 1;
-        }
-    }
-    st.set_visible_counts(vis.len(), ecount);
+    let (raw_count, agg_count) = st.visible_edge_counts(&vis);
+    st.set_visible_counts(vis.len(), raw_count, agg_count);
 
     if st.ui.view_mode == ViewMode::Spatial {
         st.progressive_prepare(&vis);
@@ -28,6 +22,7 @@ impl GraphState {
         self.spatial.dirty_layout = true;
         self.spatial.active_vis_cache.clear();
         self.spatial.progressive_cursor = 0;
+        self.explain_cache = None;
         self.needs_redraw.store(true, Ordering::Relaxed);
     }
 
@@ -69,7 +64,7 @@ impl GraphState {
                 if d >= hops {
                     continue;
                 }
-                for nb in self.neighbors(&cur) {
+                for nb in self.model.neighbors(&cur) {
                     if !vis.contains(&nb) {
                         vis.insert(nb.clone());
                         q.push_back((nb, d + 1));
@@ -96,25 +91,36 @@ impl GraphState {
         }
     }
 
-    fn neighbors(&self, id: &NodeId) -> Vec<NodeId> {
-        let mut out = Vec::new();
-        for e in self.model.edges.iter() {
-            if &e.from == id {
-                out.push(e.to.clone());
-            } else if &e.to == id {
-                out.push(e.from.clone());
-            }
-        }
-        out
-    }
-
     pub fn edge_visible(&self, e: &Edge, vis: &HashSet<NodeId>) -> bool {
         vis.contains(&e.from) && vis.contains(&e.to)
     }
 
-    pub fn set_visible_counts(&mut self, vis_nodes: usize, vis_edges: usize) {
+    pub fn set_visible_counts(&mut self, vis_nodes: usize, raw_edges: usize, agg_edges: usize) {
         self.perf.visible_nodes = vis_nodes;
-        self.perf.visible_edges = vis_edges;
+        self.perf.visible_raw_edges = raw_edges;
+        self.perf.visible_agg_edges = agg_edges;
+        self.perf.visible_edges = raw_edges + agg_edges;
+    }
+
+    pub fn visible_edge_counts(&self, vis: &HashSet<NodeId>) -> (usize, usize) {
+        let mut raw_count = 0usize;
+        for id in vis.iter() {
+            for edge in self.model.edges_for_node(id) {
+                if &edge.from != id {
+                    continue;
+                }
+                if self.edge_visible(edge, vis) {
+                    raw_count += 1;
+                }
+            }
+        }
+
+        let agg_count = self
+            .model
+            .agg_edges()
+            .filter(|edge| vis.contains(&edge.key.from) && vis.contains(&edge.key.to))
+            .count();
+        (raw_count, agg_count)
     }
 
     // ----- Progressive init / Force layout (spatial) -----
@@ -238,30 +244,39 @@ impl GraphState {
             }
         }
 
-        for e in self.model.edges.iter() {
-            if !self.edge_visible(e, vis) {
-                continue;
-            }
-            if !(self.spatial.positions.contains_key(&e.from)
-                && self.spatial.positions.contains_key(&e.to))
-            {
-                continue;
-            }
-            let pa = *self.spatial.positions.get(&e.from).unwrap();
-            let pb = *self.spatial.positions.get(&e.to).unwrap();
+        for id in vis.iter() {
+            for edge in self.model.edges_for_node(id) {
+                if &edge.from != id {
+                    continue;
+                }
+                if !self.edge_visible(edge, vis) {
+                    continue;
+                }
+                if !(self.spatial.positions.contains_key(&edge.from)
+                    && self.spatial.positions.contains_key(&edge.to))
+                {
+                    continue;
+                }
+                let pa = *self
+                    .spatial
+                    .positions
+                    .get(&edge.from)
+                    .unwrap_or(&Vec3::ZERO);
+                let pb = *self.spatial.positions.get(&edge.to).unwrap_or(&Vec3::ZERO);
 
-            let mut d = pb - pa;
-            if !self.ui.show_3d {
-                d.y = 0.0;
-            }
-            let len = d.length().max(0.001);
-            let dir = d / len;
-            let k = 0.6;
-            let stretch = len - link_dist;
-            let f = k * stretch * dir;
+                let mut d = pb - pa;
+                if !self.ui.show_3d {
+                    d.y = 0.0;
+                }
+                let len = d.length().max(0.001);
+                let dir = d / len;
+                let k = 0.6;
+                let stretch = len - link_dist;
+                let f = k * stretch * dir;
 
-            *forces.get_mut(&e.from).unwrap() += f;
-            *forces.get_mut(&e.to).unwrap() -= f;
+                *forces.get_mut(&edge.from).unwrap() += f;
+                *forces.get_mut(&edge.to).unwrap() -= f;
+            }
         }
 
         for id in ids.iter() {

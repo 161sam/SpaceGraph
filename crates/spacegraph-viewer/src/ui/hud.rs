@@ -13,6 +13,10 @@ pub fn hud_overlay(mut contexts: EguiContexts, st: Res<GraphState>) {
                     "Visible: {} nodes / {} edges",
                     st.perf.visible_nodes, st.perf.visible_edges
                 ));
+                ui.label(format!(
+                    "Edges (raw/agg): {} / {}",
+                    st.perf.visible_raw_edges, st.perf.visible_agg_edges
+                ));
                 ui.label(format!("Event rate: {:.1}/s", st.perf.event_rate));
                 ui.label(format!("Total msgs: {}", st.perf.event_total));
                 if let Some(id) = st.spatial.last_batch_id {

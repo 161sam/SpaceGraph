@@ -4,10 +4,11 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
-use crate::graph::model::{edge_explain, edge_kind_name, GraphModel};
+use crate::graph::explain::{self, PathStep};
+use crate::graph::model::GraphModel;
 use crate::graph::timeline::{TimelineEvt, TimelineEvtKind};
 use crate::net::Incoming;
-use crate::util::ids::normalize_display_path;
+use crate::util::ids::{node_label_long, node_label_short};
 
 #[derive(Default)]
 pub struct SpatialState {
@@ -63,11 +64,22 @@ pub struct UiState {
     pub view_mode: ViewMode,
 }
 
+#[derive(Clone)]
+pub struct ExplainCache {
+    pub a: NodeId,
+    pub b: NodeId,
+    pub focus: Option<NodeId>,
+    pub ts: Instant,
+    pub result: Option<Vec<PathStep>>,
+}
+
 pub struct PerfState {
     pub fps: f32,
     pub event_rate: f32,
     pub visible_nodes: usize,
     pub visible_edges: usize,
+    pub visible_raw_edges: usize,
+    pub visible_agg_edges: usize,
     pub event_total: u64,
     pub ev_window: VecDeque<Instant>,
     pub gc_last_run: Instant,
@@ -80,6 +92,8 @@ impl Default for PerfState {
             event_rate: 0.0,
             visible_nodes: 0,
             visible_edges: 0,
+            visible_raw_edges: 0,
+            visible_agg_edges: 0,
             event_total: 0,
             ev_window: VecDeque::new(),
             gc_last_run: Instant::now(),
@@ -106,6 +120,10 @@ pub struct CfgState {
     pub gc_enabled: bool,
     pub gc_ttl: Duration,
     pub gc_interval: Duration,
+
+    pub show_raw_edges: bool,
+    pub show_agg_edges: bool,
+    pub explain_max_depth: usize,
 }
 
 #[derive(Resource)]
@@ -116,6 +134,7 @@ pub struct GraphState {
     pub ui: UiState,
     pub perf: PerfState,
     pub cfg: CfgState,
+    pub explain_cache: Option<ExplainCache>,
 
     pub needs_redraw: AtomicBool,
 }
@@ -164,6 +183,8 @@ impl Default for GraphState {
                 event_rate: 0.0,
                 visible_nodes: 0,
                 visible_edges: 0,
+                visible_raw_edges: 0,
+                visible_agg_edges: 0,
                 event_total: 0,
                 ev_window: VecDeque::new(),
                 gc_last_run: Instant::now(),
@@ -182,17 +203,19 @@ impl Default for GraphState {
                 gc_enabled: true,
                 gc_ttl: Duration::from_secs(30),
                 gc_interval: Duration::from_secs(1),
+                show_raw_edges: false,
+                show_agg_edges: true,
+                explain_max_depth: 4,
             },
             needs_redraw: AtomicBool::new(true),
+            explain_cache: None,
         }
     }
 }
 
 impl GraphState {
     pub fn clear(&mut self) {
-        self.model.nodes.clear();
-        self.model.edges.clear();
-        self.model.last_seen.clear();
+        self.model.clear();
         self.spatial.positions.clear();
         self.spatial.velocities.clear();
         self.ui.focus = None;
@@ -216,6 +239,7 @@ impl GraphState {
         self.spatial.active_vis_cache.clear();
         self.spatial.progressive_cursor = 0;
         self.spatial.dirty_layout = true;
+        self.explain_cache = None;
 
         self.needs_redraw.store(true, Ordering::Relaxed);
     }
@@ -225,12 +249,8 @@ impl GraphState {
         self.on_message();
         match inc {
             Incoming::Snapshot(Msg::Snapshot { nodes, edges }) => {
-                self.model.nodes = nodes.into_iter().collect();
-                self.model.edges = edges.into_iter().collect();
                 let now = Instant::now();
-                for id in self.model.nodes.keys() {
-                    self.model.last_seen.insert(id.clone(), now);
-                }
+                self.model.load_snapshot(nodes, edges, now);
                 self.mark_dirty_all();
             }
             Incoming::Event(Msg::Event { delta }) => self.apply_delta(delta),
@@ -261,8 +281,7 @@ impl GraphState {
                 self.needs_redraw.store(true, Ordering::Relaxed);
             }
             Delta::UpsertNode { id, node } => {
-                self.model.nodes.insert(id.clone(), node);
-                self.touch_node(&id);
+                self.model.upsert_node(id.clone(), node, Instant::now());
                 self.spatial.dirty_layout = true;
 
                 self.push_timeline(TimelineEvtKind::NodeUpsert, Some(id.clone()), None, None);
@@ -277,12 +296,14 @@ impl GraphState {
                 self.needs_redraw.store(true, Ordering::Relaxed);
             }
             Delta::RemoveNode { id } => {
-                self.model.nodes.remove(&id);
-                self.model.edges.retain(|e| e.from != id && e.to != id);
+                let removed_edges = self.model.remove_node(&id);
                 self.spatial.positions.remove(&id);
                 self.spatial.velocities.remove(&id);
                 self.spatial.glow_nodes.remove(&id);
-                self.model.last_seen.remove(&id);
+                for edge in removed_edges {
+                    self.spatial.glow_edges.remove(&edge);
+                    self.spatial.touched_edges.remove(&edge);
+                }
 
                 if self.ui.focus.as_ref() == Some(&id) {
                     self.ui.focus = None;
@@ -303,7 +324,7 @@ impl GraphState {
                 self.needs_redraw.store(true, Ordering::Relaxed);
             }
             Delta::UpsertEdge { edge } => {
-                self.model.edges.insert(edge.clone());
+                self.model.upsert_edge(edge.clone(), Instant::now());
                 self.touch_node(&edge.from);
                 self.touch_node(&edge.to);
                 self.spatial.dirty_layout = true;
@@ -327,7 +348,7 @@ impl GraphState {
                 self.needs_redraw.store(true, Ordering::Relaxed);
             }
             Delta::RemoveEdge { edge } => {
-                self.model.edges.remove(&edge);
+                self.model.remove_edge(&edge);
                 self.spatial.glow_edges.remove(&edge);
 
                 self.push_timeline(
@@ -351,51 +372,9 @@ impl GraphState {
             return vec![id.0.clone()];
         };
         let mut out = Vec::new();
-        out.push(format!("id: {}", id.0));
-        match n {
-            Node::File { path, inode, kind } => {
-                out.push("kind: file".into());
-                out.push(format!("path: {}", normalize_display_path(path)));
-                out.push(format!("inode: {}", inode));
-                out.push(format!("filekind: {:?}", kind));
-            }
-            Node::Process {
-                pid,
-                ppid,
-                exe,
-                cmdline,
-                uid,
-            } => {
-                out.push("kind: process".into());
-                out.push(format!("pid: {pid} ppid: {ppid} uid: {uid}"));
-                out.push(format!("exe: {}", normalize_display_path(exe)));
-                out.push(format!("cmd: {}", cmdline));
-            }
-            Node::User { uid, name } => {
-                out.push("kind: user".into());
-                out.push(format!("uid: {uid} name: {name}"));
-            }
-        }
+        out.push(format!("{} ({})", node_label_short(n), id.0));
+        out.extend(node_label_long(n));
         out
-    }
-
-    pub fn edges_for_node(&self, id: &NodeId) -> Vec<Edge> {
-        self.model
-            .edges
-            .iter()
-            .filter(|e| &e.from == id || &e.to == id)
-            .cloned()
-            .collect()
-    }
-
-    pub fn explain_edge(&self, e: &Edge) -> String {
-        format!(
-            "{} -> {} : {} ({})",
-            e.from.0,
-            e.to.0,
-            edge_kind_name(&e.kind),
-            edge_explain(&e.kind)
-        )
     }
 
     // ---- Search helpers ----
@@ -439,6 +418,50 @@ impl GraphState {
     }
     pub fn edge_is_glowing(&self, e: &Edge) -> bool {
         self.spatial.glow_edges.contains_key(e)
+    }
+
+    pub fn explain_path_cached(
+        &mut self,
+        a: &NodeId,
+        b: &NodeId,
+        allowed: &HashSet<NodeId>,
+    ) -> Option<Vec<PathStep>> {
+        let now = Instant::now();
+        let focus = self.ui.focus.clone();
+        let ttl = Duration::from_millis(200);
+        if let Some(cache) = &self.explain_cache {
+            if cache.a == *a
+                && cache.b == *b
+                && cache.focus == focus
+                && now.duration_since(cache.ts) <= ttl
+            {
+                return cache.result.clone();
+            }
+        }
+
+        let result = explain::shortest_path(
+            &self.model,
+            a.clone(),
+            b.clone(),
+            self.cfg.explain_max_depth.max(1),
+            allowed,
+        );
+        self.explain_cache = Some(ExplainCache {
+            a: a.clone(),
+            b: b.clone(),
+            focus,
+            ts: now,
+            result: result.clone(),
+        });
+        result
+    }
+
+    pub fn node_label_with_id(&self, id: &NodeId) -> String {
+        self.model
+            .nodes
+            .get(id)
+            .map(|n| format!("{} ({})", node_label_short(n), id.0))
+            .unwrap_or_else(|| id.0.clone())
     }
 }
 

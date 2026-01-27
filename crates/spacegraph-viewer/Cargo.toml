@@ -14,6 +14,7 @@ tokio-util = { version = "0.7", features = ["codec"] }
 futures-util = "0.3"
 
 crossbeam-channel = "0.5"
+smallvec = "1"
 
 bevy = { version = "0.14", default-features = false, features = [
     "bevy_asset",

@@ -4,6 +4,7 @@ use std::collections::HashSet;
 use std::sync::atomic::Ordering;
 
 use crate::app::events::Picked;
+use crate::graph::model::edge_class_name;
 use crate::graph::{GraphState, ViewMode};
 use crate::ui::tooltips::render_tooltip;
 
@@ -113,16 +114,37 @@ pub fn draw_spatial(
     let vis: HashSet<_> = st.visible_set_capped();
 
     // Tooltip
-    if let Some(hid) = &st.ui.hovered {
+    let hovered = st.ui.hovered.clone();
+    let selected = st.ui.selected.clone();
+    if let Some(hid) = hovered.as_ref() {
         let pos = contexts
             .ctx_mut()
             .input(|i| i.pointer.hover_pos().unwrap_or(egui::pos2(0.0, 0.0)))
             + egui::vec2(14.0, 14.0);
 
         let mut lines = st.node_tooltip_lines(hid);
-        lines.push("why connected (first 8 edges):".to_string());
-        for e in st.edges_for_node(hid).into_iter().take(8) {
-            lines.push(st.explain_edge(&e));
+        if let Some(selected) = selected.as_ref() {
+            if selected != hid {
+                lines.push("why connected:".to_string());
+                match st.explain_path_cached(selected, hid, &vis) {
+                    Some(path) if path.is_empty() => {
+                        lines.push("same node".to_string());
+                    }
+                    Some(path) => {
+                        for step in path {
+                            let from = st.node_label_with_id(&step.from);
+                            let to = st.node_label_with_id(&step.to);
+                            lines.push(format!(
+                                "{} --[{}]--> {}",
+                                from,
+                                edge_class_name(step.class),
+                                to
+                            ));
+                        }
+                    }
+                    None => lines.push("no path within depth cap".to_string()),
+                }
+            }
         }
         render_tooltip(contexts.ctx_mut(), "tooltip_spatial", pos, lines);
     }
@@ -168,20 +190,41 @@ pub fn draw_spatial(
     }
 
     if st.ui.show_edges {
-        for e in st.model.edges.iter() {
-            if !st.edge_visible(e, &vis) {
-                continue;
+        if st.cfg.show_agg_edges {
+            for edge in st.model.agg_edges() {
+                if !vis.contains(&edge.key.from) || !vis.contains(&edge.key.to) {
+                    continue;
+                }
+                let (Some(a), Some(b)) = (
+                    st.spatial.positions.get(&edge.key.from),
+                    st.spatial.positions.get(&edge.key.to),
+                ) else {
+                    continue;
+                };
+                gizmos.line(*a, *b, Color::srgb(0.8, 0.8, 1.0));
             }
-            let (Some(a), Some(b)) = (
-                st.spatial.positions.get(&e.from),
-                st.spatial.positions.get(&e.to),
-            ) else {
-                continue;
-            };
-            if st.edge_is_glowing(e) {
-                gizmos.line(*a, *b, Color::srgb(1.0, 1.0, 1.0));
+        }
+        if st.cfg.show_raw_edges {
+            for id in vis.iter() {
+                for edge in st.model.edges_for_node(id) {
+                    if &edge.from != id {
+                        continue;
+                    }
+                    if !st.edge_visible(edge, &vis) {
+                        continue;
+                    }
+                    let (Some(a), Some(b)) = (
+                        st.spatial.positions.get(&edge.from),
+                        st.spatial.positions.get(&edge.to),
+                    ) else {
+                        continue;
+                    };
+                    if st.edge_is_glowing(edge) {
+                        gizmos.line(*a, *b, Color::srgb(1.0, 1.0, 1.0));
+                    }
+                    gizmos.line(*a, *b, Color::WHITE);
+                }
             }
-            gizmos.line(*a, *b, Color::WHITE);
         }
     }
 }
