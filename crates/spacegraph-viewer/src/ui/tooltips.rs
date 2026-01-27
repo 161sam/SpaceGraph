@@ -6,11 +6,13 @@ pub fn render_tooltip(
     pos: egui::Pos2,
     lines: impl IntoIterator<Item = String>,
 ) {
-    egui::Area::new(id).fixed_pos(pos).show(ctx, |ui| {
-        ui.group(|ui| {
-            for line in lines {
-                ui.label(line);
-            }
+    egui::Area::new(egui::Id::new(id))
+        .fixed_pos(pos)
+        .show(ctx, |ui| {
+            ui.group(|ui| {
+                for line in lines {
+                    ui.label(line);
+                }
+            });
         });
-    });
 }

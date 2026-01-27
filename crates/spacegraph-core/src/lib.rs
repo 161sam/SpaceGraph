@@ -82,11 +82,21 @@ pub struct NodeIdentity {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", content = "data")]
 pub enum Msg {
-    Hello { version: String },
-    Identity { ident: NodeIdentity, caps: Capabilities },
+    Hello {
+        version: String,
+    },
+    Identity {
+        ident: NodeIdentity,
+        caps: Capabilities,
+    },
     RequestSnapshot,
-    Snapshot { nodes: Vec<(NodeId, Node)>, edges: Vec<Edge> },
-    Event { delta: Delta },
+    Snapshot {
+        nodes: Vec<(NodeId, Node)>,
+        edges: Vec<Edge>,
+    },
+    Event {
+        delta: Delta,
+    },
     Ping,
     Pong,
 }

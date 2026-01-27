@@ -9,4 +9,4 @@ pub mod timeline;
 pub use layout::update_layout_or_timeline;
 pub use metrics::tick_housekeeping;
 pub use state::{GraphState, ViewMode};
-pub use timeline::{TimelineEvt, TimelineEvtKind};
+pub use timeline::TimelineEvtKind;

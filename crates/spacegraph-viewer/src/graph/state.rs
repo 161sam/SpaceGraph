@@ -36,16 +36,11 @@ pub struct TimelineState {
     pub timeline_max_events: usize,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ViewMode {
+    #[default]
     Spatial,
     Timeline,
-}
-
-impl Default for ViewMode {
-    fn default() -> Self {
-        ViewMode::Spatial
-    }
 }
 
 #[derive(Default)]
@@ -68,7 +63,6 @@ pub struct UiState {
     pub view_mode: ViewMode,
 }
 
-#[derive(Default)]
 pub struct PerfState {
     pub fps: f32,
     pub event_rate: f32,
@@ -77,6 +71,20 @@ pub struct PerfState {
     pub event_total: u64,
     pub ev_window: VecDeque<Instant>,
     pub gc_last_run: Instant,
+}
+
+impl Default for PerfState {
+    fn default() -> Self {
+        Self {
+            fps: 0.0,
+            event_rate: 0.0,
+            visible_nodes: 0,
+            visible_edges: 0,
+            event_total: 0,
+            ev_window: VecDeque::new(),
+            gc_last_run: Instant::now(),
+        }
+    }
 }
 
 #[derive(Default)]
@@ -451,7 +459,7 @@ mod tests {
             Node::File {
                 path: "/var/log/b.log".to_string(),
                 inode: 2,
-                kind: FileKind::File,
+                kind: FileKind::Regular,
             },
         );
         st.model.nodes.insert(
@@ -459,7 +467,7 @@ mod tests {
             Node::File {
                 path: "/var/log/a.log".to_string(),
                 inode: 1,
-                kind: FileKind::File,
+                kind: FileKind::Regular,
             },
         );
         st.model.nodes.insert(
@@ -467,7 +475,7 @@ mod tests {
             Node::File {
                 path: "/var/log/c.log".to_string(),
                 inode: 3,
-                kind: FileKind::File,
+                kind: FileKind::Regular,
             },
         );
 

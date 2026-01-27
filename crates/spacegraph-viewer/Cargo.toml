@@ -15,5 +15,19 @@ futures-util = "0.3"
 
 crossbeam-channel = "0.5"
 
-bevy = "0.14"
+bevy = { version = "0.14", default-features = false, features = [
+    "bevy_asset",
+    "bevy_core_pipeline",
+    "bevy_gizmos",
+    "bevy_pbr",
+    "bevy_render",
+    "bevy_scene",
+    "bevy_text",
+    "bevy_ui",
+    "bevy_winit",
+    "x11",
+] }
 bevy_egui = "0.28"
+
+[features]
+audio = ["bevy/bevy_audio"]

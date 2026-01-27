@@ -27,7 +27,7 @@ pub fn apply_jump_to(mut st: ResMut<GraphState>, mut cam_q: Query<&mut Transform
 
     // Jump affects spatial; timeline currently just sets focus/selected
     if st.ui.view_mode != ViewMode::Spatial {
-        st.ui.focus = Some(id);
+        st.ui.focus = Some(id.clone());
         st.ui.selected = Some(id);
         return;
     }

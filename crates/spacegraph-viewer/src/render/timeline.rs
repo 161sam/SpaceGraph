@@ -24,7 +24,7 @@ pub fn draw_timeline(
         return;
     };
 
-    egui::Area::new("timeline_legend")
+    egui::Area::new("timeline_legend".into())
         .fixed_pos(egui::pos2(10.0, 120.0))
         .show(contexts.ctx_mut(), |ui| {
             ui.group(|ui| {

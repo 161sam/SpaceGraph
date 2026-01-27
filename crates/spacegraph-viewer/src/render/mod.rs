@@ -11,14 +11,15 @@ pub use camera::{apply_jump_to, setup_scene};
 pub use spatial::{apply_picked_focus, draw_spatial, hover_detection_spatial, picking_focus};
 pub use timeline::draw_timeline;
 
+#[allow(clippy::too_many_arguments)]
 pub fn draw_scene(
-    mut commands: Commands,
-    mut st: ResMut<GraphState>,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut mats: ResMut<Assets<StandardMaterial>>,
-    mut query: Query<(Entity, &spatial::NodeMarker)>,
-    mut gizmos: Gizmos,
-    mut contexts: EguiContexts,
+    commands: Commands,
+    st: ResMut<GraphState>,
+    meshes: ResMut<Assets<Mesh>>,
+    mats: ResMut<Assets<StandardMaterial>>,
+    query: Query<(Entity, &spatial::NodeMarker)>,
+    gizmos: Gizmos,
+    contexts: EguiContexts,
     windows: Query<&Window>,
     cam_q: Query<(&Camera, &GlobalTransform)>,
 ) {
