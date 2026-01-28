@@ -8,6 +8,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
 
+use crate::config::AgentMode;
 use crate::path_policy::PathPolicy;
 fn inode_for_path(path: &str) -> u64 {
     std::fs::metadata(path)
@@ -56,10 +57,25 @@ fn is_notify_permission_denied(error: &notify::Error) -> bool {
     }
 }
 
+fn log_permission_denied(mode: AgentMode, path: &Path, context: &str) {
+    match mode {
+        AgentMode::User => {
+            tracing::debug!(path = %path.display(), "{context} (permission denied)");
+        }
+        AgentMode::Privileged => {
+            tracing::warn!(
+                path = %path.display(),
+                "{context} (permission denied; run with sudo or adjust permissions)"
+            );
+        }
+    }
+}
+
 fn add_watch_recursive(
     watcher: &mut RecommendedWatcher,
     root: &Path,
     policy: &PathPolicy,
+    mode: AgentMode,
     skipped_paths_total: &mut usize,
 ) -> Result<()> {
     let mut stack = vec![root.to_path_buf()];
@@ -73,7 +89,7 @@ fn add_watch_recursive(
             Ok(()) => {}
             Err(err) if is_notify_permission_denied(&err) => {
                 *skipped_paths_total += 1;
-                tracing::debug!(path = %path.display(), "skipping path (permission denied)");
+                log_permission_denied(mode, &path, "skipping path");
                 continue;
             }
             Err(err) => return Err(err.into()),
@@ -83,7 +99,7 @@ fn add_watch_recursive(
             Ok(entries) => entries,
             Err(err) if is_permission_denied(&err) => {
                 *skipped_paths_total += 1;
-                tracing::debug!(path = %path.display(), "skipping path (permission denied)");
+                log_permission_denied(mode, &path, "skipping path");
                 continue;
             }
             Err(err) => return Err(err.into()),
@@ -94,7 +110,7 @@ fn add_watch_recursive(
                 Ok(entry) => entry,
                 Err(err) if is_permission_denied(&err) => {
                     *skipped_paths_total += 1;
-                    tracing::debug!(path = %path.display(), "skipping entry (permission denied)");
+                    log_permission_denied(mode, &path, "skipping entry");
                     continue;
                 }
                 Err(err) => return Err(err.into()),
@@ -104,7 +120,7 @@ fn add_watch_recursive(
                 Ok(file_type) => file_type,
                 Err(err) if is_permission_denied(&err) => {
                     *skipped_paths_total += 1;
-                    tracing::debug!(path = %entry.path().display(), "skipping entry (permission denied)");
+                    log_permission_denied(mode, &entry.path(), "skipping entry");
                     continue;
                 }
                 Err(err) => return Err(err.into()),
@@ -124,6 +140,7 @@ fn add_watch_recursive(
 
 pub fn spawn(
     node_id: &str,
+    mode: AgentMode,
     policy: Arc<PathPolicy>,
     roots: Vec<PathBuf>,
     tx: mpsc::Sender<Msg>,
@@ -158,7 +175,7 @@ pub fn spawn(
     let mut skipped_paths_total = 0usize;
     for path in roots {
         if path.exists() {
-            add_watch_recursive(&mut watcher, &path, &policy, &mut skipped_paths_total)?;
+            add_watch_recursive(&mut watcher, &path, &policy, mode, &mut skipped_paths_total)?;
         }
     }
     if skipped_paths_total > 0 {

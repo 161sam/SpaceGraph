@@ -6,13 +6,14 @@ use std::fs;
 use std::io;
 use std::path::Path;
 
+use crate::config::AgentMode;
 use crate::path_policy::PathPolicy;
 
-fn parse_passwd() -> Result<HashMap<u32, String>> {
+fn parse_passwd(mode: AgentMode) -> Result<HashMap<u32, String>> {
     let content = match fs::read_to_string("/etc/passwd") {
         Ok(content) => content,
         Err(err) if is_permission_denied(&err) => {
-            tracing::warn!("skipping /etc/passwd (permission denied)");
+            log_permission_denied(mode, "/etc/passwd", "skipping");
             return Ok(HashMap::new());
         }
         Err(err) => return Err(err).context("read /etc/passwd"),
@@ -68,6 +69,20 @@ fn is_permission_denied(error: &io::Error) -> bool {
     error.kind() == io::ErrorKind::PermissionDenied
 }
 
+fn log_permission_denied(mode: AgentMode, path: &str, context: &str) {
+    match mode {
+        AgentMode::User => {
+            tracing::debug!(path = %path, "{context} (permission denied)");
+        }
+        AgentMode::Privileged => {
+            tracing::warn!(
+                path = %path,
+                "{context} (permission denied; run with sudo or adjust permissions)"
+            );
+        }
+    }
+}
+
 fn fd_mode_from_flags(flags: i64) -> String {
     // O_ACCMODE = 3
     match flags & 3 {
@@ -99,10 +114,10 @@ fn fd_flags(pid: i32, fd: i32) -> Option<i64> {
     None
 }
 
-pub fn build_snapshot(node_id: &str, policy: &PathPolicy) -> Result<SnapshotData> {
+pub fn build_snapshot(node_id: &str, policy: &PathPolicy, mode: AgentMode) -> Result<SnapshotData> {
     // Procfs is always scanned; filesystem filtering only applies to file paths below.
     let passwd = if policy.should_watch(Path::new("/etc/passwd")) {
-        parse_passwd().unwrap_or_default()
+        parse_passwd(mode).unwrap_or_default()
     } else {
         HashMap::new()
     };
@@ -184,7 +199,7 @@ pub fn build_snapshot(node_id: &str, policy: &PathPolicy) -> Result<SnapshotData
         }
 
         // fd edges
-        add_fd_edges(node_id, policy, &pr, &proc_id, &mut nodes, &mut edges);
+        add_fd_edges(node_id, policy, mode, &pr, &proc_id, &mut nodes, &mut edges);
     }
 
     Ok((nodes.into_iter().collect(), edges.into_iter().collect()))
@@ -193,6 +208,7 @@ pub fn build_snapshot(node_id: &str, policy: &PathPolicy) -> Result<SnapshotData
 fn add_fd_edges(
     node_id: &str,
     policy: &PathPolicy,
+    mode: AgentMode,
     pr: &Process,
     proc_id: &NodeId,
     nodes: &mut HashMap<NodeId, Node>,
@@ -203,7 +219,7 @@ fn add_fd_edges(
     let entries = match fs::read_dir(&fd_dir) {
         Ok(e) => e,
         Err(err) if is_permission_denied(&err) => {
-            tracing::debug!(path = %fd_dir, "skipping fd dir (permission denied)");
+            log_permission_denied(mode, &fd_dir, "skipping fd dir");
             return;
         }
         Err(_) => return,
