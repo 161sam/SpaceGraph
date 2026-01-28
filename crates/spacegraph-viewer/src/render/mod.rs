@@ -6,6 +6,7 @@ use bevy::prelude::*;
 use bevy_egui::EguiContexts;
 
 use crate::graph::{GraphState, ViewMode};
+use crate::ui::UiLayout;
 
 pub use camera::{apply_jump_to, setup_scene};
 pub use spatial::{apply_picked_focus, draw_spatial, hover_detection_spatial, picking_focus};
@@ -20,12 +21,13 @@ pub fn draw_scene(
     query: Query<(Entity, &spatial::NodeMarker)>,
     gizmos: Gizmos,
     contexts: EguiContexts,
+    layout: Res<UiLayout>,
     windows: Query<&Window>,
     buttons: Res<ButtonInput<MouseButton>>,
     cam_q: Query<(&Camera, &GlobalTransform)>,
 ) {
     match st.ui.view_mode {
         ViewMode::Spatial => draw_spatial(commands, st, meshes, mats, query, gizmos, contexts),
-        ViewMode::Timeline => draw_timeline(st, gizmos, contexts, windows, buttons, cam_q),
+        ViewMode::Timeline => draw_timeline(st, gizmos, contexts, layout, windows, buttons, cam_q),
     }
 }

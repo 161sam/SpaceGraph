@@ -3,6 +3,7 @@ use bevy::prelude::*;
 use crate::app::events::Picked;
 use crate::app::resources::NetRx;
 use crate::graph::GraphState;
+use crate::ui::UiLayout;
 use crate::util::config;
 
 pub mod events;
@@ -17,6 +18,7 @@ impl Plugin for SpaceGraphViewerPlugin {
         st.apply_viewer_config(&cfg);
         app.add_event::<Picked>()
             .insert_resource(st)
+            .insert_resource(UiLayout::default())
             .add_systems(Startup, crate::render::setup_scene)
             .add_systems(
                 Update,
