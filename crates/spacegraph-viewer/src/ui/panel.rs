@@ -6,7 +6,9 @@ use std::time::Instant;
 use crate::graph::state::{NetCommand, NetStreamStatus};
 use crate::graph::{GraphState, ViewMode};
 use crate::ui::{settings_agents, settings_paths, UiLayout};
-use crate::util::config::{self, AgentEndpoint, AgentEndpointKind, LodEdgesMode, ViewerConfig};
+use crate::util::config::{
+    self, AgentEndpoint, AgentEndpointKind, AgentMode, LodEdgesMode, ViewerConfig,
+};
 
 pub fn ui_panel(
     mut contexts: EguiContexts,
@@ -115,10 +117,32 @@ pub fn ui_panel(
                             if ui.button("Remove").clicked() {
                                 remove_index = Some(idx);
                             }
+                            if ui.button("Command…").clicked() {
+                                st.ui.agent_command.target = Some(endpoint.name.clone());
+                                st.ui.agent_command.open = true;
+                            }
                         });
                         ui.end_row();
                     }
                 });
+
+            ui.horizontal(|ui| {
+                ui.label("Default mode");
+                egui::ComboBox::from_id_source("agent_default_mode")
+                    .selected_text(st.cfg.agent_default_mode.as_str())
+                    .show_ui(ui, |ui| {
+                        ui.selectable_value(
+                            &mut st.cfg.agent_default_mode,
+                            AgentMode::User,
+                            "user",
+                        );
+                        ui.selectable_value(
+                            &mut st.cfg.agent_default_mode,
+                            AgentMode::Privileged,
+                            "privileged",
+                        );
+                    });
+            });
 
             if ui.button("Add Agent…").clicked() {
                 let default_endpoint = AgentEndpoint::default();
@@ -127,6 +151,7 @@ pub fn ui_panel(
                     AgentEndpointKind::UdsPath(path) => path,
                 };
                 st.ui.agent_editor.auto_connect = default_endpoint.auto_connect;
+                st.ui.agent_editor.mode_override = None;
                 st.ui.agent_editor.notice = None;
                 st.ui.show_agent_editor = true;
             }
@@ -374,6 +399,7 @@ pub fn ui_panel(
 
     settings_paths::path_editor_window(ctx, st.as_mut(), &layout);
     settings_agents::agent_editor_window(ctx, st.as_mut(), &layout);
+    settings_agents::agent_command_window(ctx, st.as_mut(), &layout);
     super::search::search_overlay(contexts, st);
 }
 

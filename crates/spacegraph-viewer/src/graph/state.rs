@@ -10,7 +10,7 @@ use crate::graph::explain::{self, PathStep};
 use crate::graph::model::GraphModel;
 use crate::graph::timeline::{BatchSpan, NodeLife, TimelineEvt, TimelineEvtKind};
 use crate::net::{Incoming, IncomingKind, ReaderHandle};
-use crate::util::config::{AgentEndpoint, LodEdgesMode, ViewerConfig, ViewerViewMode};
+use crate::util::config::{AgentEndpoint, AgentMode, LodEdgesMode, ViewerConfig, ViewerViewMode};
 use crate::util::ids::{node_label_long, node_label_short};
 
 #[derive(Default)]
@@ -61,6 +61,7 @@ pub struct UiState {
     pub path_editor: PathEditorDraft,
     pub show_agent_editor: bool,
     pub agent_editor: AgentEditorDraft,
+    pub agent_command: AgentCommandDraft,
 
     pub focus: Option<NodeId>,
     pub focus_hops: usize,
@@ -93,7 +94,14 @@ pub struct AgentEditorDraft {
     pub name_input: String,
     pub uds_input: String,
     pub auto_connect: bool,
+    pub mode_override: Option<AgentMode>,
     pub notice: Option<String>,
+}
+
+#[derive(Default, Clone)]
+pub struct AgentCommandDraft {
+    pub open: bool,
+    pub target: Option<String>,
 }
 
 impl PathEditorDraft {
@@ -252,6 +260,7 @@ pub struct CfgState {
     pub demo_mode: bool,
     pub path_includes: Vec<String>,
     pub path_excludes: Vec<String>,
+    pub agent_default_mode: AgentMode,
 }
 
 impl CfgState {
@@ -333,6 +342,7 @@ impl Default for GraphState {
                 path_editor: PathEditorDraft::default(),
                 show_agent_editor: false,
                 agent_editor: AgentEditorDraft::default(),
+                agent_command: AgentCommandDraft::default(),
                 focus: None,
                 focus_hops: 2,
                 hovered: None,
@@ -385,6 +395,7 @@ impl Default for GraphState {
                     "/dev".to_string(),
                     "/run".to_string(),
                 ],
+                agent_default_mode: AgentMode::User,
             },
             needs_redraw: AtomicBool::new(true),
             explain_cache: None,
@@ -997,6 +1008,7 @@ impl GraphState {
         self.set_demo_mode(cfg.demo_mode);
         self.cfg.path_includes = cfg.path_includes.clone();
         self.cfg.path_excludes = cfg.path_excludes.clone();
+        self.cfg.agent_default_mode = cfg.default_agent_mode;
         self.sync_agent_endpoints(cfg.agents.clone());
 
         self.needs_redraw.store(true, Ordering::Relaxed);
@@ -1028,6 +1040,7 @@ impl GraphState {
             glow_duration_ms: self.cfg.glow_duration.as_millis() as u64,
             gc_enabled: self.cfg.gc_enabled,
             gc_ttl_secs: self.cfg.gc_ttl.as_secs(),
+            default_agent_mode: self.cfg.agent_default_mode,
             agents: self.net.endpoints.clone(),
         }
     }
