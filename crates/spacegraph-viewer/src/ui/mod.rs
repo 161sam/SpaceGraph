@@ -3,6 +3,7 @@ pub mod hud;
 pub mod layout;
 pub mod panel;
 pub mod search;
+pub mod settings_agents;
 pub mod settings_paths;
 pub mod shortcuts;
 pub mod tooltips;
