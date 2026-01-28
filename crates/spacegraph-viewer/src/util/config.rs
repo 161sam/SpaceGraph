@@ -3,6 +3,7 @@ use directories::ProjectDirs;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -28,6 +29,30 @@ pub enum LodEdgesMode {
 impl Default for LodEdgesMode {
     fn default() -> Self {
         Self::FocusOnly
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", content = "value", rename_all = "snake_case")]
+pub enum AgentEndpointKind {
+    UdsPath(String),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct AgentEndpoint {
+    pub name: String,
+    pub kind: AgentEndpointKind,
+    pub auto_connect: bool,
+}
+
+impl Default for AgentEndpoint {
+    fn default() -> Self {
+        Self {
+            name: "local".to_string(),
+            kind: AgentEndpointKind::UdsPath(default_uds_path()),
+            auto_connect: true,
+        }
     }
 }
 
@@ -58,6 +83,8 @@ pub struct ViewerConfig {
     pub glow_duration_ms: u64,
     pub gc_enabled: bool,
     pub gc_ttl_secs: u64,
+    #[serde(default = "default_agents")]
+    pub agents: Vec<AgentEndpoint>,
 }
 
 impl Default for ViewerConfig {
@@ -92,8 +119,26 @@ impl Default for ViewerConfig {
             glow_duration_ms: 900,
             gc_enabled: true,
             gc_ttl_secs: 30,
+            agents: vec![AgentEndpoint::default()],
         }
     }
+}
+
+fn default_uds_path() -> String {
+    static CACHED: OnceLock<String> = OnceLock::new();
+    CACHED
+        .get_or_init(|| {
+            if let Ok(dir) = std::env::var("XDG_RUNTIME_DIR") {
+                format!("{dir}/spacegraph.sock")
+            } else {
+                "/tmp/spacegraph.sock".to_string()
+            }
+        })
+        .clone()
+}
+
+fn default_agents() -> Vec<AgentEndpoint> {
+    vec![AgentEndpoint::default()]
 }
 
 fn config_file_path() -> Option<PathBuf> {
@@ -148,5 +193,32 @@ mod tests {
         let loaded = load_or_default_from_path(&path);
 
         assert_eq!(cfg, loaded);
+    }
+
+    #[test]
+    fn agent_endpoint_roundtrip() {
+        let endpoint = AgentEndpoint {
+            name: "local".to_string(),
+            kind: AgentEndpointKind::UdsPath("/tmp/spacegraph.sock".to_string()),
+            auto_connect: false,
+        };
+
+        let encoded = toml::to_string(&endpoint).expect("serialize endpoint");
+        let decoded: AgentEndpoint = toml::from_str(&encoded).expect("deserialize endpoint");
+
+        assert_eq!(endpoint, decoded);
+    }
+
+    #[test]
+    fn agent_endpoint_rejects_unknown_kind() {
+        let bad = r#"
+name = "bad"
+kind = "tcp"
+value = "127.0.0.1:1234"
+auto_connect = true
+"#;
+
+        let decoded: Result<AgentEndpoint, _> = toml::from_str(bad);
+        assert!(decoded.is_err());
     }
 }

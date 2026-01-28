@@ -9,8 +9,8 @@ use std::time::{Duration, Instant};
 use crate::graph::explain::{self, PathStep};
 use crate::graph::model::GraphModel;
 use crate::graph::timeline::{BatchSpan, NodeLife, TimelineEvt, TimelineEvtKind};
-use crate::net::{Incoming, IncomingKind};
-use crate::util::config::{LodEdgesMode, ViewerConfig, ViewerViewMode};
+use crate::net::{Incoming, IncomingKind, ReaderHandle};
+use crate::util::config::{AgentEndpoint, LodEdgesMode, ViewerConfig, ViewerViewMode};
 use crate::util::ids::{node_label_long, node_label_short};
 
 #[derive(Default)]
@@ -59,6 +59,8 @@ pub struct UiState {
     pub help_open: bool,
     pub show_path_editor: bool,
     pub path_editor: PathEditorDraft,
+    pub show_agent_editor: bool,
+    pub agent_editor: AgentEditorDraft,
 
     pub focus: Option<NodeId>,
     pub focus_hops: usize,
@@ -84,6 +86,14 @@ pub struct PathEditorDraft {
     pub exclude_input: String,
     pub include_notice: Option<String>,
     pub exclude_notice: Option<String>,
+}
+
+#[derive(Default, Clone)]
+pub struct AgentEditorDraft {
+    pub name_input: String,
+    pub uds_input: String,
+    pub auto_connect: bool,
+    pub notice: Option<String>,
 }
 
 impl PathEditorDraft {
@@ -120,24 +130,78 @@ pub struct PerfState {
     pub gc_last_run: Instant,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NetStreamStatus {
+    Disconnected,
+    Connecting,
+    Connected,
+}
+
 pub struct NetStreamState {
-    pub name: String,
+    pub status: NetStreamStatus,
     pub last_msg: Option<Instant>,
+    pub last_seen: Option<Instant>,
     pub msg_rate: f32,
     pub msg_window: VecDeque<Instant>,
+    pub last_error: Option<String>,
 }
 
 pub struct NetState {
+    pub endpoints: Vec<AgentEndpoint>,
     pub streams: HashMap<String, NetStreamState>,
+    pub connections: HashMap<String, ReaderHandle>,
     pub msg_window: Duration,
+    pub commands: Vec<NetCommand>,
+}
+
+pub enum NetCommand {
+    Connect(String),
+    Disconnect(String),
+    Reconnect(String),
+}
+
+impl NetStreamState {
+    pub fn new() -> Self {
+        Self {
+            status: NetStreamStatus::Disconnected,
+            last_msg: None,
+            last_seen: None,
+            msg_rate: 0.0,
+            msg_window: VecDeque::new(),
+            last_error: None,
+        }
+    }
 }
 
 impl Default for NetState {
     fn default() -> Self {
         Self {
+            endpoints: Vec::new(),
             streams: HashMap::new(),
+            connections: HashMap::new(),
             msg_window: Duration::from_secs(2),
+            commands: Vec::new(),
         }
+    }
+}
+
+impl NetState {
+    pub fn endpoint_names(&self) -> HashSet<String> {
+        self.endpoints.iter().map(|e| e.name.clone()).collect()
+    }
+
+    pub fn is_configured(&self, name: &str) -> bool {
+        self.endpoints.iter().any(|e| e.name == name)
+    }
+
+    pub fn ensure_stream(&mut self, name: &str) {
+        self.streams
+            .entry(name.to_string())
+            .or_insert_with(NetStreamState::new);
+    }
+
+    pub fn active_connection_count(&self) -> usize {
+        self.connections.len()
     }
 }
 
@@ -267,6 +331,8 @@ impl Default for GraphState {
                 help_open: false,
                 show_path_editor: false,
                 path_editor: PathEditorDraft::default(),
+                show_agent_editor: false,
+                agent_editor: AgentEditorDraft::default(),
                 focus: None,
                 focus_hops: 2,
                 hovered: None,
@@ -381,7 +447,7 @@ impl GraphState {
         }
 
         if enabled {
-            if !self.net.streams.is_empty() {
+            if self.net.active_connection_count() > 0 {
                 self.cfg.demo_mode = false;
                 return;
             }
@@ -406,7 +472,7 @@ impl GraphState {
             return;
         }
 
-        if !self.net.streams.is_empty() {
+        if self.net.active_connection_count() > 0 {
             self.set_demo_mode(false);
             return;
         }
@@ -546,6 +612,18 @@ impl GraphState {
 
     // ----- Apply incoming graph data -----
     pub fn apply(&mut self, inc: Incoming) {
+        if !self.net.is_configured(&inc.stream) {
+            match inc.kind {
+                IncomingKind::Disconnected => {
+                    self.net_on_disconnected(&inc.stream);
+                }
+                IncomingKind::Error(msg) => {
+                    self.net_on_error(&inc.stream, msg);
+                }
+                _ => {}
+            }
+            return;
+        }
         match inc.kind {
             IncomingKind::Connected => {
                 self.net_on_connected(inc.stream);
@@ -714,25 +792,33 @@ impl GraphState {
 
     fn net_on_connected(&mut self, stream: String) {
         self.set_demo_mode(false);
+        let now = Instant::now();
         let entry = self
             .net
             .streams
             .entry(stream.clone())
-            .or_insert_with(|| NetStreamState {
-                name: stream,
-                last_msg: None,
-                msg_rate: 0.0,
-                msg_window: VecDeque::new(),
-            });
+            .or_insert_with(NetStreamState::new);
+        entry.status = NetStreamStatus::Connected;
         entry.last_msg = None;
+        entry.msg_window.clear();
+        entry.msg_rate = 0.0;
+        entry.last_seen = Some(now);
+        entry.last_error = None;
     }
 
     fn net_on_disconnected(&mut self, stream: &str) {
-        self.net.streams.remove(stream);
+        if let Some(entry) = self.net.streams.get_mut(stream) {
+            entry.status = NetStreamStatus::Disconnected;
+        }
+        self.net.connections.remove(stream);
     }
 
-    fn net_on_error(&mut self, stream: &str, _msg: String) {
-        self.net.streams.remove(stream);
+    fn net_on_error(&mut self, stream: &str, msg: String) {
+        if let Some(entry) = self.net.streams.get_mut(stream) {
+            entry.status = NetStreamStatus::Disconnected;
+            entry.last_error = Some(msg);
+        }
+        self.net.connections.remove(stream);
     }
 
     fn net_on_message(&mut self, stream: &str) {
@@ -743,13 +829,11 @@ impl GraphState {
             .net
             .streams
             .entry(stream.to_string())
-            .or_insert_with(|| NetStreamState {
-                name: stream.to_string(),
-                last_msg: None,
-                msg_rate: 0.0,
-                msg_window: VecDeque::new(),
-            });
+            .or_insert_with(NetStreamState::new);
+        entry.status = NetStreamStatus::Connected;
         entry.last_msg = Some(now);
+        entry.last_seen = Some(now);
+        entry.last_error = None;
         entry.msg_window.push_back(now);
         Self::net_prune_stream(entry, now, window);
     }
@@ -862,6 +946,32 @@ impl GraphState {
             .unwrap_or_else(|| id.0.clone())
     }
 
+    fn sync_agent_endpoints(&mut self, endpoints: Vec<AgentEndpoint>) {
+        let previous = self.net.endpoint_names();
+        let next: HashSet<String> = endpoints.iter().map(|e| e.name.clone()).collect();
+
+        for removed in previous.difference(&next) {
+            if self.net.connections.contains_key(removed) {
+                self.net
+                    .commands
+                    .push(NetCommand::Disconnect((*removed).to_string()));
+            }
+            self.net.connections.remove(removed);
+            self.net.streams.remove(removed);
+        }
+
+        self.net.endpoints = endpoints;
+        let names: Vec<String> = self
+            .net
+            .endpoints
+            .iter()
+            .map(|endpoint| endpoint.name.clone())
+            .collect();
+        for name in names {
+            self.net.ensure_stream(&name);
+        }
+    }
+
     pub fn apply_viewer_config(&mut self, cfg: &ViewerConfig) {
         self.ui.view_mode = cfg.view_mode.into();
         self.ui.show_3d = cfg.show_3d;
@@ -887,6 +997,7 @@ impl GraphState {
         self.set_demo_mode(cfg.demo_mode);
         self.cfg.path_includes = cfg.path_includes.clone();
         self.cfg.path_excludes = cfg.path_excludes.clone();
+        self.sync_agent_endpoints(cfg.agents.clone());
 
         self.needs_redraw.store(true, Ordering::Relaxed);
     }
@@ -917,6 +1028,7 @@ impl GraphState {
             glow_duration_ms: self.cfg.glow_duration.as_millis() as u64,
             gc_enabled: self.cfg.gc_enabled,
             gc_ttl_secs: self.cfg.gc_ttl.as_secs(),
+            agents: self.net.endpoints.clone(),
         }
     }
 }
@@ -999,10 +1111,12 @@ mod tests {
         st.net.streams.insert(
             stream.clone(),
             NetStreamState {
-                name: stream.clone(),
+                status: NetStreamStatus::Connected,
                 last_msg: Some(now),
+                last_seen: Some(now),
                 msg_rate: 0.0,
                 msg_window: VecDeque::new(),
+                last_error: None,
             },
         );
 
@@ -1026,10 +1140,12 @@ mod tests {
         st.net.streams.insert(
             stream.clone(),
             NetStreamState {
-                name: stream.clone(),
+                status: NetStreamStatus::Connected,
                 last_msg: Some(start),
+                last_seen: Some(start),
                 msg_rate: 0.0,
                 msg_window: VecDeque::new(),
+                last_error: None,
             },
         );
 
