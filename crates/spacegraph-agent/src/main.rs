@@ -7,6 +7,10 @@ use anyhow::Result;
 use spacegraph_core::{Capabilities, Msg, NodeIdentity};
 use tokio::sync::{broadcast, mpsc};
 
+fn init_tracing() {
+    let _ = tracing_subscriber::fmt::try_init();
+}
+
 fn runtime_sock_path() -> String {
     // Wayland-friendly: prefer XDG_RUNTIME_DIR
     if let Ok(dir) = std::env::var("XDG_RUNTIME_DIR") {
@@ -30,6 +34,7 @@ fn default_node_id() -> String {
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    init_tracing();
     let node_id = default_node_id();
     let sock_path = runtime_sock_path();
 
