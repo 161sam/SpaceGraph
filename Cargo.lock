@@ -3834,6 +3834,8 @@ dependencies = [
  "spacegraph-core",
  "tokio",
  "tokio-util",
+ "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]

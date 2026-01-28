@@ -2,7 +2,8 @@ use anyhow::Result;
 use notify::{EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use spacegraph_core::{id_file, Delta, FileKind, Msg, Node};
 use std::collections::HashMap;
-use std::path::Path;
+use std::io;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 use tokio::sync::mpsc;
 
@@ -42,6 +43,75 @@ fn classify(kind: &EventKind) -> Option<Action> {
     }
 }
 
+fn is_permission_denied(error: &io::Error) -> bool {
+    error.kind() == io::ErrorKind::PermissionDenied
+}
+
+fn is_notify_permission_denied(error: &notify::Error) -> bool {
+    match &error.kind {
+        notify::ErrorKind::Io(io_err) => is_permission_denied(io_err),
+        _ => false,
+    }
+}
+
+fn add_watch_recursive(
+    watcher: &mut RecommendedWatcher,
+    root: &Path,
+    skipped_paths_total: &mut usize,
+) -> Result<()> {
+    let mut stack = vec![root.to_path_buf()];
+
+    while let Some(path) = stack.pop() {
+        match watcher.watch(&path, RecursiveMode::NonRecursive) {
+            Ok(()) => {}
+            Err(err) if is_notify_permission_denied(&err) => {
+                *skipped_paths_total += 1;
+                tracing::debug!(path = %path.display(), "skipping path (permission denied)");
+                continue;
+            }
+            Err(err) => return Err(err.into()),
+        }
+
+        let entries = match std::fs::read_dir(&path) {
+            Ok(entries) => entries,
+            Err(err) if is_permission_denied(&err) => {
+                *skipped_paths_total += 1;
+                tracing::debug!(path = %path.display(), "skipping path (permission denied)");
+                continue;
+            }
+            Err(err) => return Err(err.into()),
+        };
+
+        for entry_result in entries {
+            let entry = match entry_result {
+                Ok(entry) => entry,
+                Err(err) if is_permission_denied(&err) => {
+                    *skipped_paths_total += 1;
+                    tracing::debug!(path = %path.display(), "skipping entry (permission denied)");
+                    continue;
+                }
+                Err(err) => return Err(err.into()),
+            };
+
+            let file_type = match entry.file_type() {
+                Ok(file_type) => file_type,
+                Err(err) if is_permission_denied(&err) => {
+                    *skipped_paths_total += 1;
+                    tracing::debug!(path = %entry.path().display(), "skipping entry (permission denied)");
+                    continue;
+                }
+                Err(err) => return Err(err.into()),
+            };
+
+            if file_type.is_dir() {
+                stack.push(entry.path());
+            }
+        }
+    }
+
+    Ok(())
+}
+
 pub fn spawn(node_id: &str, tx: mpsc::Sender<Msg>) -> Result<()> {
     let node_id = node_id.to_string();
 
@@ -69,10 +139,18 @@ pub fn spawn(node_id: &str, tx: mpsc::Sender<Msg>) -> Result<()> {
         notify::Config::default(),
     )?;
 
+    let mut skipped_paths_total = 0usize;
     for p in &watch_paths {
-        if Path::new(p).exists() {
-            watcher.watch(Path::new(p), RecursiveMode::Recursive)?;
+        let path = PathBuf::from(p);
+        if path.exists() {
+            add_watch_recursive(&mut watcher, &path, &mut skipped_paths_total)?;
         }
+    }
+    if skipped_paths_total > 0 {
+        tracing::warn!(
+            skipped_paths_total,
+            "FS watcher: skipped paths due to permissions"
+        );
     }
 
     // Coalescer: 250ms window
@@ -131,4 +209,22 @@ pub fn spawn(node_id: &str, tx: mpsc::Sender<Msg>) -> Result<()> {
     // keep watcher alive
     std::mem::forget(watcher);
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_permission_denied;
+    use std::io;
+
+    #[test]
+    fn permission_denied_is_detected() {
+        let err = io::Error::from(io::ErrorKind::PermissionDenied);
+        assert!(is_permission_denied(&err));
+    }
+
+    #[test]
+    fn non_permission_error_is_not_detected() {
+        let err = io::Error::from(io::ErrorKind::NotFound);
+        assert!(!is_permission_denied(&err));
+    }
 }

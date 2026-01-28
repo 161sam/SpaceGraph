@@ -3,9 +3,17 @@ use procfs::process::Process;
 use spacegraph_core::{id_file, id_process, id_user, Edge, EdgeKind, FileKind, Node, NodeId};
 use std::collections::{HashMap, HashSet};
 use std::fs;
+use std::io;
 
 fn parse_passwd() -> Result<HashMap<u32, String>> {
-    let content = fs::read_to_string("/etc/passwd").context("read /etc/passwd")?;
+    let content = match fs::read_to_string("/etc/passwd") {
+        Ok(content) => content,
+        Err(err) if is_permission_denied(&err) => {
+            tracing::warn!("skipping /etc/passwd (permission denied)");
+            return Ok(HashMap::new());
+        }
+        Err(err) => return Err(err).context("read /etc/passwd"),
+    };
     let mut map = HashMap::new();
     for line in content.lines() {
         if line.trim().is_empty() || line.starts_with('#') {
@@ -51,6 +59,10 @@ fn inode_for_path(path: &str) -> u64 {
             }
         })
         .unwrap_or(0)
+}
+
+fn is_permission_denied(error: &io::Error) -> bool {
+    error.kind() == io::ErrorKind::PermissionDenied
 }
 
 fn fd_mode_from_flags(flags: i64) -> String {
@@ -177,8 +189,12 @@ fn add_fd_edges(
 ) {
     let pid = pr.pid();
     let fd_dir = format!("/proc/{pid}/fd");
-    let entries = match fs::read_dir(fd_dir) {
+    let entries = match fs::read_dir(&fd_dir) {
         Ok(e) => e,
+        Err(err) if is_permission_denied(&err) => {
+            tracing::debug!(path = %fd_dir, "skipping fd dir (permission denied)");
+            return;
+        }
         Err(_) => return,
     };
 
