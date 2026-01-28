@@ -10,8 +10,9 @@ pub fn spawn_reader(sock_path: String, tx: Sender<Incoming>) {
     std::thread::spawn(move || {
         let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
         rt.block_on(async move {
-            if let Err(e) = run(sock_path, tx.clone()).await {
-                let _ = tx.send(Incoming::Error(format!("{e:?}")));
+            if let Err(e) = run(sock_path.clone(), tx.clone()).await {
+                let _ = tx.send(Incoming::error(sock_path.clone(), format!("{e:?}")));
+                let _ = tx.send(Incoming::disconnected(sock_path.clone()));
             }
         });
     });
@@ -24,6 +25,8 @@ async fn run(sock_path: String, tx: Sender<Incoming>) -> Result<()> {
 
     let mut framed = Framed::new(stream, LengthDelimitedCodec::new());
 
+    let _ = tx.send(Incoming::connected(sock_path.clone()));
+
     // Send hello (agent tolerates anything)
     let hello = Msg::Hello {
         version: "0.1.0".into(),
@@ -35,17 +38,22 @@ async fn run(sock_path: String, tx: Sender<Incoming>) -> Result<()> {
         match serde_json::from_slice::<Msg>(&bytes) {
             Ok(m) => {
                 let inc = match &m {
-                    Msg::Identity { .. } => Incoming::Identity(m),
-                    Msg::Snapshot { .. } => Incoming::Snapshot(m),
-                    Msg::Event { .. } => Incoming::Event(m),
-                    _ => Incoming::Other(m),
+                    Msg::Identity { .. } => Incoming::identity(sock_path.clone(), m),
+                    Msg::Snapshot { .. } => Incoming::snapshot(sock_path.clone(), m),
+                    Msg::Event { .. } => Incoming::event(sock_path.clone(), m),
+                    _ => Incoming::other(sock_path.clone(), m),
                 };
                 let _ = tx.send(inc);
             }
             Err(e) => {
-                let _ = tx.send(Incoming::Error(format!("decode error: {e}")));
+                let _ = tx.send(Incoming::error(
+                    sock_path.clone(),
+                    format!("decode error: {e}"),
+                ));
             }
         }
     }
+
+    let _ = tx.send(Incoming::disconnected(sock_path.clone()));
     Ok(())
 }
