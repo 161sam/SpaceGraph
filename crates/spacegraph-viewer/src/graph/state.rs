@@ -57,6 +57,8 @@ pub struct UiState {
     pub show_3d: bool,
     pub show_edges: bool,
     pub help_open: bool,
+    pub show_path_editor: bool,
+    pub path_editor: PathEditorDraft,
 
     pub focus: Option<NodeId>,
     pub focus_hops: usize,
@@ -72,6 +74,29 @@ pub struct UiState {
     pub jump_to: Option<NodeId>,
 
     pub view_mode: ViewMode,
+}
+
+#[derive(Default, Clone)]
+pub struct PathEditorDraft {
+    pub includes: Vec<String>,
+    pub excludes: Vec<String>,
+    pub include_input: String,
+    pub exclude_input: String,
+    pub include_notice: Option<String>,
+    pub exclude_notice: Option<String>,
+}
+
+impl PathEditorDraft {
+    pub fn from_cfg(cfg: &CfgState) -> Self {
+        Self {
+            includes: cfg.path_includes.clone(),
+            excludes: cfg.path_excludes.clone(),
+            include_input: String::new(),
+            exclude_input: String::new(),
+            include_notice: None,
+            exclude_notice: None,
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -161,6 +186,8 @@ pub struct CfgState {
     pub lod_edges_mode: LodEdgesMode,
 
     pub demo_mode: bool,
+    pub path_includes: Vec<String>,
+    pub path_excludes: Vec<String>,
 }
 
 impl CfgState {
@@ -238,6 +265,8 @@ impl Default for GraphState {
                 show_3d: true,
                 show_edges: true,
                 help_open: false,
+                show_path_editor: false,
+                path_editor: PathEditorDraft::default(),
                 focus: None,
                 focus_hops: 2,
                 hovered: None,
@@ -283,6 +312,13 @@ impl Default for GraphState {
                 lod_threshold_nodes: 1500,
                 lod_edges_mode: LodEdgesMode::FocusOnly,
                 demo_mode: false,
+                path_includes: vec!["/etc".to_string(), "/home".to_string(), "/var".to_string()],
+                path_excludes: vec![
+                    "/proc".to_string(),
+                    "/sys".to_string(),
+                    "/dev".to_string(),
+                    "/run".to_string(),
+                ],
             },
             needs_redraw: AtomicBool::new(true),
             explain_cache: None,
@@ -331,6 +367,12 @@ impl GraphState {
         self.demo_loaded = false;
 
         self.needs_redraw.store(true, Ordering::Relaxed);
+    }
+
+    pub fn open_path_editor(&mut self) {
+        let draft = PathEditorDraft::from_cfg(&self.cfg);
+        self.ui.path_editor = draft;
+        self.ui.show_path_editor = true;
     }
 
     pub fn set_demo_mode(&mut self, enabled: bool) {
@@ -843,6 +885,8 @@ impl GraphState {
         self.cfg.gc_enabled = cfg.gc_enabled;
         self.cfg.gc_ttl = Duration::from_secs(cfg.gc_ttl_secs.max(1));
         self.set_demo_mode(cfg.demo_mode);
+        self.cfg.path_includes = cfg.path_includes.clone();
+        self.cfg.path_excludes = cfg.path_excludes.clone();
 
         self.needs_redraw.store(true, Ordering::Relaxed);
     }
@@ -855,6 +899,8 @@ impl GraphState {
             show_raw_edges: self.cfg.show_raw_edges,
             show_agg_edges: self.cfg.show_agg_edges,
             demo_mode: self.cfg.demo_mode,
+            path_includes: self.cfg.path_includes.clone(),
+            path_excludes: self.cfg.path_excludes.clone(),
             focus_hops: self.ui.focus_hops,
             max_visible_nodes: self.cfg.max_visible_nodes,
             progressive_nodes_per_frame: self.cfg.progressive_nodes_per_frame,

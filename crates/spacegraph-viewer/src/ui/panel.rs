@@ -4,7 +4,7 @@ use std::sync::atomic::Ordering;
 use std::time::Instant;
 
 use crate::graph::{GraphState, ViewMode};
-use crate::ui::UiLayout;
+use crate::ui::{settings_paths, UiLayout};
 use crate::util::config::{self, LodEdgesMode, ViewerConfig};
 
 pub fn ui_panel(
@@ -251,6 +251,9 @@ pub fn ui_panel(
         ui.separator();
         ui.vertical(|ui| {
             section_header(ui, "Settings");
+            if ui.button("Edit Paths…").clicked() {
+                st.open_path_editor();
+            }
             if ui.button("Save Settings").clicked() {
                 let cfg = st.viewer_config();
                 if let Err(err) = config::save(&cfg) {
@@ -281,6 +284,7 @@ pub fn ui_panel(
     layout.panel_rect = panel_rect;
     layout.content_rect = content_rect;
 
+    settings_paths::path_editor_window(ctx, st.as_mut(), &layout);
     super::search::search_overlay(contexts, st);
 }
 
