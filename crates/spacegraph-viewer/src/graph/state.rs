@@ -1,5 +1,7 @@
 use bevy::prelude::{Resource, Vec3};
-use spacegraph_core::{Delta, Edge, Msg, Node, NodeId};
+use spacegraph_core::{
+    id_file, id_process, id_user, Delta, Edge, EdgeKind, FileKind, Msg, Node, NodeId,
+};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
@@ -157,6 +159,8 @@ pub struct CfgState {
     pub lod_enabled: bool,
     pub lod_threshold_nodes: usize,
     pub lod_edges_mode: LodEdgesMode,
+
+    pub demo_mode: bool,
 }
 
 impl CfgState {
@@ -177,6 +181,7 @@ pub struct GraphState {
     pub explain_cache: Option<ExplainCache>,
     pub snapshot_loaded: bool,
     pub live_events_seen: bool,
+    pub demo_loaded: bool,
 
     pub needs_redraw: AtomicBool,
 }
@@ -277,11 +282,13 @@ impl Default for GraphState {
                 lod_enabled: true,
                 lod_threshold_nodes: 1500,
                 lod_edges_mode: LodEdgesMode::FocusOnly,
+                demo_mode: false,
             },
             needs_redraw: AtomicBool::new(true),
             explain_cache: None,
             snapshot_loaded: false,
             live_events_seen: false,
+            demo_loaded: false,
         }
     }
 }
@@ -321,7 +328,177 @@ impl GraphState {
         self.explain_cache = None;
         self.snapshot_loaded = false;
         self.live_events_seen = false;
+        self.demo_loaded = false;
 
+        self.needs_redraw.store(true, Ordering::Relaxed);
+    }
+
+    pub fn set_demo_mode(&mut self, enabled: bool) {
+        if enabled == self.cfg.demo_mode {
+            return;
+        }
+
+        if enabled {
+            if !self.net.streams.is_empty() {
+                self.cfg.demo_mode = false;
+                return;
+            }
+            if !self.model.nodes.is_empty() && !self.demo_loaded {
+                self.cfg.demo_mode = false;
+                return;
+            }
+            self.cfg.demo_mode = true;
+            if !self.demo_loaded {
+                self.load_demo_graph();
+            }
+        } else {
+            self.cfg.demo_mode = false;
+            if self.demo_loaded {
+                self.clear();
+            }
+        }
+    }
+
+    pub fn ensure_demo_graph(&mut self) {
+        if !self.cfg.demo_mode {
+            return;
+        }
+
+        if !self.net.streams.is_empty() {
+            self.set_demo_mode(false);
+            return;
+        }
+
+        if !self.demo_loaded {
+            if !self.model.nodes.is_empty() {
+                self.cfg.demo_mode = false;
+                return;
+            }
+            self.load_demo_graph();
+        }
+    }
+
+    fn load_demo_graph(&mut self) {
+        self.clear();
+        let now = Instant::now();
+        let node_id = "demo";
+
+        let user = id_user(node_id, 1000);
+        let proc_a = id_process(node_id, 4242);
+        let proc_b = id_process(node_id, 4243);
+        let file_a = id_file(node_id, "/home/demo/report.txt");
+        let file_b = id_file(node_id, "/var/log/demo.log");
+        let file_c = id_file(node_id, "/usr/bin/demo-app");
+
+        let nodes = vec![
+            (
+                user.clone(),
+                Node::User {
+                    uid: 1000,
+                    name: "demo".to_string(),
+                },
+            ),
+            (
+                proc_a.clone(),
+                Node::Process {
+                    pid: 4242,
+                    ppid: 1,
+                    exe: "/usr/bin/demo-app".to_string(),
+                    cmdline: "/usr/bin/demo-app --demo".to_string(),
+                    uid: 1000,
+                },
+            ),
+            (
+                proc_b.clone(),
+                Node::Process {
+                    pid: 4243,
+                    ppid: 4242,
+                    exe: "/usr/bin/demo-helper".to_string(),
+                    cmdline: "/usr/bin/demo-helper --child".to_string(),
+                    uid: 1000,
+                },
+            ),
+            (
+                file_a.clone(),
+                Node::File {
+                    path: "/home/demo/report.txt".to_string(),
+                    inode: 1001,
+                    kind: FileKind::Regular,
+                },
+            ),
+            (
+                file_b.clone(),
+                Node::File {
+                    path: "/var/log/demo.log".to_string(),
+                    inode: 1002,
+                    kind: FileKind::Regular,
+                },
+            ),
+            (
+                file_c.clone(),
+                Node::File {
+                    path: "/usr/bin/demo-app".to_string(),
+                    inode: 1003,
+                    kind: FileKind::Regular,
+                },
+            ),
+        ];
+
+        let edges = vec![
+            Edge {
+                from: proc_a.clone(),
+                to: file_a.clone(),
+                kind: EdgeKind::Opens {
+                    fd: 3,
+                    mode: "rw".to_string(),
+                },
+            },
+            Edge {
+                from: proc_a.clone(),
+                to: file_b.clone(),
+                kind: EdgeKind::Opens {
+                    fd: 4,
+                    mode: "w".to_string(),
+                },
+            },
+            Edge {
+                from: proc_b.clone(),
+                to: file_b.clone(),
+                kind: EdgeKind::Opens {
+                    fd: 5,
+                    mode: "r".to_string(),
+                },
+            },
+            Edge {
+                from: proc_a.clone(),
+                to: user.clone(),
+                kind: EdgeKind::RunsAs,
+            },
+            Edge {
+                from: proc_b.clone(),
+                to: user.clone(),
+                kind: EdgeKind::RunsAs,
+            },
+        ];
+
+        self.model.load_snapshot(nodes, edges, now);
+        let node_ids: Vec<_> = self.model.nodes.keys().cloned().collect();
+        for id in node_ids {
+            self.push_timeline_at(now, TimelineEvtKind::NodeUpsert, Some(id), None, None);
+        }
+        let edges: Vec<_> = self.model.edges.iter().cloned().collect();
+        for edge in edges {
+            self.push_timeline_at(
+                now,
+                TimelineEvtKind::EdgeUpsert,
+                Some(edge.from),
+                Some(edge.to),
+                Some(edge.kind),
+            );
+        }
+
+        self.demo_loaded = true;
+        self.spatial.dirty_layout = true;
         self.needs_redraw.store(true, Ordering::Relaxed);
     }
 
@@ -494,6 +671,7 @@ impl GraphState {
     }
 
     fn net_on_connected(&mut self, stream: String) {
+        self.set_demo_mode(false);
         let entry = self
             .net
             .streams
@@ -516,6 +694,7 @@ impl GraphState {
     }
 
     fn net_on_message(&mut self, stream: &str) {
+        self.set_demo_mode(false);
         let now = Instant::now();
         let window = self.net.msg_window;
         let entry = self
@@ -663,6 +842,7 @@ impl GraphState {
         self.cfg.glow_duration = Duration::from_millis(cfg.glow_duration_ms.max(1));
         self.cfg.gc_enabled = cfg.gc_enabled;
         self.cfg.gc_ttl = Duration::from_secs(cfg.gc_ttl_secs.max(1));
+        self.set_demo_mode(cfg.demo_mode);
 
         self.needs_redraw.store(true, Ordering::Relaxed);
     }
@@ -674,6 +854,7 @@ impl GraphState {
             show_edges: self.ui.show_edges,
             show_raw_edges: self.cfg.show_raw_edges,
             show_agg_edges: self.cfg.show_agg_edges,
+            demo_mode: self.cfg.demo_mode,
             focus_hops: self.ui.focus_hops,
             max_visible_nodes: self.cfg.max_visible_nodes,
             progressive_nodes_per_frame: self.cfg.progressive_nodes_per_frame,

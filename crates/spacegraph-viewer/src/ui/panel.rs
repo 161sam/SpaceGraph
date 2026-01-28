@@ -62,6 +62,21 @@ pub fn ui_panel(
                 ui.selectable_value(&mut st.ui.view_mode, ViewMode::Spatial, "Spatial");
                 ui.selectable_value(&mut st.ui.view_mode, ViewMode::Timeline, "Timeline");
             });
+            let demo_allowed =
+                st.net.streams.is_empty() && (st.model.nodes.is_empty() || st.demo_loaded);
+            let mut demo_mode = st.cfg.demo_mode;
+            if ui
+                .add_enabled(
+                    demo_allowed || demo_mode,
+                    egui::Checkbox::new(&mut demo_mode, "Demo Mode"),
+                )
+                .changed()
+            {
+                st.set_demo_mode(demo_mode);
+            }
+            if !demo_allowed && !demo_mode {
+                ui.label("Demo mode requires no active agents and an empty graph.");
+            }
 
             if st.ui.view_mode == ViewMode::Timeline {
                 ui.add_space(6.0);

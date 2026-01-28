@@ -46,7 +46,11 @@ pub fn hud_overlay(mut contexts: EguiContexts, st: Res<GraphState>, layout: Res<
                         "Timeline"
                     }
                 ));
-                if st.snapshot_loaded && !st.live_events_seen && !st.model.nodes.is_empty() {
+                if st.snapshot_loaded
+                    && !st.live_events_seen
+                    && !st.model.nodes.is_empty()
+                    && !st.cfg.demo_mode
+                {
                     ui.label("Initial snapshot (no live events yet)");
                 }
             });
