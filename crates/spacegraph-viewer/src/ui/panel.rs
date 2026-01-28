@@ -1,6 +1,7 @@
 use bevy::prelude::ResMut;
 use bevy_egui::{egui, EguiContexts};
 use std::sync::atomic::Ordering;
+use std::time::Instant;
 
 use crate::graph::{GraphState, ViewMode};
 use crate::util::config::{self, LodEdgesMode, ViewerConfig};
@@ -16,6 +17,35 @@ pub fn ui_panel(mut contexts: EguiContexts, mut st: ResMut<GraphState>) {
                 st.model.edges.len(),
                 st.model.agg_edge_count()
             ));
+        });
+
+        ui.separator();
+        ui.vertical(|ui| {
+            section_header(ui, "Connections");
+            let active = st.net.streams.len();
+            if active == 0 {
+                ui.label("0 Agents connected");
+            } else if active == 1 {
+                ui.label("1 Agent connected");
+            } else {
+                ui.label(format!("{active} Agents connected"));
+            }
+
+            let now = Instant::now();
+            let idle_threshold = st.net.msg_window;
+            let mut streams: Vec<_> = st.net.streams.values().collect();
+            streams.sort_by(|a, b| a.name.cmp(&b.name));
+            for stream in streams {
+                let status = match stream.last_msg {
+                    Some(ts) if now.duration_since(ts) <= idle_threshold => "connected",
+                    _ => "idle",
+                };
+                ui.horizontal(|ui| {
+                    ui.label(&stream.name);
+                    ui.label(format!("({status})"));
+                    ui.label(format!("{:.1} msgs/sec", stream.msg_rate));
+                });
+            }
         });
 
         ui.separator();

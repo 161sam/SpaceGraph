@@ -7,7 +7,7 @@ use std::time::{Duration, Instant};
 use crate::graph::explain::{self, PathStep};
 use crate::graph::model::GraphModel;
 use crate::graph::timeline::{BatchSpan, NodeLife, TimelineEvt, TimelineEvtKind};
-use crate::net::Incoming;
+use crate::net::{Incoming, IncomingKind};
 use crate::util::config::{LodEdgesMode, ViewerConfig, ViewerViewMode};
 use crate::util::ids::{node_label_long, node_label_short};
 
@@ -93,6 +93,27 @@ pub struct PerfState {
     pub gc_last_run: Instant,
 }
 
+pub struct NetStreamState {
+    pub name: String,
+    pub last_msg: Option<Instant>,
+    pub msg_rate: f32,
+    pub msg_window: VecDeque<Instant>,
+}
+
+pub struct NetState {
+    pub streams: HashMap<String, NetStreamState>,
+    pub msg_window: Duration,
+}
+
+impl Default for NetState {
+    fn default() -> Self {
+        Self {
+            streams: HashMap::new(),
+            msg_window: Duration::from_secs(2),
+        }
+    }
+}
+
 impl Default for PerfState {
     fn default() -> Self {
         Self {
@@ -151,6 +172,7 @@ pub struct GraphState {
     pub timeline: TimelineState,
     pub ui: UiState,
     pub perf: PerfState,
+    pub net: NetState,
     pub cfg: CfgState,
     pub explain_cache: Option<ExplainCache>,
     pub snapshot_loaded: bool,
@@ -234,6 +256,7 @@ impl Default for GraphState {
                 ev_window: VecDeque::new(),
                 gc_last_run: Instant::now(),
             },
+            net: NetState::default(),
             cfg: CfgState {
                 layout_force: true,
                 link_distance: 6.0,
@@ -304,9 +327,19 @@ impl GraphState {
 
     // ----- Apply incoming graph data -----
     pub fn apply(&mut self, inc: Incoming) {
-        self.on_message();
-        match inc {
-            Incoming::Snapshot(Msg::Snapshot { nodes, edges }) => {
+        match inc.kind {
+            IncomingKind::Connected => {
+                self.net_on_connected(inc.stream);
+            }
+            IncomingKind::Disconnected => {
+                self.net_on_disconnected(&inc.stream);
+            }
+            IncomingKind::Error(msg) => {
+                self.net_on_error(&inc.stream, msg);
+            }
+            IncomingKind::Snapshot(Msg::Snapshot { nodes, edges }) => {
+                self.on_message();
+                self.net_on_message(&inc.stream);
                 let now = Instant::now();
                 self.model.load_snapshot(nodes, edges, now);
                 for id in self.model.nodes.keys() {
@@ -315,10 +348,17 @@ impl GraphState {
                 self.snapshot_loaded = true;
                 self.mark_dirty_all();
             }
-            Incoming::Event(Msg::Event { delta }) => {
-                self.live_events_seen = true;
+          
+            IncomingKind::Event(Msg::Event { delta }) => {
+                self.on_message();
+                self.net_on_message(&inc.stream);
                 self.apply_delta(delta);
             }
+            IncomingKind::Identity(_) | IncomingKind::Other(_) => {
+                self.on_message();
+                self.net_on_message(&inc.stream);
+            }
+
             _ => {}
         }
     }
@@ -451,6 +491,57 @@ impl GraphState {
 
     fn touch_node_at(&mut self, id: &NodeId, ts: Instant) {
         self.model.last_seen.insert(id.clone(), ts);
+    }
+
+    fn net_on_connected(&mut self, stream: String) {
+        let entry = self
+            .net
+            .streams
+            .entry(stream.clone())
+            .or_insert_with(|| NetStreamState {
+                name: stream,
+                last_msg: None,
+                msg_rate: 0.0,
+                msg_window: VecDeque::new(),
+            });
+        entry.last_msg = None;
+    }
+
+    fn net_on_disconnected(&mut self, stream: &str) {
+        self.net.streams.remove(stream);
+    }
+
+    fn net_on_error(&mut self, stream: &str, _msg: String) {
+        self.net.streams.remove(stream);
+    }
+
+    fn net_on_message(&mut self, stream: &str) {
+        let now = Instant::now();
+        let window = self.net.msg_window;
+        let entry = self
+            .net
+            .streams
+            .entry(stream.to_string())
+            .or_insert_with(|| NetStreamState {
+                name: stream.to_string(),
+                last_msg: None,
+                msg_rate: 0.0,
+                msg_window: VecDeque::new(),
+            });
+        entry.last_msg = Some(now);
+        entry.msg_window.push_back(now);
+        Self::net_prune_stream(entry, now, window);
+    }
+
+    fn net_prune_stream(stream: &mut NetStreamState, now: Instant, window: Duration) {
+        while let Some(front) = stream.msg_window.front() {
+            if now.duration_since(*front) > window {
+                stream.msg_window.pop_front();
+            } else {
+                break;
+            }
+        }
+        stream.msg_rate = stream.msg_window.len() as f32 / window.as_secs_f32();
     }
 
     pub fn node_tooltip_lines(&self, id: &NodeId) -> Vec<String> {
@@ -669,5 +760,58 @@ mod tests {
         };
 
         assert!(!cfg.lod_active(100));
+    }
+
+    #[test]
+    fn net_state_tracks_message_rate() {
+        let mut st = GraphState::default();
+        let stream = "local.sock".to_string();
+        let start = Instant::now();
+        let now = start + Duration::from_millis(500);
+
+        st.net.streams.insert(
+            stream.clone(),
+            NetStreamState {
+                name: stream.clone(),
+                last_msg: Some(now),
+                msg_rate: 0.0,
+                msg_window: VecDeque::new(),
+            },
+        );
+
+        if let Some(state) = st.net.streams.get_mut(&stream) {
+            state.msg_window.push_back(start);
+            state.msg_window.push_back(now);
+            GraphState::net_prune_stream(state, now, st.net.msg_window);
+        }
+
+        let rate = st.net.streams.get(&stream).unwrap().msg_rate;
+        assert!((rate - 1.0).abs() < 0.1);
+    }
+
+    #[test]
+    fn net_state_prunes_old_messages() {
+        let mut st = GraphState::default();
+        let stream = "local.sock".to_string();
+        let start = Instant::now();
+        let now = start + Duration::from_secs(5);
+
+        st.net.streams.insert(
+            stream.clone(),
+            NetStreamState {
+                name: stream.clone(),
+                last_msg: Some(start),
+                msg_rate: 0.0,
+                msg_window: VecDeque::new(),
+            },
+        );
+
+        if let Some(state) = st.net.streams.get_mut(&stream) {
+            state.msg_window.push_back(start);
+            GraphState::net_prune_stream(state, now, st.net.msg_window);
+        }
+
+        let rate = st.net.streams.get(&stream).unwrap().msg_rate;
+        assert_eq!(rate, 0.0);
     }
 }

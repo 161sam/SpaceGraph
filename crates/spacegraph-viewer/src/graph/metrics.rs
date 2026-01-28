@@ -26,6 +26,17 @@ impl GraphState {
             }
         }
         self.perf.event_rate = (self.perf.ev_window.len() as f32) / window.as_secs_f32();
+
+        for stream in self.net.streams.values_mut() {
+            while let Some(front) = stream.msg_window.front() {
+                if now.duration_since(*front) > self.net.msg_window {
+                    stream.msg_window.pop_front();
+                } else {
+                    break;
+                }
+            }
+            stream.msg_rate = stream.msg_window.len() as f32 / self.net.msg_window.as_secs_f32();
+        }
     }
 
     pub(crate) fn on_message(&mut self) {
