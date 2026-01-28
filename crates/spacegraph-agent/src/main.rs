@@ -8,7 +8,7 @@ mod watch_proc;
 use anyhow::Result;
 use config::{default_excludes, default_includes, parse_args, should_warn_privileged_without_root};
 use path_policy::PathPolicy;
-use spacegraph_core::{Capabilities, Msg, NodeIdentity};
+use spacegraph_core::{Capabilities, Delta, Msg, NodeIdentity};
 use std::sync::Arc;
 use tokio::sync::{broadcast, mpsc};
 
@@ -84,6 +84,13 @@ async fn main() -> Result<()> {
 
     // Build initial snapshot
     let (snap_nodes, snap_edges) = snapshot::build_snapshot(&node_id, &policy, config.mode)?;
+    let snapshot_node_events: Vec<Msg> = snap_nodes
+        .iter()
+        .cloned()
+        .map(|(id, node)| Msg::Event {
+            delta: Delta::UpsertNode { id, node },
+        })
+        .collect();
     let snapshot_msg = Msg::Snapshot {
         nodes: snap_nodes,
         edges: snap_edges,
@@ -141,7 +148,14 @@ async fn main() -> Result<()> {
     }
 
     // Serve UDS
-    server::run(&sock_path, identity_msg, snapshot_msg, bus_tx).await
+    server::run(
+        &sock_path,
+        identity_msg,
+        snapshot_msg,
+        snapshot_node_events,
+        bus_tx,
+    )
+    .await
 }
 
 async fn forward_to_bus(mut rx: mpsc::Receiver<Msg>, bus_tx: broadcast::Sender<Msg>) {

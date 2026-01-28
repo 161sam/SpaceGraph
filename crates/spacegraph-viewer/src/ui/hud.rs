@@ -30,6 +30,9 @@ pub fn hud_overlay(mut contexts: EguiContexts, st: Res<GraphState>) {
                         "Timeline"
                     }
                 ));
+                if st.snapshot_loaded && !st.live_events_seen && !st.model.nodes.is_empty() {
+                    ui.label("Initial snapshot (no live events yet)");
+                }
             });
         });
 }
