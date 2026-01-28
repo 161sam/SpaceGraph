@@ -4,9 +4,11 @@ use spacegraph_core::{id_file, Delta, FileKind, Msg, Node};
 use std::collections::HashMap;
 use std::io;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
 
+use crate::path_policy::PathPolicy;
 fn inode_for_path(path: &str) -> u64 {
     std::fs::metadata(path)
         .map(|m| {
@@ -57,11 +59,16 @@ fn is_notify_permission_denied(error: &notify::Error) -> bool {
 fn add_watch_recursive(
     watcher: &mut RecommendedWatcher,
     root: &Path,
+    policy: &PathPolicy,
     skipped_paths_total: &mut usize,
 ) -> Result<()> {
     let mut stack = vec![root.to_path_buf()];
 
     while let Some(path) = stack.pop() {
+        if !policy.should_watch(&path) {
+            continue;
+        }
+
         match watcher.watch(&path, RecursiveMode::NonRecursive) {
             Ok(()) => {}
             Err(err) if is_notify_permission_denied(&err) => {
@@ -104,7 +111,10 @@ fn add_watch_recursive(
             };
 
             if file_type.is_dir() {
-                stack.push(entry.path());
+                let entry_path = entry.path();
+                if policy.should_watch(&entry_path) {
+                    stack.push(entry_path);
+                }
             }
         }
     }
@@ -112,15 +122,18 @@ fn add_watch_recursive(
     Ok(())
 }
 
-pub fn spawn(node_id: &str, tx: mpsc::Sender<Msg>) -> Result<()> {
+pub fn spawn(
+    node_id: &str,
+    policy: Arc<PathPolicy>,
+    roots: Vec<PathBuf>,
+    tx: mpsc::Sender<Msg>,
+) -> Result<()> {
     let node_id = node_id.to_string();
-
-    // Watch set (v0.1.2: still /etc by default; you can config later)
-    let watch_paths = vec!["/etc"];
 
     // notify callback thread -> tokio channel
     let (raw_tx, mut raw_rx) = tokio::sync::mpsc::channel::<(String, Action)>(8192);
 
+    let policy_for_events = Arc::clone(&policy);
     let mut watcher: RecommendedWatcher = Watcher::new(
         move |res: std::result::Result<notify::Event, notify::Error>| {
             if let Ok(event) = res {
@@ -129,6 +142,9 @@ pub fn spawn(node_id: &str, tx: mpsc::Sender<Msg>) -> Result<()> {
                     None => return,
                 };
                 for p in event.paths {
+                    if !policy_for_events.should_watch(&p) {
+                        continue;
+                    }
                     if let Some(s) = p.to_str() {
                         // ignore noisy temp files if needed later
                         let _ = raw_tx.try_send((s.to_string(), action));
@@ -140,10 +156,9 @@ pub fn spawn(node_id: &str, tx: mpsc::Sender<Msg>) -> Result<()> {
     )?;
 
     let mut skipped_paths_total = 0usize;
-    for p in &watch_paths {
-        let path = PathBuf::from(p);
+    for path in roots {
         if path.exists() {
-            add_watch_recursive(&mut watcher, &path, &mut skipped_paths_total)?;
+            add_watch_recursive(&mut watcher, &path, &policy, &mut skipped_paths_total)?;
         }
     }
     if skipped_paths_total > 0 {

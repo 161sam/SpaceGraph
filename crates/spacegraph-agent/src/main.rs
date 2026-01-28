@@ -1,10 +1,14 @@
+mod path_policy;
 mod server;
 mod snapshot;
 mod watch_fs;
 mod watch_proc;
 
 use anyhow::Result;
+use path_policy::PathPolicy;
 use spacegraph_core::{Capabilities, Msg, NodeIdentity};
+use std::path::PathBuf;
+use std::sync::Arc;
 use tokio::sync::{broadcast, mpsc};
 
 fn init_tracing() {
@@ -32,17 +36,81 @@ fn default_node_id() -> String {
         })
 }
 
+fn default_watch_roots() -> Vec<PathBuf> {
+    vec![PathBuf::from("/etc")]
+}
+
+fn default_excludes() -> Vec<PathBuf> {
+    vec![
+        PathBuf::from("/proc"),
+        PathBuf::from("/sys"),
+        PathBuf::from("/dev"),
+        PathBuf::from("/run"),
+    ]
+}
+
+fn parse_args() -> Result<(Vec<PathBuf>, Vec<PathBuf>)> {
+    let mut includes = Vec::new();
+    let mut excludes = Vec::new();
+    let mut args = std::env::args_os().skip(1);
+
+    while let Some(arg) = args.next() {
+        if arg == "--include" {
+            let Some(path) = args.next() else {
+                anyhow::bail!("--include expects a path");
+            };
+            includes.push(PathBuf::from(path));
+        } else if arg == "--exclude" {
+            let Some(path) = args.next() else {
+                anyhow::bail!("--exclude expects a path");
+            };
+            excludes.push(PathBuf::from(path));
+        } else {
+            anyhow::bail!("unknown argument: {:?}", arg);
+        }
+    }
+
+    Ok((includes, excludes))
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     init_tracing();
     let node_id = default_node_id();
     let sock_path = runtime_sock_path();
+    let (cli_includes, cli_excludes) = parse_args()?;
+    let default_roots = default_watch_roots();
+
+    let includes = if cli_includes.is_empty() {
+        default_roots.clone()
+    } else {
+        cli_includes
+    };
+    let mut excludes = default_excludes();
+    excludes.extend(cli_excludes);
+
+    let mut policy = PathPolicy::new(includes, excludes);
+    policy.normalize();
+    let policy = Arc::new(policy);
+
+    let watch_roots = policy.includes().to_vec();
+    let effective_root_count = watch_roots
+        .iter()
+        .filter(|root| root.exists() && policy.should_watch(root))
+        .count();
+
+    tracing::info!(
+        includes = ?policy.includes(),
+        excludes = ?policy.excludes(),
+        effective_root_count,
+        "path policy configured"
+    );
 
     // Clean stale socket
     let _ = std::fs::remove_file(&sock_path);
 
     // Build initial snapshot
-    let (snap_nodes, snap_edges) = snapshot::build_snapshot(&node_id)?;
+    let (snap_nodes, snap_edges) = snapshot::build_snapshot(&node_id, &policy)?;
     let snapshot_msg = Msg::Snapshot {
         nodes: snap_nodes,
         edges: snap_edges,
@@ -76,7 +144,7 @@ async fn main() -> Result<()> {
     let (fs_tx, fs_rx) = mpsc::channel::<Msg>(8192);
     let (proc_tx, proc_rx) = mpsc::channel::<Msg>(8192);
 
-    watch_fs::spawn(&node_id, fs_tx)?;
+    watch_fs::spawn(&node_id, Arc::clone(&policy), watch_roots, fs_tx)?;
     watch_proc::spawn(&node_id, proc_tx)?;
 
     // Forward watcher channels → broadcast bus
