@@ -4,6 +4,9 @@ use spacegraph_core::{id_file, id_process, id_user, Edge, EdgeKind, FileKind, No
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::io;
+use std::path::Path;
+
+use crate::path_policy::PathPolicy;
 
 fn parse_passwd() -> Result<HashMap<u32, String>> {
     let content = match fs::read_to_string("/etc/passwd") {
@@ -96,8 +99,13 @@ fn fd_flags(pid: i32, fd: i32) -> Option<i64> {
     None
 }
 
-pub fn build_snapshot(node_id: &str) -> Result<SnapshotData> {
-    let passwd = parse_passwd().unwrap_or_default();
+pub fn build_snapshot(node_id: &str, policy: &PathPolicy) -> Result<SnapshotData> {
+    // Procfs is always scanned; filesystem filtering only applies to file paths below.
+    let passwd = if policy.should_watch(Path::new("/etc/passwd")) {
+        parse_passwd().unwrap_or_default()
+    } else {
+        HashMap::new()
+    };
 
     let mut nodes: HashMap<NodeId, Node> = HashMap::new();
     let mut edges: HashSet<Edge> = HashSet::new();
@@ -161,20 +169,22 @@ pub fn build_snapshot(node_id: &str) -> Result<SnapshotData> {
         });
 
         // exe as file node + edge
-        let exe_file_id = id_file(node_id, &exe);
-        nodes.entry(exe_file_id.clone()).or_insert(Node::File {
-            path: exe.clone(),
-            inode: inode_for_path(&exe),
-            kind: file_kind_from_path(&exe),
-        });
-        edges.insert(Edge {
-            from: proc_id.clone(),
-            to: exe_file_id,
-            kind: EdgeKind::Execs,
-        });
+        if should_keep_path(policy, &exe) {
+            let exe_file_id = id_file(node_id, &exe);
+            nodes.entry(exe_file_id.clone()).or_insert(Node::File {
+                path: exe.clone(),
+                inode: inode_for_path(&exe),
+                kind: file_kind_from_path(&exe),
+            });
+            edges.insert(Edge {
+                from: proc_id.clone(),
+                to: exe_file_id,
+                kind: EdgeKind::Execs,
+            });
+        }
 
         // fd edges
-        add_fd_edges(node_id, &pr, &proc_id, &mut nodes, &mut edges);
+        add_fd_edges(node_id, policy, &pr, &proc_id, &mut nodes, &mut edges);
     }
 
     Ok((nodes.into_iter().collect(), edges.into_iter().collect()))
@@ -182,6 +192,7 @@ pub fn build_snapshot(node_id: &str) -> Result<SnapshotData> {
 
 fn add_fd_edges(
     node_id: &str,
+    policy: &PathPolicy,
     pr: &Process,
     proc_id: &NodeId,
     nodes: &mut HashMap<NodeId, Node>,
@@ -210,6 +221,10 @@ fn add_fd_edges(
             Err(_) => continue,
         };
 
+        if !should_keep_path(policy, &target) {
+            continue;
+        }
+
         let f_id = id_file(node_id, &target);
         nodes.entry(f_id.clone()).or_insert(Node::File {
             path: target.clone(),
@@ -225,5 +240,13 @@ fn add_fd_edges(
             to: f_id,
             kind: EdgeKind::Opens { fd, mode },
         });
+    }
+}
+
+fn should_keep_path(policy: &PathPolicy, path: &str) -> bool {
+    if path.starts_with('/') {
+        policy.should_watch(Path::new(path))
+    } else {
+        true
     }
 }

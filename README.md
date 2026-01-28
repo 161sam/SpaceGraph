@@ -111,6 +111,13 @@ cargo run -p spacegraph-agent
 cargo run -p spacegraph-viewer
 ```
 
+Optional können beim Agent include/exclude Pfade gesetzt werden (Prefix-Matching, d.h.
+`/etc` matcht `/etc` und `/etc/ssh/...`):
+
+```bash
+spacegraph-agent --include /etc --include /home/dev --exclude /etc/cni
+```
+
 Standardmäßig kommunizieren beide über eine Unix-Domain-Socket unter
 `$XDG_RUNTIME_DIR/spacegraph.sock` (falls gesetzt) oder `/tmp/spacegraph.sock`.
 
