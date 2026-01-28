@@ -8,6 +8,7 @@ pub async fn run(
     sock_path: &str,
     identity_msg: Msg,
     snapshot_msg: Msg,
+    snapshot_node_events: Vec<Msg>,
     bus_tx: tokio::sync::broadcast::Sender<Msg>,
 ) -> Result<()> {
     let listener =
@@ -49,6 +50,9 @@ pub async fn run(
         framed
             .send(serde_json::to_vec(&snapshot_msg)?.into())
             .await?;
+        for msg in snapshot_node_events.iter() {
+            framed.send(serde_json::to_vec(msg)?.into()).await?;
+        }
 
         // Stream deltas
         loop {

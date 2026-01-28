@@ -175,6 +175,8 @@ pub struct GraphState {
     pub net: NetState,
     pub cfg: CfgState,
     pub explain_cache: Option<ExplainCache>,
+    pub snapshot_loaded: bool,
+    pub live_events_seen: bool,
 
     pub needs_redraw: AtomicBool,
 }
@@ -278,6 +280,8 @@ impl Default for GraphState {
             },
             needs_redraw: AtomicBool::new(true),
             explain_cache: None,
+            snapshot_loaded: false,
+            live_events_seen: false,
         }
     }
 }
@@ -315,6 +319,8 @@ impl GraphState {
         self.spatial.progressive_cursor = 0;
         self.spatial.dirty_layout = true;
         self.explain_cache = None;
+        self.snapshot_loaded = false;
+        self.live_events_seen = false;
 
         self.needs_redraw.store(true, Ordering::Relaxed);
     }
@@ -339,8 +345,10 @@ impl GraphState {
                 for id in self.model.nodes.keys() {
                     self.timeline.record_node_upsert(id, now);
                 }
+                self.snapshot_loaded = true;
                 self.mark_dirty_all();
             }
+          
             IncomingKind::Event(Msg::Event { delta }) => {
                 self.on_message();
                 self.net_on_message(&inc.stream);
@@ -350,6 +358,7 @@ impl GraphState {
                 self.on_message();
                 self.net_on_message(&inc.stream);
             }
+
             _ => {}
         }
     }
