@@ -5,6 +5,12 @@ pub mod search;
 pub mod shortcuts;
 pub mod tooltips;
 
+pub const PANEL_W: f32 = 280.0;
+pub const HUD_EDGE_PADDING: f32 = 10.0;
+pub const HUD_PANEL_GAP: f32 = 12.0;
+pub const HUD_MIN_CONTENT_W: f32 = 200.0;
+pub const HUD_FALLBACK_Y_OFFSET: f32 = 220.0;
+
 pub use help::help_overlay;
 pub use hud::hud_overlay;
 pub use panel::ui_panel;
