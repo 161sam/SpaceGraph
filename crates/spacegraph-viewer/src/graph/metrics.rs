@@ -7,6 +7,8 @@ pub fn tick_housekeeping(time: Res<Time>, mut st: ResMut<GraphState>) {
     let dt = time.delta_seconds().max(0.0001);
     st.perf.fps = 1.0 / dt;
 
+    st.ensure_demo_graph();
+
     st.tick_glow();
     st.tick_metrics(Instant::now());
     st.tick_gc();

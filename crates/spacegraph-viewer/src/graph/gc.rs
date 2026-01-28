@@ -20,7 +20,7 @@ impl GraphState {
 
     // ----- GC orphan files -----
     pub fn tick_gc(&mut self) {
-        if !self.cfg.gc_enabled {
+        if !self.cfg.gc_enabled || self.cfg.demo_mode {
             return;
         }
         let now = Instant::now();
