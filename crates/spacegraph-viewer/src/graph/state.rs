@@ -348,7 +348,7 @@ impl GraphState {
                 self.snapshot_loaded = true;
                 self.mark_dirty_all();
             }
-          
+
             IncomingKind::Event(Msg::Event { delta }) => {
                 self.on_message();
                 self.net_on_message(&inc.stream);

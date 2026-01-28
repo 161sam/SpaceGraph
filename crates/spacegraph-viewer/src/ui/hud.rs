@@ -2,16 +2,19 @@ use bevy::prelude::Res;
 use bevy_egui::{egui, EguiContexts};
 
 use crate::graph::{GraphState, ViewMode};
-use crate::ui::{
-    HUD_EDGE_PADDING, HUD_FALLBACK_Y_OFFSET, HUD_MIN_CONTENT_W, HUD_PANEL_GAP, PANEL_W,
-};
+use crate::ui::{UiLayout, HUD_EDGE_PADDING, HUD_FALLBACK_Y_OFFSET, HUD_MIN_CONTENT_W};
 
-pub fn hud_overlay(mut contexts: EguiContexts, st: Res<GraphState>) {
+pub fn hud_overlay(mut contexts: EguiContexts, st: Res<GraphState>, layout: Res<UiLayout>) {
     let ctx = contexts.ctx_mut();
     let screen = ctx.screen_rect();
-    let mut x = screen.min.x + PANEL_W + HUD_PANEL_GAP;
-    let mut y = screen.min.y + HUD_EDGE_PADDING;
-    if screen.width() < PANEL_W + HUD_MIN_CONTENT_W {
+    let content_rect = if layout.content_rect.width() > 0.0 && layout.content_rect.height() > 0.0 {
+        layout.content_rect
+    } else {
+        screen
+    };
+    let mut x = content_rect.min.x + HUD_EDGE_PADDING;
+    let mut y = content_rect.min.y + HUD_EDGE_PADDING;
+    if content_rect.width() < HUD_MIN_CONTENT_W {
         x = screen.min.x + HUD_EDGE_PADDING;
         y = screen.min.y + HUD_EDGE_PADDING + HUD_FALLBACK_Y_OFFSET;
     }

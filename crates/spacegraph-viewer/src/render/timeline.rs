@@ -6,6 +6,7 @@ use std::sync::atomic::Ordering;
 use crate::graph::model::{edge_explain, edge_kind_name};
 use crate::graph::{GraphState, TimelineEvtKind};
 use crate::ui::tooltips::render_tooltip;
+use crate::ui::UiLayout;
 use crate::util::ids::{node_label_long, node_label_short};
 
 #[derive(Clone)]
@@ -28,6 +29,7 @@ pub fn draw_timeline(
     mut st: ResMut<GraphState>,
     mut gizmos: Gizmos,
     mut contexts: EguiContexts,
+    layout: Res<UiLayout>,
     windows: Query<&Window>,
     buttons: Res<ButtonInput<MouseButton>>,
     cam_q: Query<(&Camera, &GlobalTransform)>,
@@ -39,17 +41,12 @@ pub fn draw_timeline(
         return;
     };
 
-    egui::Area::new("timeline_legend".into())
-        .fixed_pos(egui::pos2(10.0, 120.0))
-        .show(contexts.ctx_mut(), |ui| {
-            ui.group(|ui| {
-                ui.label("Timeline/Feynman:");
-                ui.label("X = time (past → left), now at x=0");
-                ui.label("Y lanes: user=0, proc=+8, file=-8");
-                ui.label("Z = stable hash spread");
-                ui.label("Worldlines + event vertices + interactions");
-            });
-        });
+    let ctx = contexts.ctx_mut();
+    let content_rect = if layout.content_rect.width() > 0.0 && layout.content_rect.height() > 0.0 {
+        layout.content_rect
+    } else {
+        ctx.screen_rect()
+    };
 
     let now = st.timeline_now();
     let window_dur = st.timeline.window;
@@ -57,7 +54,19 @@ pub fn draw_timeline(
     let x_min = -window_dur.as_secs_f32() * scale;
     let x_max = 0.0;
     let window_start = st.timeline.window_start(now);
-    let allow_pick = !contexts.ctx_mut().wants_pointer_input();
+    let cursor = window.cursor_position();
+    let allow_pick = cursor
+        .map(|pos| content_rect.contains(egui::pos2(pos.x, pos.y)))
+        .unwrap_or(false)
+        && !ctx.wants_pointer_input();
+
+    let has_visible_nodes = st.perf.visible_nodes > 0;
+    let has_events = !st.timeline.events.is_empty();
+    let has_batches = !st.timeline.batch_spans.is_empty();
+    let should_draw_guides = has_visible_nodes || has_events || has_batches;
+    if !should_draw_guides {
+        return;
+    }
 
     // axis line (now)
     gizmos.line(
@@ -84,17 +93,19 @@ pub fn draw_timeline(
     );
 
     // Worldlines for current visible set (capped)
-    let vis: HashSet<_> = st.visible_set_capped();
-    for id in vis.iter() {
-        let Some((start, end)) = st.timeline.node_life_interval(id, now) else {
-            continue;
-        };
-        let base = st.timeline_pos_for_node(id);
-        let start_age = now.duration_since(start).as_secs_f32();
-        let end_age = now.duration_since(end).as_secs_f32();
-        let a = Vec3::new(-start_age * scale, base.y, base.z);
-        let b = Vec3::new(-end_age * scale, base.y, base.z);
-        gizmos.line(a, b, Color::WHITE);
+    if has_visible_nodes {
+        let vis: HashSet<_> = st.visible_set_capped();
+        for id in vis.iter() {
+            let Some((start, end)) = st.timeline.node_life_interval(id, now) else {
+                continue;
+            };
+            let base = st.timeline_pos_for_node(id);
+            let start_age = now.duration_since(start).as_secs_f32();
+            let end_age = now.duration_since(end).as_secs_f32();
+            let a = Vec3::new(-start_age * scale, base.y, base.z);
+            let b = Vec3::new(-end_age * scale, base.y, base.z);
+            gizmos.line(a, b, Color::WHITE);
+        }
     }
 
     // Batch spans (begin/end bands)
@@ -133,7 +144,6 @@ pub fn draw_timeline(
     // We define a "representative point" per event:
     // - node events: point at (x, y, z)
     // - edge events: midpoint at (x, avg(y,z))
-    let cursor = window.cursor_position();
     let mut hover_best: Option<HoverPick> = None;
     let label_for_node = |id: &spacegraph_core::NodeId| {
         st.model
@@ -361,13 +371,15 @@ pub fn draw_timeline(
 
     // Tooltip rendering (timeline)
     if let Some(best) = hover_best {
-        let pos = contexts
-            .ctx_mut()
-            .input(|i| i.pointer.hover_pos().unwrap_or(egui::pos2(0.0, 0.0)))
+        let mut pos = ctx.input(|i| i.pointer.hover_pos().unwrap_or(egui::pos2(0.0, 0.0)))
             + egui::vec2(14.0, 14.0);
+        if content_rect.width() > 0.0 && content_rect.height() > 0.0 {
+            pos.x = pos.x.clamp(content_rect.min.x, content_rect.max.x);
+            pos.y = pos.y.clamp(content_rect.min.y, content_rect.max.y);
+        }
 
         render_tooltip(
-            contexts.ctx_mut(),
+            ctx,
             "tooltip_timeline",
             pos,
             best.text.lines().map(|line| line.to_string()),
