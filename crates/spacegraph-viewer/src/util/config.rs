@@ -32,6 +32,28 @@ impl Default for LodEdgesMode {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AgentMode {
+    User,
+    Privileged,
+}
+
+impl Default for AgentMode {
+    fn default() -> Self {
+        Self::User
+    }
+}
+
+impl AgentMode {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::User => "user",
+            Self::Privileged => "privileged",
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", content = "value", rename_all = "snake_case")]
 pub enum AgentEndpointKind {
@@ -44,6 +66,7 @@ pub struct AgentEndpoint {
     pub name: String,
     pub kind: AgentEndpointKind,
     pub auto_connect: bool,
+    pub mode_override: Option<AgentMode>,
 }
 
 impl Default for AgentEndpoint {
@@ -52,8 +75,15 @@ impl Default for AgentEndpoint {
             name: "local".to_string(),
             kind: AgentEndpointKind::UdsPath(default_uds_path()),
             auto_connect: true,
+            mode_override: None,
         }
     }
+}
+
+#[derive(Debug, Clone)]
+pub struct PathPolicyConfig {
+    pub includes: Vec<String>,
+    pub excludes: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -83,6 +113,7 @@ pub struct ViewerConfig {
     pub glow_duration_ms: u64,
     pub gc_enabled: bool,
     pub gc_ttl_secs: u64,
+    pub default_agent_mode: AgentMode,
     #[serde(default = "default_agents")]
     pub agents: Vec<AgentEndpoint>,
 }
@@ -119,6 +150,7 @@ impl Default for ViewerConfig {
             glow_duration_ms: 900,
             gc_enabled: true,
             gc_ttl_secs: 30,
+            default_agent_mode: AgentMode::User,
             agents: vec![AgentEndpoint::default()],
         }
     }
@@ -201,6 +233,7 @@ mod tests {
             name: "local".to_string(),
             kind: AgentEndpointKind::UdsPath("/tmp/spacegraph.sock".to_string()),
             auto_connect: false,
+            mode_override: Some(AgentMode::Privileged),
         };
 
         let encoded = toml::to_string(&endpoint).expect("serialize endpoint");
