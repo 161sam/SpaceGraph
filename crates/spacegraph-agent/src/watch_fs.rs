@@ -50,10 +50,29 @@ fn is_permission_denied(error: &io::Error) -> bool {
     error.kind() == io::ErrorKind::PermissionDenied
 }
 
+fn is_watch_limit_error(error: &io::Error) -> bool {
+    #[cfg(unix)]
+    {
+        error.raw_os_error() == Some(libc::ENOSPC)
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = error;
+        false
+    }
+}
+
 fn is_notify_permission_denied(error: &notify::Error) -> bool {
     match &error.kind {
         notify::ErrorKind::Io(io_err) => is_permission_denied(io_err),
         _ => false,
+    }
+}
+
+fn is_notify_watch_limit(error: &notify::Error) -> bool {
+    match &error.kind {
+        notify::ErrorKind::Io(io_err) => is_watch_limit_error(io_err),
+        _ => error.to_string().to_lowercase().contains("watch limit"),
     }
 }
 
@@ -71,12 +90,26 @@ fn log_permission_denied(mode: AgentMode, path: &Path, context: &str) {
     }
 }
 
+fn log_watch_limit(path: &Path, context: &str) {
+    tracing::warn!(
+        path = %path.display(),
+        "{context} (watch limit reached; increase fs.inotify.max_user_watches)"
+    );
+}
+
+#[derive(Default)]
+struct WatchStats {
+    watched: usize,
+    skipped_permission: usize,
+    skipped_watch_limit: usize,
+}
+
 fn add_watch_recursive(
     watcher: &mut RecommendedWatcher,
     root: &Path,
     policy: &PathPolicy,
     mode: AgentMode,
-    skipped_paths_total: &mut usize,
+    stats: &mut WatchStats,
 ) -> Result<()> {
     let mut stack = vec![root.to_path_buf()];
 
@@ -86,10 +119,17 @@ fn add_watch_recursive(
         }
 
         match watcher.watch(&path, RecursiveMode::NonRecursive) {
-            Ok(()) => {}
+            Ok(()) => {
+                stats.watched += 1;
+            }
             Err(err) if is_notify_permission_denied(&err) => {
-                *skipped_paths_total += 1;
+                stats.skipped_permission += 1;
                 log_permission_denied(mode, &path, "skipping path");
+                continue;
+            }
+            Err(err) if is_notify_watch_limit(&err) => {
+                stats.skipped_watch_limit += 1;
+                log_watch_limit(&path, "skipping path");
                 continue;
             }
             Err(err) => return Err(err.into()),
@@ -98,7 +138,7 @@ fn add_watch_recursive(
         let entries = match std::fs::read_dir(&path) {
             Ok(entries) => entries,
             Err(err) if is_permission_denied(&err) => {
-                *skipped_paths_total += 1;
+                stats.skipped_permission += 1;
                 log_permission_denied(mode, &path, "skipping path");
                 continue;
             }
@@ -109,7 +149,7 @@ fn add_watch_recursive(
             let entry = match entry_result {
                 Ok(entry) => entry,
                 Err(err) if is_permission_denied(&err) => {
-                    *skipped_paths_total += 1;
+                    stats.skipped_permission += 1;
                     log_permission_denied(mode, &path, "skipping entry");
                     continue;
                 }
@@ -119,7 +159,7 @@ fn add_watch_recursive(
             let file_type = match entry.file_type() {
                 Ok(file_type) => file_type,
                 Err(err) if is_permission_denied(&err) => {
-                    *skipped_paths_total += 1;
+                    stats.skipped_permission += 1;
                     log_permission_denied(mode, &entry.path(), "skipping entry");
                     continue;
                 }
@@ -172,18 +212,18 @@ pub fn spawn(
         notify::Config::default(),
     )?;
 
-    let mut skipped_paths_total = 0usize;
+    let mut stats = WatchStats::default();
     for path in roots {
         if path.exists() {
-            add_watch_recursive(&mut watcher, &path, &policy, mode, &mut skipped_paths_total)?;
+            add_watch_recursive(&mut watcher, &path, &policy, mode, &mut stats)?;
         }
     }
-    if skipped_paths_total > 0 {
-        tracing::warn!(
-            skipped_paths_total,
-            "FS watcher: skipped paths due to permissions"
-        );
-    }
+    tracing::info!(
+        watched_count = stats.watched,
+        skipped_permission = stats.skipped_permission,
+        skipped_watch_limit = stats.skipped_watch_limit,
+        "FS watcher: initial watch summary"
+    );
 
     // Coalescer: 250ms window
     tokio::spawn(async move {
@@ -245,7 +285,7 @@ pub fn spawn(
 
 #[cfg(test)]
 mod tests {
-    use super::is_permission_denied;
+    use super::{is_permission_denied, is_watch_limit_error};
     use std::io;
 
     #[test]
@@ -258,5 +298,18 @@ mod tests {
     fn non_permission_error_is_not_detected() {
         let err = io::Error::from(io::ErrorKind::NotFound);
         assert!(!is_permission_denied(&err));
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn watch_limit_error_is_detected() {
+        let err = io::Error::from_raw_os_error(libc::ENOSPC);
+        assert!(is_watch_limit_error(&err));
+    }
+
+    #[test]
+    fn non_watch_limit_error_is_not_detected() {
+        let err = io::Error::from(io::ErrorKind::NotFound);
+        assert!(!is_watch_limit_error(&err));
     }
 }
