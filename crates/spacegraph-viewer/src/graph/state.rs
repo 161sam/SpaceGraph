@@ -150,6 +150,8 @@ pub struct NetStreamState {
     pub status: NetStreamStatus,
     pub last_msg: Option<Instant>,
     pub last_seen: Option<Instant>,
+    pub last_snapshot_at: Option<Instant>,
+    pub last_event_at: Option<Instant>,
     pub msg_rate: f32,
     pub msg_window: VecDeque<Instant>,
     pub last_error: Option<String>,
@@ -175,6 +177,8 @@ impl NetStreamState {
             status: NetStreamStatus::Disconnected,
             last_msg: None,
             last_seen: None,
+            last_snapshot_at: None,
+            last_event_at: None,
             msg_rate: 0.0,
             msg_window: VecDeque::new(),
             last_error: None,
@@ -651,6 +655,7 @@ impl GraphState {
                 self.on_message();
                 self.net_on_message(&inc.stream);
                 let now = Instant::now();
+                self.net_on_snapshot(&inc.stream, now);
                 self.model.load_snapshot(nodes, edges, now);
                 for id in self.model.nodes.keys() {
                     self.timeline.record_node_upsert(id, now);
@@ -662,6 +667,7 @@ impl GraphState {
             IncomingKind::Event(Msg::Event { delta }) => {
                 self.on_message();
                 self.net_on_message(&inc.stream);
+                self.net_on_event(&inc.stream);
                 self.apply_delta(delta);
             }
             IncomingKind::Identity(_) | IncomingKind::Other(_) => {
@@ -816,6 +822,8 @@ impl GraphState {
         entry.msg_window.clear();
         entry.msg_rate = 0.0;
         entry.last_seen = Some(now);
+        entry.last_snapshot_at = None;
+        entry.last_event_at = None;
         entry.last_error = None;
     }
 
@@ -849,6 +857,24 @@ impl GraphState {
         entry.last_error = None;
         entry.msg_window.push_back(now);
         Self::net_prune_stream(entry, now, window);
+    }
+
+    fn net_on_snapshot(&mut self, stream: &str, now: Instant) {
+        let entry = self
+            .net
+            .streams
+            .entry(stream.to_string())
+            .or_insert_with(NetStreamState::new);
+        entry.last_snapshot_at = Some(now);
+    }
+
+    fn net_on_event(&mut self, stream: &str) {
+        let entry = self
+            .net
+            .streams
+            .entry(stream.to_string())
+            .or_insert_with(NetStreamState::new);
+        entry.last_event_at = Some(Instant::now());
     }
 
     fn net_prune_stream(stream: &mut NetStreamState, now: Instant, window: Duration) {
@@ -1129,6 +1155,8 @@ mod tests {
                 status: NetStreamStatus::Connected,
                 last_msg: Some(now),
                 last_seen: Some(now),
+                last_snapshot_at: None,
+                last_event_at: None,
                 msg_rate: 0.0,
                 msg_window: VecDeque::new(),
                 last_error: None,
@@ -1158,6 +1186,8 @@ mod tests {
                 status: NetStreamStatus::Connected,
                 last_msg: Some(start),
                 last_seen: Some(start),
+                last_snapshot_at: None,
+                last_event_at: None,
                 msg_rate: 0.0,
                 msg_window: VecDeque::new(),
                 last_error: None,

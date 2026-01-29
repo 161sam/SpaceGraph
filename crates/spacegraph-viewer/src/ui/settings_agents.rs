@@ -50,7 +50,7 @@ pub fn agent_manager_window(ctx: &egui::Context, st: &mut GraphState, layout: &U
                     ui.label(egui::RichText::new("Name").strong());
                     ui.label(egui::RichText::new("Status").strong());
                     ui.label(egui::RichText::new("Msgs/s").strong());
-                    ui.label(egui::RichText::new("Last seen").strong());
+                    ui.label(egui::RichText::new("Data flow").strong());
                     ui.label(egui::RichText::new("Mode").strong());
                     ui.label(egui::RichText::new("Actions").strong());
                     ui.end_row();
@@ -60,6 +60,9 @@ pub fn agent_manager_window(ctx: &egui::Context, st: &mut GraphState, layout: &U
                             let endpoint = &st.net.endpoints[idx];
                             (endpoint.name.clone(), endpoint.mode_override)
                         };
+                        let endpoint_path = match &st.net.endpoints[idx].kind {
+                            AgentEndpointKind::UdsPath(path) => path.as_str(),
+                        };
                         let stream = st.net.streams.get(&endpoint_name);
                         let status = stream
                             .map(|s| s.status)
@@ -68,9 +71,18 @@ pub fn agent_manager_window(ctx: &egui::Context, st: &mut GraphState, layout: &U
                         let last_seen = stream
                             .and_then(|s| s.last_seen)
                             .map(|ts| now.duration_since(ts));
+                        let last_snapshot = stream
+                            .and_then(|s| s.last_snapshot_at)
+                            .map(|ts| now.duration_since(ts));
+                        let last_event = stream
+                            .and_then(|s| s.last_event_at)
+                            .map(|ts| now.duration_since(ts));
                         let last_error = stream.and_then(|s| s.last_error.as_ref());
 
-                        ui.label(&endpoint_name);
+                        ui.vertical(|ui| {
+                            ui.label(&endpoint_name);
+                            ui.label(egui::RichText::new(endpoint_path).small());
+                        });
                         let status_text = match status {
                             NetStreamStatus::Disconnected => "disconnected",
                             NetStreamStatus::Connecting => "connecting",
@@ -92,11 +104,27 @@ pub fn agent_manager_window(ctx: &egui::Context, st: &mut GraphState, layout: &U
                             }
                         });
                         ui.label(format!("{msg_rate:.1}"));
-                        let last_seen_label = match last_seen {
-                            Some(delta) => format!("{:.1}s", delta.as_secs_f32()),
-                            None => "—".to_string(),
-                        };
-                        ui.label(last_seen_label);
+                        ui.vertical(|ui| {
+                            let last_seen_label = match last_seen {
+                                Some(delta) => format!("{:.1}s", delta.as_secs_f32()),
+                                None => "—".to_string(),
+                            };
+                            let last_snapshot_label = match last_snapshot {
+                                Some(delta) => format!("{:.1}s", delta.as_secs_f32()),
+                                None => "—".to_string(),
+                            };
+                            let last_event_label = match last_event {
+                                Some(delta) => format!("{:.1}s", delta.as_secs_f32()),
+                                None => "—".to_string(),
+                            };
+                            ui.label(format!("seen: {last_seen_label}"));
+                            ui.label(
+                                egui::RichText::new(format!("snap: {last_snapshot_label}")).small(),
+                            );
+                            ui.label(
+                                egui::RichText::new(format!("live: {last_event_label}")).small(),
+                            );
+                        });
 
                         let mut mode_override = endpoint_mode_override;
                         let mode_label = match mode_override {
