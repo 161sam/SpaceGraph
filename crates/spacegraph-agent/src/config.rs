@@ -23,6 +23,7 @@ pub struct AgentConfig {
     pub mode: AgentMode,
     pub includes: Vec<PathBuf>,
     pub excludes: Vec<PathBuf>,
+    pub uds_path: Option<PathBuf>,
 }
 
 pub fn parse_args() -> Result<AgentConfig> {
@@ -36,6 +37,7 @@ where
     let mut mode = AgentMode::User;
     let mut includes = Vec::new();
     let mut excludes = Vec::new();
+    let mut uds_path = None;
     let mut args = args.into_iter();
 
     while let Some(arg) = args.next() {
@@ -55,6 +57,11 @@ where
             };
             let value = value.to_string_lossy();
             mode = AgentMode::parse(&value)?;
+        } else if arg == "--uds" || arg == "--socket" {
+            let Some(path) = args.next() else {
+                anyhow::bail!("--uds expects a path");
+            };
+            uds_path = Some(PathBuf::from(path));
         } else {
             anyhow::bail!("unknown argument: {:?}", arg);
         }
@@ -64,6 +71,7 @@ where
         mode,
         includes,
         excludes,
+        uds_path,
     })
 }
 
@@ -133,5 +141,12 @@ mod tests {
             1000
         ));
         assert!(!should_warn_privileged_without_root(AgentMode::User, 0));
+    }
+
+    #[test]
+    fn parses_uds_flag() {
+        let args = vec![OsString::from("--uds"), OsString::from("/tmp/test.sock")];
+        let config = parse_args_from(args).expect("config parsed");
+        assert_eq!(config.uds_path, Some(PathBuf::from("/tmp/test.sock")));
     }
 }

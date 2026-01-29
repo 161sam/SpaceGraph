@@ -80,10 +80,17 @@ pub fn agent_manager_window(ctx: &egui::Context, st: &mut GraphState, layout: &U
                         if last_error.is_some() {
                             status_label = status_label.color(egui::Color32::LIGHT_RED);
                         }
-                        let status_resp = ui.label(status_label);
-                        if let Some(err) = last_error {
-                            status_resp.on_hover_text(err);
-                        }
+                        ui.vertical(|ui| {
+                            let status_resp = ui.label(status_label);
+                            if let Some(err) = last_error {
+                                status_resp.on_hover_text(err);
+                                ui.label(
+                                    egui::RichText::new(err)
+                                        .small()
+                                        .color(egui::Color32::LIGHT_RED),
+                                );
+                            }
+                        });
                         ui.label(format!("{msg_rate:.1}"));
                         let last_seen_label = match last_seen {
                             Some(delta) => format!("{:.1}s", delta.as_secs_f32()),
