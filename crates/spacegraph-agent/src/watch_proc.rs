@@ -5,7 +5,7 @@ use spacegraph_core::{
 };
 use std::collections::{HashMap, HashSet};
 use std::fs;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
 
 type ProcDetail = (Vec<(NodeId, Node)>, Vec<Edge>);
@@ -239,6 +239,7 @@ pub fn spawn(node_id: &str, tx: mpsc::Sender<Msg>) -> Result<()> {
         let mut prev = list_pids();
         let mut batch_id: u64 = 1;
         let mut passwd = parse_passwd();
+        let mut last_log = Instant::now() - Duration::from_secs(1);
 
         loop {
             tokio::time::sleep(Duration::from_millis(750)).await;
@@ -252,6 +253,8 @@ pub fn spawn(node_id: &str, tx: mpsc::Sender<Msg>) -> Result<()> {
 
             let new_pids: Vec<i32> = cur.difference(&prev).copied().collect();
             let gone_pids: Vec<i32> = prev.difference(&cur).copied().collect();
+            let new_pids_count = new_pids.len();
+            let gone_pids_count = gone_pids.len();
 
             if new_pids.is_empty() && gone_pids.is_empty() {
                 prev = cur;
@@ -265,9 +268,14 @@ pub fn spawn(node_id: &str, tx: mpsc::Sender<Msg>) -> Result<()> {
                 })
                 .await;
 
+            let mut nodes_sent = 0usize;
+            let mut edges_sent = 0usize;
+
             // handle new pids with detail refresh
             for pid in new_pids {
                 if let Some((nodes, edges)) = collect_process_detail(&node_id, &passwd, pid) {
+                    nodes_sent += nodes.len();
+                    edges_sent += edges.len();
                     for (id, node) in nodes {
                         let _ = tx
                             .send(Msg::Event {
@@ -292,6 +300,7 @@ pub fn spawn(node_id: &str, tx: mpsc::Sender<Msg>) -> Result<()> {
                         cmdline: "<new>".into(),
                         uid: 0,
                     };
+                    nodes_sent += 1;
                     let _ = tx
                         .send(Msg::Event {
                             delta: Delta::UpsertNode { id, node },
@@ -317,6 +326,18 @@ pub fn spawn(node_id: &str, tx: mpsc::Sender<Msg>) -> Result<()> {
                 })
                 .await;
 
+            if last_log.elapsed() >= Duration::from_secs(1) {
+                tracing::debug!(
+                    event_type = "proc",
+                    batch_id,
+                    new_pids = new_pids_count,
+                    removed_pids = gone_pids_count,
+                    nodes_sent,
+                    edges_sent,
+                    "broadcast batch"
+                );
+                last_log = Instant::now();
+            }
             batch_id = batch_id.wrapping_add(1);
             prev = cur;
         }
