@@ -6,6 +6,8 @@ use anyhow::Context;
 #[cfg(unix)]
 use futures_util::{SinkExt, StreamExt};
 #[cfg(unix)]
+use std::sync::atomic::{AtomicUsize, Ordering};
+#[cfg(unix)]
 use tokio::net::UnixListener;
 #[cfg(unix)]
 use tokio_util::codec::{Framed, LengthDelimitedCodec};
@@ -20,6 +22,11 @@ pub async fn run(
 ) -> Result<()> {
     let listener =
         UnixListener::bind(sock_path).with_context(|| format!("bind UDS {sock_path}"))?;
+    let active_clients = AtomicUsize::new(0);
+    let (snapshot_nodes_count, snapshot_edges_count) = match &snapshot_msg {
+        Msg::Snapshot { nodes, edges } => (nodes.len(), edges.len()),
+        _ => (0, 0),
+    };
 
     // Restrict perms: 0600
     #[cfg(unix)]
@@ -33,6 +40,8 @@ pub async fn run(
     loop {
         let (stream, _) = listener.accept().await?;
         let mut framed = Framed::new(stream, LengthDelimitedCodec::new());
+        let client_count = active_clients.fetch_add(1, Ordering::SeqCst) + 1;
+        tracing::info!(count = client_count, "client_connected");
 
         // Per-connection receiver
         let mut bus_rx = bus_tx.subscribe();
@@ -60,6 +69,11 @@ pub async fn run(
         for msg in snapshot_node_events.iter() {
             framed.send(serde_json::to_vec(msg)?.into()).await?;
         }
+        tracing::info!(
+            nodes = snapshot_nodes_count,
+            edges = snapshot_edges_count,
+            "sent_snapshot"
+        );
 
         // Stream deltas
         loop {
@@ -73,6 +87,8 @@ pub async fn run(
                 Err(_) => break,
             }
         }
+        let client_count = active_clients.fetch_sub(1, Ordering::SeqCst) - 1;
+        tracing::info!(count = client_count, "client_disconnected");
     }
 }
 

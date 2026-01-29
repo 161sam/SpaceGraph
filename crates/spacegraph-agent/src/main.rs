@@ -91,6 +91,7 @@ async fn main() -> Result<()> {
 
     // Build initial snapshot
     let (snap_nodes, snap_edges) = snapshot::build_snapshot(&node_id, &policy, config.mode)?;
+    let snapshot_node_count = snap_nodes.len();
     let snapshot_node_events: Vec<Msg> = snap_nodes
         .iter()
         .cloned()
@@ -155,6 +156,16 @@ async fn main() -> Result<()> {
         fs_tx,
     )?;
     watch_proc::spawn(&node_id, proc_tx)?;
+
+    tracing::info!(
+        uds_path = %sock_path,
+        mode = ?config.mode,
+        include_root_count = policy.includes().len(),
+        exclude_root_count = policy.excludes().len(),
+        snapshot_node_count,
+        watch_root_count = effective_root_count,
+        "startup summary"
+    );
 
     // Forward watcher channels → broadcast bus
     {

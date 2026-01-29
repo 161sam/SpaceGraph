@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
 
 use crate::config::AgentMode;
@@ -232,6 +232,7 @@ pub fn spawn(
         tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
 
         let mut batch_id: u64 = 50_000;
+        let mut last_log = Instant::now() - Duration::from_secs(1);
 
         loop {
             tokio::select! {
@@ -250,6 +251,16 @@ pub fn spawn(
                 _ = tick.tick() => {
                     if pending.is_empty() {
                         continue;
+                    }
+
+                    let total = pending.len();
+                    let mut upserts = 0usize;
+                    let mut removes = 0usize;
+                    for action in pending.values() {
+                        match action {
+                            Action::Upsert => upserts += 1,
+                            Action::Remove => removes += 1,
+                        }
                     }
 
                     let _ = tx.send(Msg::Event{ delta: Delta::BatchBegin{ id: batch_id }}).await;
@@ -272,6 +283,17 @@ pub fn spawn(
                     }
 
                     let _ = tx.send(Msg::Event{ delta: Delta::BatchEnd{ id: batch_id }}).await;
+                    if last_log.elapsed() >= Duration::from_secs(1) {
+                        tracing::debug!(
+                            event_type = "fs",
+                            batch_id,
+                            total,
+                            upserts,
+                            removes,
+                            "broadcast batch"
+                        );
+                        last_log = Instant::now();
+                    }
                     batch_id = batch_id.wrapping_add(1);
                 }
             }
