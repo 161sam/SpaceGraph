@@ -160,13 +160,43 @@ fn default_uds_path() -> String {
     static CACHED: OnceLock<String> = OnceLock::new();
     CACHED
         .get_or_init(|| {
-            if let Ok(dir) = std::env::var("XDG_RUNTIME_DIR") {
-                format!("{dir}/spacegraph.sock")
-            } else {
-                "/tmp/spacegraph.sock".to_string()
+            #[cfg(unix)]
+            {
+                if let Some(dir) = preferred_runtime_dir() {
+                    return format!("{dir}/spacegraph.sock");
+                }
             }
+            "/tmp/spacegraph.sock".to_string()
         })
         .clone()
+}
+
+#[cfg(unix)]
+fn preferred_runtime_dir() -> Option<String> {
+    let uid = uid_from_proc().or_else(uid_from_env)?;
+    let run_dir = format!("/run/user/{uid}");
+    if std::path::Path::new(&run_dir).is_dir() {
+        Some(run_dir)
+    } else {
+        None
+    }
+}
+
+#[cfg(unix)]
+fn uid_from_env() -> Option<u32> {
+    std::env::var("UID").ok()?.parse().ok()
+}
+
+#[cfg(unix)]
+fn uid_from_proc() -> Option<u32> {
+    let contents = std::fs::read_to_string("/proc/self/status").ok()?;
+    for line in contents.lines() {
+        if let Some(rest) = line.strip_prefix("Uid:") {
+            let uid = rest.split_whitespace().next()?;
+            return uid.parse().ok();
+        }
+    }
+    None
 }
 
 fn default_agents() -> Vec<AgentEndpoint> {

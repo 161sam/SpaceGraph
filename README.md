@@ -119,7 +119,17 @@ spacegraph-agent --include /etc --include /home/dev --exclude /etc/cni
 ```
 
 Standardmäßig kommunizieren beide über eine Unix-Domain-Socket unter
-`$XDG_RUNTIME_DIR/spacegraph.sock` (falls gesetzt) oder `/tmp/spacegraph.sock`.
+`/run/user/$(id -u)/spacegraph.sock` (falls verfügbar) oder `/tmp/spacegraph.sock`.
+
+### ✅ Diagnose: Agent-UDS prüfen
+
+```bash
+ss -xlpn | rg spacegraph
+```
+
+```bash
+ls -la /run/user/$(id -u) | rg spacegraph
+```
 
 ---
 

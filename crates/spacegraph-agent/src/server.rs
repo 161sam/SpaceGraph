@@ -1,9 +1,16 @@
-use anyhow::{Context, Result};
-use futures_util::{SinkExt, StreamExt};
+use anyhow::Result;
 use spacegraph_core::Msg;
+
+#[cfg(unix)]
+use anyhow::Context;
+#[cfg(unix)]
+use futures_util::{SinkExt, StreamExt};
+#[cfg(unix)]
 use tokio::net::UnixListener;
+#[cfg(unix)]
 use tokio_util::codec::{Framed, LengthDelimitedCodec};
 
+#[cfg(unix)]
 pub async fn run(
     sock_path: &str,
     identity_msg: Msg,
@@ -21,7 +28,7 @@ pub async fn run(
         let _ = std::fs::set_permissions(sock_path, std::fs::Permissions::from_mode(0o600));
     }
 
-    eprintln!("spacegraph-agent listening on {sock_path}");
+    tracing::info!(uds_path = %sock_path, "listening");
 
     loop {
         let (stream, _) = listener.accept().await?;
@@ -67,4 +74,15 @@ pub async fn run(
             }
         }
     }
+}
+
+#[cfg(not(unix))]
+pub async fn run(
+    _sock_path: &str,
+    _identity_msg: Msg,
+    _snapshot_msg: Msg,
+    _snapshot_node_events: Vec<Msg>,
+    _bus_tx: tokio::sync::broadcast::Sender<Msg>,
+) -> Result<()> {
+    anyhow::bail!("UDS server is only supported on unix platforms")
 }
