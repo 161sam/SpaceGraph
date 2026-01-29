@@ -1,5 +1,5 @@
 use bevy::prelude::{Res, ResMut, Time, Vec3};
-use spacegraph_core::{Edge, Node, NodeId};
+use spacegraph_core::{Edge, FileKind, Node, NodeId};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::atomic::Ordering;
 
@@ -88,6 +88,10 @@ impl GraphState {
             base = vis.into_iter().filter(|id| base.contains(id)).collect();
         }
 
+        if self.ui.view_mode == ViewMode::Tree {
+            base = self.tree_visible_set(&base);
+        }
+
         if base.len() > self.cfg.max_visible_nodes {
             let mut v: Vec<NodeId> = base.into_iter().collect();
             v.sort_by(|a, b| a.0.cmp(&b.0));
@@ -96,6 +100,112 @@ impl GraphState {
         } else {
             base
         }
+    }
+
+    fn tree_visible_set(&mut self, base: &HashSet<NodeId>) -> HashSet<NodeId> {
+        let mut path_by_id: HashMap<NodeId, String> = HashMap::new();
+        let mut kind_by_id: HashMap<NodeId, FileKind> = HashMap::new();
+        let mut non_file_ids: Vec<NodeId> = Vec::new();
+        for id in base.iter() {
+            match self.model.nodes.get(id) {
+                Some(Node::File { path, kind, .. }) => {
+                    path_by_id.insert(id.clone(), path.clone());
+                    kind_by_id.insert(id.clone(), kind.clone());
+                }
+                Some(_) => non_file_ids.push(id.clone()),
+                None => {}
+            }
+        }
+
+        let mut path_to_id: HashMap<String, NodeId> = HashMap::new();
+        for (id, path) in &path_by_id {
+            path_to_id.insert(path.clone(), id.clone());
+        }
+
+        let mut children: HashMap<NodeId, Vec<NodeId>> = HashMap::new();
+        let mut roots: Vec<NodeId> = Vec::new();
+        for (id, path) in &path_by_id {
+            let parent =
+                tree::parent_path(path).and_then(|parent| path_to_id.get(&parent).cloned());
+            if let Some(parent_id) = parent {
+                children.entry(parent_id).or_default().push(id.clone());
+            } else {
+                roots.push(id.clone());
+            }
+        }
+
+        self.spatial.tree_dir_children = children
+            .iter()
+            .filter_map(|(id, kids)| {
+                if kids.is_empty() {
+                    return None;
+                }
+                match kind_by_id.get(id) {
+                    Some(FileKind::Dir) => Some(id.clone()),
+                    _ => None,
+                }
+            })
+            .collect();
+
+        let show_files =
+            self.ui.tree_show_files || self.ui.tree_zoom >= self.ui.tree_file_zoom_threshold;
+
+        let mut visible: HashSet<NodeId> = HashSet::new();
+        visible.extend(non_file_ids);
+
+        let mut stack: Vec<NodeId> = Vec::new();
+        for root in roots {
+            let Some(kind) = kind_by_id.get(&root) else {
+                continue;
+            };
+            match kind {
+                FileKind::Dir => {
+                    visible.insert(root.clone());
+                    let depth = path_by_id
+                        .get(&root)
+                        .map(|p| tree::path_depth(p))
+                        .unwrap_or(0);
+                    if self.tree_dir_is_expanded_depth(&root, depth) {
+                        stack.push(root);
+                    }
+                }
+                _ => {
+                    if show_files {
+                        visible.insert(root);
+                    }
+                }
+            }
+        }
+
+        while let Some(dir) = stack.pop() {
+            let Some(kids) = children.get(&dir) else {
+                continue;
+            };
+            for kid in kids {
+                let Some(kind) = kind_by_id.get(kid) else {
+                    continue;
+                };
+                match kind {
+                    FileKind::Dir => {
+                        visible.insert(kid.clone());
+                        let depth = path_by_id
+                            .get(kid)
+                            .map(|p| tree::path_depth(p))
+                            .unwrap_or(0);
+                        if self.tree_dir_is_expanded_depth(kid, depth) {
+                            stack.push(kid.clone());
+                        }
+                    }
+                    _ => {
+                        if show_files {
+                            visible.insert(kid.clone());
+                        }
+                    }
+                }
+            }
+        }
+
+        visible
     }
 
     pub fn edge_visible(&self, e: &Edge, vis: &HashSet<NodeId>) -> bool {
@@ -318,6 +428,24 @@ impl GraphState {
     pub fn apply_tree_layout(&mut self, vis: &HashSet<NodeId>) {
         let positions =
             tree::layout_tree_positions(&self.model.nodes, vis, &self.cfg.path_includes);
+        let mut min = Vec3::new(f32::INFINITY, f32::INFINITY, f32::INFINITY);
+        let mut max = Vec3::new(f32::NEG_INFINITY, f32::NEG_INFINITY, f32::NEG_INFINITY);
+        for id in vis {
+            let Some(pos) = positions.get(id) else {
+                continue;
+            };
+            min.x = min.x.min(pos.x);
+            min.y = min.y.min(pos.y);
+            min.z = min.z.min(pos.z);
+            max.x = max.x.max(pos.x);
+            max.y = max.y.max(pos.y);
+            max.z = max.z.max(pos.z);
+        }
+        if min.x.is_finite() {
+            self.ui.tree_center = (min + max) * 0.5;
+        } else {
+            self.ui.tree_center = Vec3::ZERO;
+        }
         self.spatial.positions = positions;
         self.spatial.velocities.clear();
         self.spatial.dirty_layout = false;

@@ -9,6 +9,7 @@ use std::time::{Duration, Instant};
 use crate::graph::explain::{self, PathStep};
 use crate::graph::model::GraphModel;
 use crate::graph::timeline::{BatchSpan, NodeLife, TimelineEvt, TimelineEvtKind};
+use crate::graph::tree;
 use crate::net::{Incoming, IncomingKind, ReaderHandle};
 use crate::util::config::{AgentEndpoint, AgentMode, LodEdgesMode, ViewerConfig, ViewerViewMode};
 use crate::util::ids::{node_label_long, node_label_short};
@@ -29,6 +30,7 @@ pub struct SpatialState {
     pub progressive_cursor: usize,
     pub dirty_layout: bool,
     pub lod_active: bool,
+    pub tree_dir_children: HashSet<NodeId>,
 }
 
 #[derive(Default)]
@@ -80,6 +82,13 @@ pub struct UiState {
     pub fit_to_view: bool,
 
     pub view_mode: ViewMode,
+    pub tree_collapsed: HashSet<NodeId>,
+    pub tree_expanded: HashSet<NodeId>,
+    pub tree_show_files: bool,
+    pub tree_zoom: f32,
+    pub tree_file_zoom_threshold: f32,
+    pub tree_center: Vec3,
+    pub tree_default_expand_depth: usize,
 }
 
 #[derive(Default, Clone)]
@@ -330,6 +339,7 @@ impl Default for GraphState {
                 progressive_cursor: 0,
                 dirty_layout: true,
                 lod_active: false,
+                tree_dir_children: HashSet::new(),
             },
             timeline: TimelineState {
                 window: Duration::from_secs(60),
@@ -365,6 +375,13 @@ impl Default for GraphState {
                 jump_to: None,
                 fit_to_view: false,
                 view_mode: ViewMode::Spatial,
+                tree_collapsed: HashSet::new(),
+                tree_expanded: HashSet::new(),
+                tree_show_files: false,
+                tree_zoom: 0.0,
+                tree_file_zoom_threshold: 0.05,
+                tree_center: Vec3::ZERO,
+                tree_default_expand_depth: 2,
             },
             perf: PerfState {
                 fps: 0.0,
@@ -720,7 +737,9 @@ impl GraphState {
                     None,
                 );
 
-                if self.spatial.in_batch {
+                if matches!(self.model.nodes.get(&id), Some(Node::File { .. })) {
+                    self.note_path_change(&id, ts);
+                } else if self.spatial.in_batch {
                     self.spatial.touched_nodes.insert(id);
                 } else {
                     self.spatial
@@ -754,6 +773,8 @@ impl GraphState {
                 if self.ui.hovered.as_ref() == Some(&id) {
                     self.ui.hovered = None;
                 }
+                self.ui.tree_collapsed.remove(&id);
+                self.ui.tree_expanded.remove(&id);
 
                 self.push_timeline_at(
                     ts,
@@ -774,6 +795,8 @@ impl GraphState {
                 self.touch_node_at(&edge.from, ts);
                 self.touch_node_at(&edge.to, ts);
                 self.spatial.dirty_layout = true;
+                self.note_path_change(&edge.from, ts);
+                self.note_path_change(&edge.to, ts);
 
                 self.push_timeline_at(
                     ts,
@@ -813,6 +836,42 @@ impl GraphState {
 
     fn touch_node_at(&mut self, id: &NodeId, ts: Instant) {
         self.model.last_seen.insert(id.clone(), ts);
+    }
+
+    fn note_path_change(&mut self, id: &NodeId, ts: Instant) {
+        let Some(Node::File { .. }) = self.model.nodes.get(id) else {
+            return;
+        };
+        let mut ids = vec![id.clone()];
+        ids.extend(self.file_ancestor_ids(id));
+
+        if self.spatial.in_batch {
+            for nid in ids {
+                self.spatial.touched_nodes.insert(nid);
+            }
+        } else {
+            let until = ts + self.cfg.glow_duration;
+            for nid in ids {
+                self.spatial.glow_nodes.insert(nid, until);
+            }
+        }
+    }
+
+    fn file_ancestor_ids(&self, id: &NodeId) -> Vec<NodeId> {
+        let Some(Node::File { path, .. }) = self.model.nodes.get(id) else {
+            return Vec::new();
+        };
+        let Some(prefix) = id.0.split_once(":file:").map(|(prefix, _)| prefix) else {
+            return Vec::new();
+        };
+        let mut out = Vec::new();
+        for parent in tree::ancestor_paths(path) {
+            let ancestor_id = NodeId(format!("{prefix}:file:{parent}"));
+            if self.model.nodes.contains_key(&ancestor_id) {
+                out.push(ancestor_id);
+            }
+        }
+        out
     }
 
     fn net_on_connected(&mut self, stream: String) {
@@ -989,6 +1048,48 @@ impl GraphState {
             .get(id)
             .map(|n| format!("{} ({})", node_label_short(n), id.0))
             .unwrap_or_else(|| id.0.clone())
+    }
+
+    pub fn toggle_tree_dir(&mut self, id: &NodeId) -> bool {
+        let Some(Node::File { path, kind, .. }) = self.model.nodes.get(id) else {
+            return false;
+        };
+        if !matches!(kind, FileKind::Dir) {
+            return false;
+        }
+        let depth = tree::path_depth(path);
+        let expanded = self.tree_dir_is_expanded_depth(id, depth);
+        if expanded {
+            self.ui.tree_collapsed.insert(id.clone());
+            self.ui.tree_expanded.remove(id);
+        } else {
+            self.ui.tree_collapsed.remove(id);
+            self.ui.tree_expanded.insert(id.clone());
+        }
+        self.spatial.dirty_layout = true;
+        self.needs_redraw.store(true, Ordering::Relaxed);
+        true
+    }
+
+    pub fn tree_dir_is_expanded(&self, id: &NodeId) -> bool {
+        let Some(Node::File { path, kind, .. }) = self.model.nodes.get(id) else {
+            return false;
+        };
+        if !matches!(kind, FileKind::Dir) {
+            return false;
+        }
+        let depth = tree::path_depth(path);
+        self.tree_dir_is_expanded_depth(id, depth)
+    }
+
+    pub(crate) fn tree_dir_is_expanded_depth(&self, id: &NodeId, depth: usize) -> bool {
+        if self.ui.tree_collapsed.contains(id) {
+            return false;
+        }
+        if self.ui.tree_expanded.contains(id) {
+            return true;
+        }
+        depth <= self.ui.tree_default_expand_depth
     }
 
     fn sync_agent_endpoints(&mut self, endpoints: Vec<AgentEndpoint>) {

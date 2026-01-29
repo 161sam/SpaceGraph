@@ -37,6 +37,7 @@ impl Plugin for SpaceGraphViewerPlugin {
                     crate::render::hover_detection_spatial,
                     crate::render::picking_focus,
                     crate::render::apply_picked_focus,
+                    crate::render::update_tree_zoom,
                     crate::graph::update_layout_or_timeline,
                     crate::render::draw_scene,
                     crate::render::apply_jump_to,

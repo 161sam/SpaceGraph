@@ -1,7 +1,7 @@
 use bevy::prelude::Vec3;
 use spacegraph_core::{Node, NodeId};
 use std::collections::{HashMap, HashSet};
-use std::path::Path;
+use std::path::{Component, Path};
 
 pub const ROW_SPACING: f32 = 2.0;
 const COL_SPACING: f32 = 2.4;
@@ -11,6 +11,23 @@ pub fn parent_path(path: &str) -> Option<String> {
     Path::new(path)
         .parent()
         .map(|parent| parent.to_string_lossy().to_string())
+}
+
+pub fn path_depth(path: &str) -> usize {
+    Path::new(path)
+        .components()
+        .filter(|c| matches!(c, Component::Normal(_)))
+        .count()
+}
+
+pub fn ancestor_paths(path: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut cursor = parent_path(path);
+    while let Some(parent) = cursor {
+        out.push(parent.clone());
+        cursor = parent_path(&parent);
+    }
+    out
 }
 
 pub fn layout_tree_positions(
@@ -213,6 +230,27 @@ mod tests {
         );
         assert_eq!(parent_path("/home"), Some("/".to_string()));
         assert_eq!(parent_path("/"), None);
+    }
+
+    #[test]
+    fn path_depth_counts_components() {
+        assert_eq!(path_depth("/"), 0);
+        assert_eq!(path_depth("/home"), 1);
+        assert_eq!(path_depth("/home/user"), 2);
+        assert_eq!(path_depth("/home/user/report.txt"), 3);
+    }
+
+    #[test]
+    fn ancestor_paths_returns_chain() {
+        assert_eq!(
+            ancestor_paths("/home/user/report.txt"),
+            vec![
+                "/home/user".to_string(),
+                "/home".to_string(),
+                "/".to_string()
+            ]
+        );
+        assert_eq!(ancestor_paths("/"), Vec::<String>::new());
     }
 
     #[test]
