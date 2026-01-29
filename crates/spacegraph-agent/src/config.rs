@@ -85,11 +85,19 @@ pub fn default_excludes(mode: AgentMode) -> Vec<PathBuf> {
             PathBuf::from("/dev"),
             PathBuf::from("/run"),
             PathBuf::from("/etc/cni/net.d"),
+            PathBuf::from("node_modules"),
+            PathBuf::from(".git"),
+            PathBuf::from("target"),
+            PathBuf::from(".cache"),
         ],
         AgentMode::Privileged => vec![
             PathBuf::from("/proc"),
             PathBuf::from("/sys"),
             PathBuf::from("/dev"),
+            PathBuf::from("node_modules"),
+            PathBuf::from(".git"),
+            PathBuf::from("target"),
+            PathBuf::from(".cache"),
         ],
     }
 }

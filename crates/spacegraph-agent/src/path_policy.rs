@@ -20,7 +20,7 @@ impl PathPolicy {
         self.excludes = self
             .excludes
             .iter()
-            .map(|path| normalize_path(path))
+            .map(|path| normalize_exclude_path(path))
             .collect();
     }
 
@@ -34,9 +34,14 @@ impl PathPolicy {
 
     pub fn is_excluded(&self, path: &Path) -> bool {
         let path = normalize_path(path);
-        self.excludes
-            .iter()
-            .any(|exclude| path.starts_with(exclude))
+        self.excludes.iter().any(|exclude| {
+            if exclude.is_absolute() {
+                path.starts_with(exclude)
+            } else {
+                path.components()
+                    .any(|component| component.as_os_str() == exclude.as_os_str())
+            }
+        })
     }
 
     pub fn is_included(&self, path: &Path) -> bool {
@@ -62,6 +67,14 @@ impl PathPolicy {
 fn normalize_path(path: &Path) -> PathBuf {
     if path.exists() {
         path.canonicalize().unwrap_or_else(|_| path.to_path_buf())
+    } else {
+        path.to_path_buf()
+    }
+}
+
+fn normalize_exclude_path(path: &Path) -> PathBuf {
+    if path.is_absolute() {
+        normalize_path(path)
     } else {
         path.to_path_buf()
     }
@@ -139,5 +152,19 @@ mod tests {
         policy.normalize();
 
         assert!(policy.should_watch(&candidate));
+    }
+
+    #[test]
+    fn relative_excludes_match_by_component() {
+        let root = temp_root("relative");
+        let excluded = root.join("node_modules");
+        let target = excluded.join("file.txt");
+
+        fs::create_dir_all(&excluded).unwrap();
+
+        let mut policy = PathPolicy::new(Vec::new(), vec![PathBuf::from("node_modules")]);
+        policy.normalize();
+
+        assert!(!policy.should_watch(&target));
     }
 }
