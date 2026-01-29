@@ -1,9 +1,7 @@
-use spacegraph_core::{EdgeKind, NodeId};
+use spacegraph_core::{EdgeKind, Node, NodeId};
 use std::time::{Duration, Instant};
 
-use crate::graph::model::node_kind_lane;
 use crate::graph::state::{GraphState, TimelineState};
-use crate::util::ids::stable_u32;
 
 #[derive(Debug, Clone)]
 pub struct NodeLife {
@@ -131,28 +129,13 @@ impl TimelineState {
             }
         }
     }
+}
 
-    pub fn node_life_interval(&self, id: &NodeId, now: Instant) -> Option<(Instant, Instant)> {
-        let life = self.node_life.get(id)?;
-        let window_start = self.window_start(now);
-        let start = if life.first_seen < window_start {
-            window_start
-        } else {
-            life.first_seen
-        };
-        let mut end = life.removed_at.unwrap_or(now);
-        if end > now {
-            end = now;
-        }
-        if end <= start {
-            None
-        } else {
-            Some((start, end))
-        }
-    }
-
-    pub fn active_batch_span(&self, id: u64) -> Option<&BatchSpan> {
-        self.batch_spans.iter().rev().find(|span| span.id == id)
+pub fn timeline_lane_key(node: &Node) -> String {
+    match node {
+        Node::Process { pid, .. } => format!("pid:{pid}"),
+        Node::File { path, .. } => format!("path:{path}"),
+        Node::User { uid, .. } => format!("uid:{uid}"),
     }
 }
 
@@ -219,21 +202,13 @@ impl GraphState {
         }
         self.timeline.events.push_back(evt);
     }
-
-    // ---- Timeline mapping helpers ----
-    pub fn timeline_pos_for_node(&self, id: &NodeId) -> bevy::prelude::Vec3 {
-        // Based on node kind -> Y lane; Z = stable hash; X set by event time elsewhere.
-        let y = self.model.nodes.get(id).map(node_kind_lane).unwrap_or(0.0);
-        let hz = stable_u32(&id.0) as f32 / 65535.0; // 0..1
-        let z = (hz - 0.5) * 18.0;
-        bevy::prelude::Vec3::new(0.0, y, z)
-    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::graph::state::GraphState;
+    use spacegraph_core::FileKind;
     use std::time::Duration;
 
     #[test]
@@ -298,18 +273,17 @@ mod tests {
     }
 
     #[test]
-    fn worldline_lifespan_respects_first_seen_and_removed_at() {
+    fn node_life_tracks_removals() {
         let mut timeline = TimelineState::default();
         let base = Instant::now();
         let id = NodeId("node-1".to_string());
-        timeline.window = Duration::from_secs(30);
         timeline.record_node_upsert(&id, base);
         timeline.record_node_remove(&id, base + Duration::from_secs(12));
 
-        let now = base + Duration::from_secs(20);
-        let (start, end) = timeline.node_life_interval(&id, now).expect("interval");
-        assert_eq!(start, base);
-        assert_eq!(end, base + Duration::from_secs(12));
+        let life = timeline.node_life.get(&id).expect("life");
+        assert_eq!(life.first_seen, base);
+        assert_eq!(life.last_seen, base + Duration::from_secs(12));
+        assert_eq!(life.removed_at, Some(base + Duration::from_secs(12)));
     }
 
     #[test]
@@ -321,12 +295,40 @@ mod tests {
         timeline.record_batch_begin(7, base);
         timeline.record_batch_end(7, base + Duration::from_secs(4));
 
-        let span = timeline.active_batch_span(7).expect("span");
+        let span = timeline.batch_spans.back().expect("span");
+        assert_eq!(span.id, 7);
         assert_eq!(span.start, base);
         assert_eq!(span.end, Some(base + Duration::from_secs(4)));
 
         let now = base + Duration::from_secs(25);
         timeline.trim(now);
-        assert!(timeline.active_batch_span(7).is_none());
+        assert!(timeline.batch_spans.is_empty());
+    }
+
+    #[test]
+    fn timeline_lane_key_groups_processes_by_pid() {
+        let node = Node::Process {
+            pid: 4242,
+            ppid: 1,
+            exe: "/bin/bash".to_string(),
+            cmdline: "bash".to_string(),
+            uid: 1000,
+        };
+        assert_eq!(timeline_lane_key(&node), "pid:4242");
+    }
+
+    #[test]
+    fn timeline_lane_key_distinguishes_file_paths() {
+        let node_a = Node::File {
+            path: "/tmp/a".to_string(),
+            inode: 1,
+            kind: FileKind::Regular,
+        };
+        let node_b = Node::File {
+            path: "/tmp/b".to_string(),
+            inode: 1,
+            kind: FileKind::Regular,
+        };
+        assert_ne!(timeline_lane_key(&node_a), timeline_lane_key(&node_b));
     }
 }

@@ -113,6 +113,14 @@ pub fn ui_panel(
                         ui.label("X scale");
                         ui.add(egui::Slider::new(&mut st.timeline.scale, 0.05..=1.5));
                     });
+                    let mut show_connectors = st.timeline.show_connectors;
+                    if ui
+                        .checkbox(&mut show_connectors, "Show connectors")
+                        .changed()
+                    {
+                        st.timeline.show_connectors = show_connectors;
+                        st.needs_redraw.store(true, Ordering::Relaxed);
+                    }
                     if paused {
                         let window_secs = st.timeline.window.as_secs_f32().max(0.1);
                         ui.horizontal(|ui| {
@@ -129,8 +137,33 @@ pub fn ui_panel(
                             st.timeline.scrub_seconds.clamp(0.0, window_secs);
                     }
                     ui.label(format!("events buffered: {}", st.timeline.events.len()));
-                    ui.label("Worldlines: drawn for visible-set (capped).");
-                    ui.label("Hover an event vertex/edge → tooltip.");
+                    ui.label("Lanes: grouped by entity (pid/path).");
+                    ui.label("Hover an event point → tooltip.");
+
+                    ui.add_space(6.0);
+                    ui.label(egui::RichText::new("Legend").strong());
+                    ui.horizontal_wrapped(|ui| {
+                        ui.label(
+                            egui::RichText::new("Node upsert")
+                                .color(egui::Color32::from_rgb(51, 217, 77)),
+                        );
+                        ui.label(
+                            egui::RichText::new("Node remove")
+                                .color(egui::Color32::from_rgb(230, 51, 51)),
+                        );
+                        ui.label(
+                            egui::RichText::new("Edge upsert")
+                                .color(egui::Color32::from_rgb(51, 140, 230)),
+                        );
+                        ui.label(
+                            egui::RichText::new("Edge remove")
+                                .color(egui::Color32::from_rgb(230, 140, 51)),
+                        );
+                        ui.label(
+                            egui::RichText::new("Batch span")
+                                .color(egui::Color32::from_rgb(191, 191, 191)),
+                        );
+                    });
 
                     ui.add_space(6.0);
                     ui.label(egui::RichText::new("Selection").strong());

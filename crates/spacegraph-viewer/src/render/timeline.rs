@@ -1,9 +1,11 @@
 use bevy::prelude::*;
 use bevy_egui::{egui, EguiContexts};
-use std::collections::HashSet;
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::sync::atomic::Ordering;
+use std::time::Instant;
 
 use crate::graph::model::{edge_explain, edge_kind_name};
+use crate::graph::timeline::timeline_lane_key;
 use crate::graph::{GraphState, TimelineEvtKind};
 use crate::ui::tooltips::render_tooltip;
 use crate::ui::UiLayout;
@@ -19,6 +21,109 @@ struct HoverPick {
     dist: f32,
     text: String,
     pick: Option<TimelinePick>,
+}
+
+struct EventEntry {
+    lane_key: String,
+    x: f32,
+    kind: TimelineEvtKind,
+    age: f32,
+    pick: Option<TimelinePick>,
+    a: Option<spacegraph_core::NodeId>,
+    b: Option<spacegraph_core::NodeId>,
+    edge_kind: Option<spacegraph_core::EdgeKind>,
+}
+
+fn is_valid_segment(a: Vec3, b: Vec3) -> bool {
+    a.is_finite() && b.is_finite() && (a - b).length_squared() > f32::EPSILON
+}
+
+fn draw_segment(gizmos: &mut Gizmos, a: Vec3, b: Vec3, color: Color) {
+    if is_valid_segment(a, b) {
+        gizmos.line(a, b, color);
+    }
+}
+
+fn event_color(kind: &TimelineEvtKind) -> Color {
+    match kind {
+        TimelineEvtKind::NodeUpsert => Color::srgb(0.2, 0.85, 0.3),
+        TimelineEvtKind::NodeRemove => Color::srgb(0.9, 0.2, 0.2),
+        TimelineEvtKind::EdgeUpsert => Color::srgb(0.2, 0.55, 0.9),
+        TimelineEvtKind::EdgeRemove => Color::srgb(0.9, 0.55, 0.2),
+        TimelineEvtKind::BatchBegin(_) | TimelineEvtKind::BatchEnd(_) => {
+            Color::srgb(0.75, 0.75, 0.75)
+        }
+    }
+}
+
+fn event_color_with_alpha(kind: &TimelineEvtKind, alpha: f32) -> Color {
+    match kind {
+        TimelineEvtKind::NodeUpsert => Color::srgba(0.2, 0.85, 0.3, alpha),
+        TimelineEvtKind::NodeRemove => Color::srgba(0.9, 0.2, 0.2, alpha),
+        TimelineEvtKind::EdgeUpsert => Color::srgba(0.2, 0.55, 0.9, alpha),
+        TimelineEvtKind::EdgeRemove => Color::srgba(0.9, 0.55, 0.2, alpha),
+        TimelineEvtKind::BatchBegin(_) | TimelineEvtKind::BatchEnd(_) => {
+            Color::srgba(0.75, 0.75, 0.75, alpha)
+        }
+    }
+}
+
+fn draw_event_marker(gizmos: &mut Gizmos, pos: Vec3, kind: &TimelineEvtKind) {
+    if !pos.is_finite() {
+        return;
+    }
+    let s = 0.25;
+    let color = event_color(kind);
+    match kind {
+        TimelineEvtKind::NodeUpsert => {
+            draw_segment(
+                gizmos,
+                pos + Vec3::new(-s, 0.0, 0.0),
+                pos + Vec3::new(s, 0.0, 0.0),
+                color,
+            );
+            draw_segment(
+                gizmos,
+                pos + Vec3::new(0.0, -s, 0.0),
+                pos + Vec3::new(0.0, s, 0.0),
+                color,
+            );
+        }
+        TimelineEvtKind::NodeRemove => {
+            draw_segment(
+                gizmos,
+                pos + Vec3::new(-s, -s, 0.0),
+                pos + Vec3::new(s, s, 0.0),
+                color,
+            );
+            draw_segment(
+                gizmos,
+                pos + Vec3::new(-s, s, 0.0),
+                pos + Vec3::new(s, -s, 0.0),
+                color,
+            );
+        }
+        TimelineEvtKind::EdgeUpsert => {
+            draw_segment(
+                gizmos,
+                pos + Vec3::new(0.0, -s, 0.0),
+                pos + Vec3::new(0.0, s, 0.0),
+                color,
+            );
+        }
+        TimelineEvtKind::EdgeRemove => {
+            let offset = 0.12;
+            for dy in [-offset, offset] {
+                draw_segment(
+                    gizmos,
+                    pos + Vec3::new(0.0, -s + dy, 0.0),
+                    pos + Vec3::new(0.0, s + dy, 0.0),
+                    color,
+                );
+            }
+        }
+        TimelineEvtKind::BatchBegin(_) | TimelineEvtKind::BatchEnd(_) => {}
+    }
 }
 
 // v0.1.7 Timeline:
@@ -60,54 +165,24 @@ pub fn draw_timeline(
         .unwrap_or(false)
         && !ctx.wants_pointer_input();
 
-    let has_visible_nodes = st.perf.visible_nodes > 0;
     let has_events = !st.timeline.events.is_empty();
     let has_batches = !st.timeline.batch_spans.is_empty();
-    let should_draw_guides = has_visible_nodes || has_events || has_batches;
+    let should_draw_guides = has_events || has_batches;
     if !should_draw_guides {
         return;
     }
 
-    // axis line (now)
-    gizmos.line(
-        Vec3::new(0.0, -10.0, 0.0),
-        Vec3::new(0.0, 10.0, 0.0),
-        Color::WHITE,
-    );
+    let lane_key_for_node = |id: &spacegraph_core::NodeId| {
+        st.model
+            .nodes
+            .get(id)
+            .map(timeline_lane_key)
+            .unwrap_or_else(|| format!("id:{}", id.0))
+    };
+    let mut lane_keys: BTreeSet<String> = BTreeSet::new();
+    let mut event_entries: Vec<EventEntry> = Vec::new();
 
-    // lane guides
-    gizmos.line(
-        Vec3::new(x_min, 8.0, -20.0),
-        Vec3::new(x_max, 8.0, 20.0),
-        Color::WHITE,
-    );
-    gizmos.line(
-        Vec3::new(x_min, 0.0, -20.0),
-        Vec3::new(x_max, 0.0, 20.0),
-        Color::WHITE,
-    );
-    gizmos.line(
-        Vec3::new(x_min, -8.0, -20.0),
-        Vec3::new(x_max, -8.0, 20.0),
-        Color::WHITE,
-    );
-
-    // Worldlines for current visible set (capped)
-    if has_visible_nodes {
-        let vis: HashSet<_> = st.visible_set_capped();
-        for id in vis.iter() {
-            let Some((start, end)) = st.timeline.node_life_interval(id, now) else {
-                continue;
-            };
-            let base = st.timeline_pos_for_node(id);
-            let start_age = now.duration_since(start).as_secs_f32();
-            let end_age = now.duration_since(end).as_secs_f32();
-            let a = Vec3::new(-start_age * scale, base.y, base.z);
-            let b = Vec3::new(-end_age * scale, base.y, base.z);
-            gizmos.line(a, b, Color::WHITE);
-        }
-    }
-
+    let mut batch_spans: Vec<(u64, Instant, Instant, bool)> = Vec::new();
     // Batch spans (begin/end bands)
     for span in st.timeline.batch_spans.iter() {
         let start = if span.start < window_start {
@@ -119,25 +194,7 @@ pub fn draw_timeline(
         if end <= start {
             continue;
         }
-        let start_age = now.duration_since(start).as_secs_f32();
-        let end_age = now.duration_since(end).as_secs_f32();
-        let x_start = -start_age * scale;
-        let x_end = -end_age * scale;
-        let y_min = -10.0;
-        let y_max = 10.0;
-
-        gizmos.line(
-            Vec3::new(x_start, y_min, 0.0),
-            Vec3::new(x_start, y_max, 0.0),
-            Color::WHITE,
-        );
-        if span.end.is_some() {
-            gizmos.line(
-                Vec3::new(x_end, y_min, 0.0),
-                Vec3::new(x_end, y_max, 0.0),
-                Color::WHITE,
-            );
-        }
+        batch_spans.push((span.id, start, end, span.end.is_some()));
     }
 
     // --- Hover detection on events (timeline) ---
@@ -153,7 +210,7 @@ pub fn draw_timeline(
             .unwrap_or_else(|| id.0.clone())
     };
 
-    // Draw events
+    // Collect events
     for ev in st.timeline.events.iter() {
         if ev.ts > now {
             continue;
@@ -169,182 +226,224 @@ pub fn draw_timeline(
                 let Some(aid) = &ev.a else {
                     continue;
                 };
-                let base = st.timeline_pos_for_node(aid);
-                let p = Vec3::new(x, base.y, base.z);
-
-                let s = 0.25;
-                match ev.kind {
-                    TimelineEvtKind::NodeUpsert => {
-                        gizmos.line(
-                            p + Vec3::new(-s, 0.0, 0.0),
-                            p + Vec3::new(s, 0.0, 0.0),
-                            Color::WHITE,
-                        );
-                        gizmos.line(
-                            p + Vec3::new(0.0, -s, 0.0),
-                            p + Vec3::new(0.0, s, 0.0),
-                            Color::WHITE,
-                        );
-                    }
-                    TimelineEvtKind::NodeRemove => {
-                        gizmos.line(
-                            p + Vec3::new(-s, -s, 0.0),
-                            p + Vec3::new(s, s, 0.0),
-                            Color::WHITE,
-                        );
-                        gizmos.line(
-                            p + Vec3::new(-s, s, 0.0),
-                            p + Vec3::new(s, -s, 0.0),
-                            Color::WHITE,
-                        );
-                    }
-                    _ => {}
-                }
-
-                // hover candidate
-                if allow_pick {
-                    if let (Some(cur), Some(screen)) = (cursor, camera.world_to_viewport(cam_tf, p))
-                    {
-                        let d = screen.distance(cur);
-                        if d < 14.0 {
-                            let mut lines = Vec::new();
-                            let label = label_for_node(aid);
-                            lines.push(format!("{:?}", ev.kind));
-                            lines.push(format!("node: {} ({})", label, aid.0));
-                            if let Some(node) = st.model.nodes.get(aid) {
-                                lines.extend(node_label_long(node));
-                            }
-                            lines.push(format!("age: {:.2}s", age));
-                            let pick = Some(TimelinePick::Node(aid.clone()));
-                            if hover_best
-                                .as_ref()
-                                .map(|best| d < best.dist)
-                                .unwrap_or(true)
-                            {
-                                hover_best = Some(HoverPick {
-                                    dist: d,
-                                    text: lines.join("\n"),
-                                    pick,
-                                });
-                            }
-                        }
-                    }
-                }
+                let lane_key = lane_key_for_node(aid);
+                lane_keys.insert(lane_key.clone());
+                event_entries.push(EventEntry {
+                    lane_key,
+                    x,
+                    kind: ev.kind.clone(),
+                    age,
+                    pick: Some(TimelinePick::Node(aid.clone())),
+                    a: Some(aid.clone()),
+                    b: None,
+                    edge_kind: None,
+                });
             }
             TimelineEvtKind::EdgeUpsert | TimelineEvtKind::EdgeRemove => {
                 let (Some(aid), Some(bid)) = (&ev.a, &ev.b) else {
                     continue;
                 };
-                let pa = st.timeline_pos_for_node(aid);
-                let pb = st.timeline_pos_for_node(bid);
+                let lane_key_a = lane_key_for_node(aid);
+                let lane_key_b = lane_key_for_node(bid);
+                lane_keys.insert(lane_key_a.clone());
+                lane_keys.insert(lane_key_b.clone());
+                let pick = Some(TimelinePick::Edge(aid.clone(), bid.clone()));
+                event_entries.push(EventEntry {
+                    lane_key: lane_key_a,
+                    x,
+                    kind: ev.kind.clone(),
+                    age,
+                    pick: pick.clone(),
+                    a: Some(aid.clone()),
+                    b: Some(bid.clone()),
+                    edge_kind: ev.edge_kind.clone(),
+                });
+                event_entries.push(EventEntry {
+                    lane_key: lane_key_b,
+                    x,
+                    kind: ev.kind.clone(),
+                    age,
+                    pick,
+                    a: Some(aid.clone()),
+                    b: Some(bid.clone()),
+                    edge_kind: ev.edge_kind.clone(),
+                });
+            }
+            TimelineEvtKind::BatchBegin(_) | TimelineEvtKind::BatchEnd(_) => {}
+        }
+    }
 
-                let a3 = Vec3::new(x, pa.y, pa.z);
-                let b3 = Vec3::new(x, pb.y, pb.z);
+    let lane_spacing = 2.2;
+    let lane_count = lane_keys.len();
+    let lane_offset = if lane_count > 0 {
+        (lane_count as f32 - 1.0) * 0.5 * lane_spacing
+    } else {
+        0.0
+    };
+    let mut lane_positions: BTreeMap<String, f32> = BTreeMap::new();
+    for (idx, key) in lane_keys.iter().enumerate() {
+        let y = idx as f32 * lane_spacing - lane_offset;
+        lane_positions.insert(key.clone(), y);
+    }
+    let (lane_y_min, lane_y_max) = if lane_count > 0 {
+        (
+            -lane_offset - lane_spacing * 0.5,
+            lane_offset + lane_spacing * 0.5,
+        )
+    } else {
+        (-2.0, 2.0)
+    };
 
-                // interaction line
-                gizmos.line(a3, b3, Color::WHITE);
+    // axis line (now)
+    draw_segment(
+        &mut gizmos,
+        Vec3::new(0.0, lane_y_min, 0.0),
+        Vec3::new(0.0, lane_y_max, 0.0),
+        Color::WHITE,
+    );
 
-                // midpoint tick (event vertex marker)
-                let mid = (a3 + b3) * 0.5;
-                let s = 0.18;
-                match ev.kind {
-                    TimelineEvtKind::EdgeUpsert => {
-                        gizmos.line(
-                            mid + Vec3::new(0.0, -s, 0.0),
-                            mid + Vec3::new(0.0, s, 0.0),
-                            Color::WHITE,
-                        );
-                    }
-                    TimelineEvtKind::EdgeRemove => {
-                        let offset = 0.12;
-                        for dy in [-offset, offset] {
-                            gizmos.line(
-                                mid + Vec3::new(0.0, -s + dy, 0.0),
-                                mid + Vec3::new(0.0, s + dy, 0.0),
-                                Color::WHITE,
-                            );
+    // lane guides
+    for y in lane_positions.values() {
+        draw_segment(
+            &mut gizmos,
+            Vec3::new(x_min, *y, 0.0),
+            Vec3::new(x_max, *y, 0.0),
+            Color::srgb(0.7, 0.7, 0.7),
+        );
+    }
+
+    // Batch spans (begin/end bands)
+    for (id, start, end, has_end) in batch_spans.iter() {
+        let start_age = now.duration_since(*start).as_secs_f32();
+        let end_age = now.duration_since(*end).as_secs_f32();
+        let x_start = -start_age * scale;
+        let x_end = -end_age * scale;
+        let color = event_color(&TimelineEvtKind::BatchBegin(*id));
+
+        draw_segment(
+            &mut gizmos,
+            Vec3::new(x_start, lane_y_min, 0.0),
+            Vec3::new(x_start, lane_y_max, 0.0),
+            color,
+        );
+        if *has_end {
+            draw_segment(
+                &mut gizmos,
+                Vec3::new(x_end, lane_y_min, 0.0),
+                Vec3::new(x_end, lane_y_max, 0.0),
+                color,
+            );
+        }
+    }
+
+    let mut last_in_lane: HashMap<String, Vec3> = HashMap::new();
+
+    // Draw events + hover detection
+    for entry in event_entries.iter() {
+        let Some(y) = lane_positions.get(&entry.lane_key).copied() else {
+            continue;
+        };
+        let pos = Vec3::new(entry.x, y, 0.0);
+        if st.timeline.show_connectors {
+            if let Some(prev) = last_in_lane.get(&entry.lane_key) {
+                draw_segment(
+                    &mut gizmos,
+                    *prev,
+                    pos,
+                    event_color_with_alpha(&entry.kind, 0.35),
+                );
+            }
+        }
+        last_in_lane.insert(entry.lane_key.clone(), pos);
+        draw_event_marker(&mut gizmos, pos, &entry.kind);
+
+        if allow_pick {
+            if let (Some(cur), Some(screen)) = (cursor, camera.world_to_viewport(cam_tf, pos)) {
+                let d = screen.distance(cur);
+                if d < 14.0 {
+                    let pick = entry.pick.clone();
+                    let label = match &entry.kind {
+                        TimelineEvtKind::NodeUpsert | TimelineEvtKind::NodeRemove => {
+                            entry.a.as_ref().map(|aid| {
+                                let mut lines = Vec::new();
+                                let label = label_for_node(aid);
+                                lines.push(format!("{:?}", entry.kind));
+                                lines.push(format!("node: {} ({})", label, aid.0));
+                                if let Some(node) = st.model.nodes.get(aid) {
+                                    lines.extend(node_label_long(node));
+                                }
+                                lines.push(format!("age: {:.2}s", entry.age));
+                                lines.join("\n")
+                            })
                         }
-                    }
-                    _ => {}
-                }
-
-                // hover candidate at midpoint
-                if allow_pick {
-                    if let (Some(cur), Some(screen)) =
-                        (cursor, camera.world_to_viewport(cam_tf, mid))
-                    {
-                        let d = screen.distance(cur);
-                        if d < 14.0 {
-                            let ek = ev.edge_kind.as_ref();
-                            let kind_line = ek
-                                .map(|k| {
-                                    format!(
-                                        "edge_kind: {} ({})",
-                                        edge_kind_name(k),
-                                        edge_explain(k)
-                                    )
-                                })
-                                .unwrap_or_else(|| "edge_kind: (none)".to_string());
-                            let label = format!(
-                                "{:?}\nfrom: {} ({})\nto: {} ({})\n{}\nage: {:.2}s",
-                                ev.kind,
-                                label_for_node(aid),
-                                aid.0,
-                                label_for_node(bid),
-                                bid.0,
-                                kind_line,
-                                age
-                            );
-                            let pick = Some(TimelinePick::Edge(aid.clone(), bid.clone()));
-                            if hover_best
-                                .as_ref()
-                                .map(|best| d < best.dist)
-                                .unwrap_or(true)
-                            {
-                                hover_best = Some(HoverPick {
-                                    dist: d,
-                                    text: label,
-                                    pick,
-                                });
+                        TimelineEvtKind::EdgeUpsert | TimelineEvtKind::EdgeRemove => {
+                            if let (Some(aid), Some(bid)) = (entry.a.as_ref(), entry.b.as_ref()) {
+                                let ek = entry.edge_kind.as_ref();
+                                let kind_line = ek
+                                    .map(|k| {
+                                        format!(
+                                            "edge_kind: {} ({})",
+                                            edge_kind_name(k),
+                                            edge_explain(k)
+                                        )
+                                    })
+                                    .unwrap_or_else(|| "edge_kind: (none)".to_string());
+                                Some(format!(
+                                    "{:?}\nfrom: {} ({})\nto: {} ({})\n{}\nage: {:.2}s",
+                                    entry.kind,
+                                    label_for_node(aid),
+                                    aid.0,
+                                    label_for_node(bid),
+                                    bid.0,
+                                    kind_line,
+                                    entry.age
+                                ))
+                            } else {
+                                None
                             }
+                        }
+                        TimelineEvtKind::BatchBegin(_) | TimelineEvtKind::BatchEnd(_) => None,
+                    };
+                    if let Some(label) = label {
+                        if hover_best
+                            .as_ref()
+                            .map(|best| d < best.dist)
+                            .unwrap_or(true)
+                        {
+                            hover_best = Some(HoverPick {
+                                dist: d,
+                                text: label,
+                                pick,
+                            });
                         }
                     }
                 }
             }
-            TimelineEvtKind::BatchBegin(id) | TimelineEvtKind::BatchEnd(id) => {
-                if let Some(span) = st.timeline.active_batch_span(*id) {
-                    let start = span.start.max(window_start);
-                    let end = span.end.unwrap_or(now).min(now);
-                    if end <= start {
-                        continue;
-                    }
-                    let mid_ts = start + (end - start) / 2;
-                    let mid_age = now.duration_since(mid_ts).as_secs_f32();
-                    let mid = Vec3::new(-mid_age * scale, 0.0, 0.0);
-                    if allow_pick {
-                        if let (Some(cur), Some(screen)) =
-                            (cursor, camera.world_to_viewport(cam_tf, mid))
-                        {
-                            let d = screen.distance(cur);
-                            if d < 14.0 {
-                                let duration = end.duration_since(span.start).as_secs_f32();
-                                let label = format!(
-                                    "Batch {}\nspan: {:.2}s\nage: {:.2}s",
-                                    id, duration, age
-                                );
-                                if hover_best
-                                    .as_ref()
-                                    .map(|best| d < best.dist)
-                                    .unwrap_or(true)
-                                {
-                                    hover_best = Some(HoverPick {
-                                        dist: d,
-                                        text: label,
-                                        pick: None,
-                                    });
-                                }
-                            }
-                        }
+        }
+    }
+
+    // Hover detection for batch spans
+    if allow_pick {
+        for (id, start, end, _has_end) in batch_spans.iter() {
+            let mid_ts = *start + (*end - *start) / 2;
+            let mid_age = now.duration_since(mid_ts).as_secs_f32();
+            let mid = Vec3::new(-mid_age * scale, 0.0, 0.0);
+            if let (Some(cur), Some(screen)) = (cursor, camera.world_to_viewport(cam_tf, mid)) {
+                let d = screen.distance(cur);
+                if d < 14.0 {
+                    let duration = end.duration_since(*start).as_secs_f32();
+                    let label =
+                        format!("Batch {}\nspan: {:.2}s\nage: {:.2}s", id, duration, mid_age);
+                    if hover_best
+                        .as_ref()
+                        .map(|best| d < best.dist)
+                        .unwrap_or(true)
+                    {
+                        hover_best = Some(HoverPick {
+                            dist: d,
+                            text: label,
+                            pick: None,
+                        });
                     }
                 }
             }
