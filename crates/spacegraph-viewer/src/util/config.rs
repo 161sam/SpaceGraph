@@ -9,6 +9,7 @@ use std::sync::OnceLock;
 #[serde(rename_all = "snake_case")]
 pub enum ViewerViewMode {
     Spatial,
+    Tree,
     Timeline,
 }
 

@@ -68,10 +68,10 @@ pub fn hud_overlay(mut contexts: EguiContexts, st: Res<GraphState>, layout: Res<
                 ));
                 ui.label(format!(
                     "Mode: {}",
-                    if st.ui.view_mode == ViewMode::Spatial {
-                        "Spatial"
-                    } else {
-                        "Timeline"
+                    match st.ui.view_mode {
+                        ViewMode::Spatial => "Spatial",
+                        ViewMode::Tree => "Tree",
+                        ViewMode::Timeline => "Timeline",
                     }
                 ));
                 if st.snapshot_loaded

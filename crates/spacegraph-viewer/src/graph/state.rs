@@ -48,6 +48,7 @@ pub struct TimelineState {
 pub enum ViewMode {
     #[default]
     Spatial,
+    Tree,
     Timeline,
 }
 
@@ -76,6 +77,7 @@ pub struct UiState {
     pub search_query: String,
     pub search_hits: Vec<NodeId>,
     pub jump_to: Option<NodeId>,
+    pub fit_to_view: bool,
 
     pub view_mode: ViewMode,
 }
@@ -295,6 +297,7 @@ impl From<ViewerViewMode> for ViewMode {
     fn from(mode: ViewerViewMode) -> Self {
         match mode {
             ViewerViewMode::Spatial => ViewMode::Spatial,
+            ViewerViewMode::Tree => ViewMode::Tree,
             ViewerViewMode::Timeline => ViewMode::Timeline,
         }
     }
@@ -304,6 +307,7 @@ impl From<ViewMode> for ViewerViewMode {
     fn from(mode: ViewMode) -> Self {
         match mode {
             ViewMode::Spatial => ViewerViewMode::Spatial,
+            ViewMode::Tree => ViewerViewMode::Tree,
             ViewMode::Timeline => ViewerViewMode::Timeline,
         }
     }
@@ -359,6 +363,7 @@ impl Default for GraphState {
                 search_query: String::new(),
                 search_hits: Vec::new(),
                 jump_to: None,
+                fit_to_view: false,
                 view_mode: ViewMode::Spatial,
             },
             perf: PerfState {
@@ -427,6 +432,7 @@ impl GraphState {
         self.ui.search_query.clear();
         self.ui.search_hits.clear();
         self.ui.jump_to = None;
+        self.ui.fit_to_view = false;
         self.ui.help_open = false;
 
         self.spatial.glow_nodes.clear();
