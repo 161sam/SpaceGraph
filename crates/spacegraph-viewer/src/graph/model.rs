@@ -64,15 +64,6 @@ pub struct GraphModel {
     agg: HashMap<AggEdgeKey, AggEdge>,
 }
 
-pub fn node_kind_lane(n: &Node) -> f32 {
-    // Y lanes (simple & readable)
-    match n {
-        Node::Process { .. } => 8.0,
-        Node::User { .. } => 0.0,
-        Node::File { .. } => -8.0,
-    }
-}
-
 pub fn edge_kind_name(k: &EdgeKind) -> &'static str {
     match k {
         EdgeKind::Opens { .. } => "opens",

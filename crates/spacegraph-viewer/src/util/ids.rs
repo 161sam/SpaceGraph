@@ -1,11 +1,4 @@
 use spacegraph_core::Node;
-use std::hash::{Hash, Hasher};
-
-pub fn stable_u32(s: &str) -> u32 {
-    let mut h = std::collections::hash_map::DefaultHasher::new();
-    s.hash(&mut h);
-    (h.finish() & 0xFFFF_FFFF) as u32
-}
 
 // viewer-side "pretty path" (display only)
 pub fn normalize_display_path(p: &str) -> String {
