@@ -1,14 +1,9 @@
+use crate::graph::{GraphState, ViewMode};
+use crate::ui::{settings_agents, settings_paths, UiLayout};
+use crate::util::config::{self, LodEdgesMode, ViewerConfig};
 use bevy::prelude::ResMut;
 use bevy_egui::{egui, EguiContexts};
 use std::sync::atomic::Ordering;
-use std::time::Instant;
-
-use crate::graph::state::{NetCommand, NetStreamStatus};
-use crate::graph::{GraphState, ViewMode};
-use crate::ui::{settings_agents, settings_paths, UiLayout};
-use crate::util::config::{
-    self, AgentEndpoint, AgentEndpointKind, AgentMode, LodEdgesMode, ViewerConfig,
-};
 
 pub fn ui_panel(
     mut contexts: EguiContexts,
@@ -40,163 +35,8 @@ pub fn ui_panel(
                 } else {
                     ui.label(format!("{active} Agents connected"));
                 }
-
-                let now = Instant::now();
-                let mut rows: Vec<usize> = (0..st.net.endpoints.len()).collect();
-                rows.sort_by(|a, b| st.net.endpoints[*a].name.cmp(&st.net.endpoints[*b].name));
-
-                let mut remove_index: Option<usize> = None;
-                egui::Grid::new("agents_table")
-                    .striped(true)
-                    .spacing(egui::vec2(8.0, 4.0))
-                    .show(ui, |ui| {
-                        ui.label(egui::RichText::new("Name").strong());
-                        ui.label(egui::RichText::new("Status").strong());
-                        ui.label(egui::RichText::new("Msgs/s").strong());
-                        ui.label(egui::RichText::new("Last seen").strong());
-                        ui.label(egui::RichText::new("Mode").strong());
-                        ui.label(egui::RichText::new("Actions").strong());
-                        ui.end_row();
-
-                        for idx in rows {
-                            let (endpoint_name, endpoint_mode_override) = {
-                                let endpoint = &st.net.endpoints[idx];
-                                (endpoint.name.clone(), endpoint.mode_override)
-                            };
-                            let stream = st.net.streams.get(&endpoint_name);
-                            let status = stream
-                                .map(|s| s.status)
-                                .unwrap_or(NetStreamStatus::Disconnected);
-                            let msg_rate = stream.map(|s| s.msg_rate).unwrap_or(0.0);
-                            let last_seen = stream
-                                .and_then(|s| s.last_seen)
-                                .map(|ts| now.duration_since(ts));
-                            let last_error = stream.and_then(|s| s.last_error.as_ref());
-
-                            ui.label(&endpoint_name);
-                            let status_text = match status {
-                                NetStreamStatus::Disconnected => "disconnected",
-                                NetStreamStatus::Connecting => "connecting",
-                                NetStreamStatus::Connected => "connected",
-                            };
-                            let mut status_label = egui::RichText::new(status_text);
-                            if last_error.is_some() {
-                                status_label = status_label.color(egui::Color32::LIGHT_RED);
-                            }
-                            let status_resp = ui.label(status_label);
-                            if let Some(err) = last_error {
-                                status_resp.on_hover_text(err);
-                            }
-                            ui.label(format!("{msg_rate:.1}"));
-                            let last_seen_label = match last_seen {
-                                Some(delta) => format!("{:.1}s", delta.as_secs_f32()),
-                                None => "—".to_string(),
-                            };
-                            ui.label(last_seen_label);
-
-                            let mut mode_override = endpoint_mode_override;
-                            let mode_label = match mode_override {
-                                Some(mode) => mode.as_str(),
-                                None => "default",
-                            };
-                            egui::ComboBox::from_id_source(format!(
-                                "agent_mode_override_{endpoint_name}"
-                            ))
-                            .selected_text(mode_label)
-                            .show_ui(ui, |ui| {
-                                ui.selectable_value(&mut mode_override, None, "default");
-                                ui.selectable_value(
-                                    &mut mode_override,
-                                    Some(AgentMode::User),
-                                    "user",
-                                );
-                                ui.selectable_value(
-                                    &mut mode_override,
-                                    Some(AgentMode::Privileged),
-                                    "privileged",
-                                );
-                            });
-                            if mode_override != endpoint_mode_override {
-                                st.net.endpoints[idx].mode_override = mode_override;
-                            }
-
-                            ui.horizontal(|ui| {
-                                let has_connection =
-                                    st.net.connections.contains_key(&endpoint_name);
-                                if ui
-                                    .add_enabled(!has_connection, egui::Button::new("Connect"))
-                                    .clicked()
-                                {
-                                    st.net
-                                        .commands
-                                        .push(NetCommand::Connect(endpoint_name.clone()));
-                                }
-                                if ui
-                                    .add_enabled(has_connection, egui::Button::new("Disconnect"))
-                                    .clicked()
-                                {
-                                    st.net
-                                        .commands
-                                        .push(NetCommand::Disconnect(endpoint_name.clone()));
-                                }
-                                if ui
-                                    .add_enabled(has_connection, egui::Button::new("Reconnect"))
-                                    .clicked()
-                                {
-                                    st.net
-                                        .commands
-                                        .push(NetCommand::Reconnect(endpoint_name.clone()));
-                                }
-                                if ui.button("Remove").clicked() {
-                                    remove_index = Some(idx);
-                                }
-                                if ui.button("Command…").clicked() {
-                                    st.ui.agent_command.target = Some(endpoint_name.clone());
-                                    st.ui.agent_command.open = true;
-                                }
-                            });
-                            ui.end_row();
-                        }
-                    });
-
-                ui.horizontal(|ui| {
-                    ui.label("Default mode");
-                    egui::ComboBox::from_id_source("agent_default_mode")
-                        .selected_text(st.cfg.agent_default_mode.as_str())
-                        .show_ui(ui, |ui| {
-                            ui.selectable_value(
-                                &mut st.cfg.agent_default_mode,
-                                AgentMode::User,
-                                "user",
-                            );
-                            ui.selectable_value(
-                                &mut st.cfg.agent_default_mode,
-                                AgentMode::Privileged,
-                                "privileged",
-                            );
-                        });
-                });
-
-                if ui.button("Add Agent…").clicked() {
-                    let default_endpoint = AgentEndpoint::default();
-                    st.ui.agent_editor.name_input.clear();
-                    st.ui.agent_editor.uds_input = match default_endpoint.kind {
-                        AgentEndpointKind::UdsPath(path) => path,
-                    };
-                    st.ui.agent_editor.auto_connect = default_endpoint.auto_connect;
-                    st.ui.agent_editor.mode_override = None;
-                    st.ui.agent_editor.notice = None;
-                    st.ui.show_agent_editor = true;
-                }
-
-                if let Some(idx) = remove_index {
-                    let endpoint = st.net.endpoints.remove(idx);
-                    if st.net.connections.contains_key(&endpoint.name) {
-                        st.net
-                            .commands
-                            .push(NetCommand::Disconnect(endpoint.name.clone()));
-                    }
-                    st.net.streams.remove(&endpoint.name);
+                if ui.button("Manage Agents…").clicked() {
+                    st.ui.show_agent_manager = true;
                 }
             });
 
@@ -433,6 +273,7 @@ pub fn ui_panel(
     layout.content_rect = content_rect;
 
     settings_paths::path_editor_window(ctx, st.as_mut(), &layout);
+    settings_agents::agent_manager_window(ctx, st.as_mut(), &layout);
     settings_agents::agent_editor_window(ctx, st.as_mut(), &layout);
     settings_agents::agent_command_window(ctx, st.as_mut(), &layout);
     super::search::search_overlay(contexts, st);
