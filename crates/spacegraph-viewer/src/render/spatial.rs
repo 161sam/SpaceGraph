@@ -19,7 +19,7 @@ pub fn hover_detection_spatial(
     mut contexts: EguiContexts,
     mut st: ResMut<GraphState>,
 ) {
-    if st.ui.view_mode != ViewMode::Spatial {
+    if st.ui.view_mode == ViewMode::Timeline {
         st.ui.hovered = None;
         return;
     }
@@ -60,7 +60,7 @@ pub fn picking_focus(
     st: Res<GraphState>,
     mut out: EventWriter<Picked>,
 ) {
-    if st.ui.view_mode != ViewMode::Spatial {
+    if st.ui.view_mode == ViewMode::Timeline {
         return;
     }
     if !buttons.just_pressed(MouseButton::Left) {

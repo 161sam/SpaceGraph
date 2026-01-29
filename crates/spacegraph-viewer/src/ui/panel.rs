@@ -45,9 +45,24 @@ pub fn ui_panel(
                 section_header(ui, "View");
                 ui.horizontal(|ui| {
                     ui.label("Mode:");
-                    ui.selectable_value(&mut st.ui.view_mode, ViewMode::Spatial, "Spatial");
-                    ui.selectable_value(&mut st.ui.view_mode, ViewMode::Timeline, "Timeline");
+                    let mut changed = false;
+                    changed |= ui
+                        .selectable_value(&mut st.ui.view_mode, ViewMode::Spatial, "Spatial")
+                        .clicked();
+                    changed |= ui
+                        .selectable_value(&mut st.ui.view_mode, ViewMode::Tree, "Tree")
+                        .clicked();
+                    changed |= ui
+                        .selectable_value(&mut st.ui.view_mode, ViewMode::Timeline, "Timeline")
+                        .clicked();
+                    if changed {
+                        st.spatial.dirty_layout = true;
+                        st.needs_redraw.store(true, Ordering::Relaxed);
+                    }
                 });
+                if st.ui.view_mode == ViewMode::Tree && ui.button("Fit to view").clicked() {
+                    st.ui.fit_to_view = true;
+                }
                 let demo_allowed = st.net.active_connection_count() == 0
                     && (st.model.nodes.is_empty() || st.demo_loaded);
                 let mut demo_mode = st.cfg.demo_mode;

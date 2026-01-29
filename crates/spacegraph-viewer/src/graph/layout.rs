@@ -4,16 +4,23 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::atomic::Ordering;
 
 use crate::graph::state::{GraphState, ViewMode};
+use crate::graph::tree;
 
 pub fn update_layout_or_timeline(time: Res<Time>, mut st: ResMut<GraphState>) {
     let vis: HashSet<_> = st.visible_set_capped();
     let (raw_count, agg_count) = st.visible_edge_counts(&vis);
     st.set_visible_counts(vis.len(), raw_count, agg_count);
 
-    if st.ui.view_mode == ViewMode::Spatial {
-        st.progressive_prepare(&vis);
-        let dt = time.delta_seconds().min(0.033);
-        st.force_step(&vis, dt);
+    match st.ui.view_mode {
+        ViewMode::Spatial => {
+            st.progressive_prepare(&vis);
+            let dt = time.delta_seconds().min(0.033);
+            st.force_step(&vis, dt);
+        }
+        ViewMode::Tree => {
+            st.apply_tree_layout(&vis);
+        }
+        ViewMode::Timeline => {}
     }
 }
 
@@ -305,6 +312,15 @@ impl GraphState {
             }
         }
 
+        self.needs_redraw.store(true, Ordering::Relaxed);
+    }
+
+    pub fn apply_tree_layout(&mut self, vis: &HashSet<NodeId>) {
+        let positions =
+            tree::layout_tree_positions(&self.model.nodes, vis, &self.cfg.path_includes);
+        self.spatial.positions = positions;
+        self.spatial.velocities.clear();
+        self.spatial.dirty_layout = false;
         self.needs_redraw.store(true, Ordering::Relaxed);
     }
 }

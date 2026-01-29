@@ -27,7 +27,9 @@ pub fn draw_scene(
     cam_q: Query<(&Camera, &GlobalTransform)>,
 ) {
     match st.ui.view_mode {
-        ViewMode::Spatial => draw_spatial(commands, st, meshes, mats, query, gizmos, contexts),
+        ViewMode::Spatial | ViewMode::Tree => {
+            draw_spatial(commands, st, meshes, mats, query, gizmos, contexts)
+        }
         ViewMode::Timeline => draw_timeline(st, gizmos, contexts, layout, windows, buttons, cam_q),
     }
 }

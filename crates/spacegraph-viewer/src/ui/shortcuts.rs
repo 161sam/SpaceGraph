@@ -61,9 +61,11 @@ pub fn handle_shortcuts(mut contexts: EguiContexts, mut st: ResMut<GraphState>) 
     }
     if ctx.input(|i| i.key_pressed(egui::Key::T)) {
         st.ui.view_mode = match st.ui.view_mode {
-            ViewMode::Spatial => ViewMode::Timeline,
+            ViewMode::Spatial => ViewMode::Tree,
+            ViewMode::Tree => ViewMode::Timeline,
             ViewMode::Timeline => ViewMode::Spatial,
         };
+        st.spatial.dirty_layout = true;
         st.needs_redraw.store(true, Ordering::Relaxed);
     }
 }
