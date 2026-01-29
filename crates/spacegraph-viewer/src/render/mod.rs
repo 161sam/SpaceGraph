@@ -8,7 +8,7 @@ use bevy_egui::EguiContexts;
 use crate::graph::{GraphState, ViewMode};
 use crate::ui::UiLayout;
 
-pub use camera::{apply_jump_to, setup_scene};
+pub use camera::{apply_jump_to, setup_scene, update_tree_zoom};
 pub use spatial::{apply_picked_focus, draw_spatial, hover_detection_spatial, picking_focus};
 pub use timeline::draw_timeline;
 

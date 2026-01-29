@@ -97,6 +97,9 @@ pub fn picking_focus(
 
 pub fn apply_picked_focus(mut st: ResMut<GraphState>, mut ev: EventReader<Picked>) {
     for Picked(id) in ev.read() {
+        if st.ui.view_mode == ViewMode::Tree {
+            st.toggle_tree_dir(id);
+        }
         st.ui.focus = Some(id.clone());
         st.ui.selected = Some(id.clone());
         st.ui.selected_a = Some(id.clone());
@@ -225,6 +228,36 @@ pub fn draw_spatial(
                 pos + Vec3::new(0.0, 0.0, marker),
                 color,
             );
+        }
+    }
+
+    if st.ui.view_mode == ViewMode::Tree {
+        let indicator_color = Color::srgb(0.9, 0.9, 0.9);
+        let size = 0.35;
+        let offset = Vec3::new(-0.6, 0.0, 0.0);
+        for id in st.spatial.tree_dir_children.iter() {
+            if !vis.contains(id) {
+                continue;
+            }
+            let Some(pos) = st.spatial.positions.get(id).cloned() else {
+                continue;
+            };
+            let base = pos + offset;
+            if st.tree_dir_is_expanded(id) {
+                let a = base + Vec3::new(-size, size * 0.6, 0.0);
+                let b = base + Vec3::new(size, size * 0.6, 0.0);
+                let c = base + Vec3::new(0.0, -size * 0.6, 0.0);
+                gizmos.line(a, b, indicator_color);
+                gizmos.line(b, c, indicator_color);
+                gizmos.line(c, a, indicator_color);
+            } else {
+                let a = base + Vec3::new(-size * 0.5, size, 0.0);
+                let b = base + Vec3::new(-size * 0.5, -size, 0.0);
+                let c = base + Vec3::new(size, 0.0, 0.0);
+                gizmos.line(a, b, indicator_color);
+                gizmos.line(b, c, indicator_color);
+                gizmos.line(c, a, indicator_color);
+            }
         }
     }
 

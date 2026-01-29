@@ -83,3 +83,14 @@ pub fn apply_jump_to(mut st: ResMut<GraphState>, mut cam_q: Query<&mut Transform
     cam_tf.translation = target + offset;
     cam_tf.look_at(target, Vec3::Y);
 }
+
+pub fn update_tree_zoom(cam_q: Query<&Transform, With<Camera>>, mut st: ResMut<GraphState>) {
+    if st.ui.view_mode != ViewMode::Tree {
+        return;
+    }
+    let Ok(cam_tf) = cam_q.get_single() else {
+        return;
+    };
+    let dist = cam_tf.translation.distance(st.ui.tree_center).max(1.0);
+    st.ui.tree_zoom = 1.0 / dist;
+}

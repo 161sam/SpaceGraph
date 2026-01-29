@@ -63,6 +63,20 @@ pub fn ui_panel(
                 if st.ui.view_mode == ViewMode::Tree && ui.button("Fit to view").clicked() {
                     st.ui.fit_to_view = true;
                 }
+                if st.ui.view_mode == ViewMode::Tree {
+                    ui.add_space(6.0);
+                    ui.label(egui::RichText::new("Tree").strong());
+                    let mut show_files = st.ui.tree_show_files;
+                    if ui.checkbox(&mut show_files, "Show files").changed() {
+                        st.ui.tree_show_files = show_files;
+                        st.spatial.dirty_layout = true;
+                        st.needs_redraw.store(true, Ordering::Relaxed);
+                    }
+                    ui.label(format!(
+                        "Files auto-show when zoom ≥ {:.3}",
+                        st.ui.tree_file_zoom_threshold
+                    ));
+                }
                 let demo_allowed = st.net.active_connection_count() == 0
                     && (st.model.nodes.is_empty() || st.demo_loaded);
                 let mut demo_mode = st.cfg.demo_mode;
