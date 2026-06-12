@@ -40,6 +40,18 @@ impl AgentMode {
     }
 }
 
+/// Visual theme selection. `Standard` is the neon "Ghost in the Shell" look
+/// (HDR + bloom, per-type emissive, fog, grid); `Minimal` is the flat,
+/// accessibility/perf fallback (no bloom, plain materials) matching the
+/// pre-visual-pass behaviour.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum VisualTheme {
+    #[default]
+    Standard,
+    Minimal,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", content = "value", rename_all = "snake_case")]
 pub enum AgentEndpointKind {
@@ -102,6 +114,8 @@ pub struct ViewerConfig {
     pub gc_enabled: bool,
     pub gc_ttl_secs: u64,
     pub default_agent_mode: AgentMode,
+    #[serde(default)]
+    pub visual_theme: VisualTheme,
     #[serde(default = "default_agents")]
     pub agents: Vec<AgentEndpoint>,
 }
@@ -141,6 +155,7 @@ impl Default for ViewerConfig {
             gc_enabled: true,
             gc_ttl_secs: 30,
             default_agent_mode: AgentMode::User,
+            visual_theme: VisualTheme::Standard,
             agents: vec![AgentEndpoint::default()],
         }
     }

@@ -1,5 +1,6 @@
 pub mod camera;
 pub mod spatial;
+pub mod theme;
 pub mod timeline;
 
 use bevy::prelude::*;
@@ -8,9 +9,9 @@ use bevy_egui::EguiContexts;
 use crate::graph::{GraphState, ViewMode};
 use crate::ui::UiLayout;
 
-pub use camera::{apply_jump_to, setup_scene, update_tree_zoom};
+pub use camera::{apply_jump_to, setup_scene, sync_visual_theme, update_tree_zoom};
 pub use spatial::{
-    apply_picked_focus, draw_spatial, hover_detection_spatial, picking_focus,
+    apply_picked_focus, draw_node_labels, draw_spatial, hover_detection_spatial, picking_focus,
     setup_node_render_resources, sync_node_entities, NodeEntities,
 };
 pub use timeline::draw_timeline;

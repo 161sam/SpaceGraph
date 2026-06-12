@@ -1,7 +1,11 @@
+use bevy::core_pipeline::bloom::BloomSettings;
+use bevy::core_pipeline::tonemapping::Tonemapping;
 use bevy::prelude::*;
 use std::sync::atomic::Ordering;
 
 use crate::graph::{GraphState, ViewMode};
+use crate::render::theme;
+use crate::util::config::VisualTheme;
 
 pub fn setup_scene(mut commands: Commands) {
     commands.spawn(PointLightBundle {
@@ -14,10 +18,41 @@ pub fn setup_scene(mut commands: Commands) {
         ..default()
     });
 
-    commands.spawn(Camera3dBundle {
-        transform: Transform::from_xyz(0.0, 18.0, 28.0).looking_at(Vec3::ZERO, Vec3::Y),
-        ..default()
-    });
+    // HDR camera with bloom so emissive (neon) elements glow. Bloom intensity
+    // is themed at runtime by `sync_visual_theme` (0 in the Minimal theme).
+    commands.spawn((
+        Camera3dBundle {
+            camera: Camera {
+                hdr: true,
+                ..default()
+            },
+            tonemapping: Tonemapping::TonyMcMapface,
+            transform: Transform::from_xyz(0.0, 18.0, 28.0).looking_at(Vec3::ZERO, Vec3::Y),
+            ..default()
+        },
+        BloomSettings::NATURAL,
+    ));
+}
+
+/// Apply the active visual theme to scene-wide settings: background clear colour
+/// and bloom intensity (Minimal = no bloom, flat background).
+pub fn sync_visual_theme(
+    st: Res<GraphState>,
+    mut clear: ResMut<ClearColor>,
+    mut bloom_q: Query<&mut BloomSettings>,
+) {
+    let (bg, bloom) = match st.cfg.visual_theme {
+        VisualTheme::Standard => (theme::CLEAR_STANDARD, 0.25_f32),
+        VisualTheme::Minimal => (theme::CLEAR_MINIMAL, 0.0),
+    };
+    if clear.0 != bg {
+        clear.0 = bg;
+    }
+    for mut settings in bloom_q.iter_mut() {
+        if (settings.intensity - bloom).abs() > f32::EPSILON {
+            settings.intensity = bloom;
+        }
+    }
 }
 
 pub fn apply_jump_to(mut st: ResMut<GraphState>, mut cam_q: Query<&mut Transform, With<Camera>>) {

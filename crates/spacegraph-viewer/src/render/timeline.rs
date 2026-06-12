@@ -7,6 +7,7 @@ use std::time::Instant;
 use crate::graph::model::{edge_explain, edge_kind_name};
 use crate::graph::timeline::timeline_lane_key;
 use crate::graph::{GraphState, TimelineEvtKind};
+use crate::render::theme;
 use crate::ui::tooltips::render_tooltip;
 use crate::ui::UiLayout;
 use crate::util::ids::{node_label_long, node_label_short};
@@ -46,26 +47,16 @@ fn draw_segment(gizmos: &mut Gizmos, a: Vec3, b: Vec3, color: Color) {
 
 fn event_color(kind: &TimelineEvtKind) -> Color {
     match kind {
-        TimelineEvtKind::NodeUpsert => Color::srgb(0.2, 0.85, 0.3),
-        TimelineEvtKind::NodeRemove => Color::srgb(0.9, 0.2, 0.2),
-        TimelineEvtKind::EdgeUpsert => Color::srgb(0.2, 0.55, 0.9),
-        TimelineEvtKind::EdgeRemove => Color::srgb(0.9, 0.55, 0.2),
-        TimelineEvtKind::BatchBegin(_) | TimelineEvtKind::BatchEnd(_) => {
-            Color::srgb(0.75, 0.75, 0.75)
-        }
+        TimelineEvtKind::NodeUpsert => theme::TL_NODE_UPSERT,
+        TimelineEvtKind::NodeRemove => theme::TL_NODE_REMOVE,
+        TimelineEvtKind::EdgeUpsert => theme::TL_EDGE_UPSERT,
+        TimelineEvtKind::EdgeRemove => theme::TL_EDGE_REMOVE,
+        TimelineEvtKind::BatchBegin(_) | TimelineEvtKind::BatchEnd(_) => theme::TL_BATCH,
     }
 }
 
 fn event_color_with_alpha(kind: &TimelineEvtKind, alpha: f32) -> Color {
-    match kind {
-        TimelineEvtKind::NodeUpsert => Color::srgba(0.2, 0.85, 0.3, alpha),
-        TimelineEvtKind::NodeRemove => Color::srgba(0.9, 0.2, 0.2, alpha),
-        TimelineEvtKind::EdgeUpsert => Color::srgba(0.2, 0.55, 0.9, alpha),
-        TimelineEvtKind::EdgeRemove => Color::srgba(0.9, 0.55, 0.2, alpha),
-        TimelineEvtKind::BatchBegin(_) | TimelineEvtKind::BatchEnd(_) => {
-            Color::srgba(0.75, 0.75, 0.75, alpha)
-        }
-    }
+    event_color(kind).with_alpha(alpha)
 }
 
 fn draw_event_marker(gizmos: &mut Gizmos, pos: Vec3, kind: &TimelineEvtKind) {
