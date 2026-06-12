@@ -1,6 +1,7 @@
 pub mod help;
 pub mod hud;
 pub mod layout;
+pub mod minimap;
 pub mod panel;
 pub mod search;
 pub mod settings_agents;
@@ -15,5 +16,6 @@ pub const HUD_FALLBACK_Y_OFFSET: f32 = 220.0;
 pub use help::help_overlay;
 pub use hud::hud_overlay;
 pub use layout::UiLayout;
+pub use minimap::minimap;
 pub use panel::ui_panel;
 pub use shortcuts::handle_shortcuts;

@@ -31,7 +31,11 @@ impl Plugin for SpaceGraphViewerPlugin {
             .add_event::<Picked>()
             .insert_resource(st)
             .insert_resource(UiLayout::default())
-            .insert_resource(crate::render::NodeEntities::default());
+            .insert_resource(crate::render::NodeEntities::default())
+            .insert_resource(crate::render::FlyCam::default())
+            .insert_resource(crate::render::DragSelect::default())
+            .insert_resource(crate::render::ScanPulse::default())
+            .insert_resource(crate::render::Mission::default());
 
         match self.demo_load {
             Some(n) => {
@@ -65,6 +69,10 @@ impl Plugin for SpaceGraphViewerPlugin {
                 crate::render::apply_picked_focus,
                 crate::render::update_tree_zoom,
                 crate::render::sync_visual_theme,
+                crate::render::fly_camera,
+                crate::render::scan_pulse,
+                crate::render::mission_tick,
+                crate::ui::minimap,
             ),
         )
         // Render pipeline runs in order: layout publishes the visible set, the

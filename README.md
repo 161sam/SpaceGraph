@@ -78,6 +78,17 @@ Ziel ist **Verständnis**, nicht nur Monitoring.
 - Severity-Farben (low=amber, medium=orange, high=rot), Alerts immer sichtbar
   (cap `max_visible_alerts`, älteste evict), Alerts-Panel (Counts + Jump)
 
+### Gameplay / Exploration
+- **Free-Fly „Pilot"-Modus** (`V`): WASD/QE bewegen, Maus-Look, Shift = Boost
+- **Box-Select** (Links-Drag) für Multi-Auswahl; tiefengenaues Ray-Picking
+- **Scan-Puls** (`G`): expandierende Welle vom Kamerastandpunkt lässt
+  getroffene Nodes aufglühen (aktives Erkunden)
+- **Incident-Hunt** (`M`): wähle den alarmierten Host → Score (schneller = mehr),
+  Anzeige im „Incident Hunt"-Panel
+- **Minimap/Radar** (Top-Down-Overlay) mit Kamera-Marker
+- _Geplant:_ Audio (Hum/Blip/Klaxon — `audio`-Feature vorhanden, braucht Assets),
+  echtes Fog-of-war (Reveal/Placement-Entkopplung)
+
 ### UX & Analyse
 - Ctrl+P Search & Jump
 - HUD (FPS, Eventrate, Visible Nodes)
