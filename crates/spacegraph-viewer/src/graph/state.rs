@@ -7,6 +7,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 use crate::graph::explain::{self, PathStep};
+use crate::graph::interner::{NodeIndex, NodeInterner};
 use crate::graph::model::GraphModel;
 use crate::graph::synthetic;
 use crate::graph::timeline::{BatchSpan, NodeLife, TimelineEvt, TimelineEvtKind};
@@ -17,13 +18,28 @@ use crate::util::ids::{node_label_long, node_label_short};
 
 #[derive(Default)]
 pub struct SpatialState {
-    pub positions: HashMap<NodeId, Vec3>,
-    pub velocities: HashMap<NodeId, Vec3>,
+    /// `NodeId` ⇄ dense `NodeIndex` projection for the viewer hot paths.
+    pub interner: NodeInterner,
+    /// Per-index spatial state, all indexed by `NodeIndex` and sized to
+    /// `interner.capacity()`. Freed slots are cleared (see [`Self::release`]).
+    pub positions: Vec<Vec3>,
+    pub velocities: Vec<Vec3>,
+    pub placed: Vec<bool>,
+    pub glow_until: Vec<Option<Instant>>,
+
+    /// Layout spring list: model edges resolved to index pairs, rebuilt only on
+    /// topology change (`springs_dirty`) — never per frame.
+    pub spring_edges: Vec<(NodeIndex, NodeIndex)>,
+    pub springs_dirty: bool,
+
+    /// Reused per-frame scratch buffers (avoid per-frame allocation/clones).
+    pub forces: Vec<Vec3>,
+    pub active: Vec<NodeIndex>,
+    pub visible_mask: Vec<bool>,
 
     pub in_batch: bool,
     pub touched_nodes: HashSet<NodeId>,
     pub touched_edges: HashSet<Edge>,
-    pub glow_nodes: HashMap<NodeId, Instant>,
     pub glow_edges: HashMap<Edge, Instant>,
     pub last_batch_id: Option<u64>,
 
@@ -32,6 +48,117 @@ pub struct SpatialState {
     pub dirty_layout: bool,
     pub lod_active: bool,
     pub tree_dir_children: HashSet<NodeId>,
+}
+
+impl SpatialState {
+    /// Grow per-index `Vec`s to cover every interner slot.
+    fn ensure_capacity(&mut self) {
+        let cap = self.interner.capacity();
+        if self.positions.len() < cap {
+            self.positions.resize(cap, Vec3::ZERO);
+            self.velocities.resize(cap, Vec3::ZERO);
+            self.placed.resize(cap, false);
+            self.glow_until.resize(cap, None);
+        }
+    }
+
+    /// Intern `id` and make sure its per-index storage exists.
+    pub fn intern(&mut self, id: &NodeId) -> NodeIndex {
+        let idx = self.interner.intern(id);
+        self.ensure_capacity();
+        idx
+    }
+
+    pub fn index_of(&self, id: &NodeId) -> Option<NodeIndex> {
+        self.interner.index_of(id)
+    }
+
+    pub fn is_placed(&self, id: &NodeId) -> bool {
+        self.index_of(id)
+            .map(|idx| self.placed[idx.slot()])
+            .unwrap_or(false)
+    }
+
+    pub fn position_of(&self, id: &NodeId) -> Option<Vec3> {
+        let idx = self.index_of(id)?;
+        if self.placed[idx.slot()] {
+            Some(self.positions[idx.slot()])
+        } else {
+            None
+        }
+    }
+
+    pub fn set_position(&mut self, idx: NodeIndex, pos: Vec3) {
+        self.positions[idx.slot()] = pos;
+        self.placed[idx.slot()] = true;
+    }
+
+    /// Clear all per-index state for a slot (called on release so reuse is safe).
+    fn clear_slot(&mut self, idx: NodeIndex) {
+        let i = idx.slot();
+        self.positions[i] = Vec3::ZERO;
+        self.velocities[i] = Vec3::ZERO;
+        self.placed[i] = false;
+        self.glow_until[i] = None;
+    }
+
+    /// Release a node, freeing its slot for reuse and clearing its state.
+    pub fn release(&mut self, id: &NodeId) {
+        if let Some(idx) = self.interner.release(id) {
+            self.clear_slot(idx);
+        }
+    }
+
+    pub fn set_node_glow(&mut self, id: &NodeId, until: Instant) {
+        let idx = self.intern(id);
+        self.glow_until[idx.slot()] = Some(until);
+    }
+
+    pub fn node_glow(&self, id: &NodeId) -> Option<Instant> {
+        let idx = self.index_of(id)?;
+        self.glow_until[idx.slot()]
+    }
+
+    pub fn is_glowing(&self, id: &NodeId) -> bool {
+        self.node_glow(id).is_some()
+    }
+
+    /// Iterate placed nodes as `(id, position)` for rendering / picking.
+    pub fn placed_positions(&self) -> impl Iterator<Item = (&NodeId, Vec3)> + '_ {
+        self.interner.iter().filter_map(move |(idx, id)| {
+            if self.placed[idx.slot()] {
+                Some((id, self.positions[idx.slot()]))
+            } else {
+                None
+            }
+        })
+    }
+
+    /// Expire node glow past its deadline; returns whether anything changed.
+    pub fn expire_node_glow(&mut self, now: Instant) -> bool {
+        let mut changed = false;
+        for slot in self.glow_until.iter_mut() {
+            if matches!(*slot, Some(until) if until <= now) {
+                *slot = None;
+                changed = true;
+            }
+        }
+        changed
+    }
+
+    /// Reset all index-keyed spatial state (interner, positions, springs).
+    pub fn reset(&mut self) {
+        self.interner.clear();
+        self.positions.clear();
+        self.velocities.clear();
+        self.placed.clear();
+        self.glow_until.clear();
+        self.spring_edges.clear();
+        self.springs_dirty = true;
+        self.forces.clear();
+        self.active.clear();
+        self.visible_mask.clear();
+    }
 }
 
 #[derive(Default)]
@@ -227,9 +354,7 @@ impl NetState {
     }
 
     pub fn ensure_stream(&mut self, name: &str) {
-        self.streams
-            .entry(name.to_string())
-            .or_default();
+        self.streams.entry(name.to_string()).or_default();
     }
 
     pub fn active_connection_count(&self) -> usize {
@@ -335,19 +460,9 @@ impl Default for GraphState {
         Self {
             model: GraphModel::default(),
             spatial: SpatialState {
-                positions: HashMap::new(),
-                velocities: HashMap::new(),
-                in_batch: false,
-                touched_nodes: HashSet::new(),
-                touched_edges: HashSet::new(),
-                glow_nodes: HashMap::new(),
-                glow_edges: HashMap::new(),
-                last_batch_id: None,
-                active_vis_cache: Vec::new(),
-                progressive_cursor: 0,
                 dirty_layout: true,
-                lod_active: false,
-                tree_dir_children: HashSet::new(),
+                springs_dirty: true,
+                ..Default::default()
             },
             timeline: TimelineState {
                 window: Duration::from_secs(60),
@@ -446,8 +561,7 @@ impl Default for GraphState {
 impl GraphState {
     pub fn clear(&mut self) {
         self.model.clear();
-        self.spatial.positions.clear();
-        self.spatial.velocities.clear();
+        self.spatial.reset();
         self.ui.focus = None;
         self.ui.hovered = None;
         self.ui.selected = None;
@@ -461,7 +575,6 @@ impl GraphState {
         self.ui.fit_to_view = false;
         self.ui.help_open = false;
 
-        self.spatial.glow_nodes.clear();
         self.spatial.glow_edges.clear();
         self.perf.ev_window.clear();
         self.perf.event_total = 0;
@@ -743,8 +856,9 @@ impl GraphState {
                 self.spatial.in_batch = false;
                 let until = ts + self.cfg.glow_duration;
 
-                for idn in self.spatial.touched_nodes.drain() {
-                    self.spatial.glow_nodes.insert(idn, until);
+                let touched: Vec<NodeId> = self.spatial.touched_nodes.drain().collect();
+                for idn in touched {
+                    self.spatial.set_node_glow(&idn, until);
                 }
                 for e in self.spatial.touched_edges.drain() {
                     self.spatial.glow_edges.insert(e, until);
@@ -769,17 +883,15 @@ impl GraphState {
                 } else if self.spatial.in_batch {
                     self.spatial.touched_nodes.insert(id);
                 } else {
-                    self.spatial
-                        .glow_nodes
-                        .insert(id, ts + self.cfg.glow_duration);
+                    let until = ts + self.cfg.glow_duration;
+                    self.spatial.set_node_glow(&id, until);
                 }
                 self.needs_redraw.store(true, Ordering::Relaxed);
             }
             Delta::RemoveNode { id } => {
                 let removed_edges = self.model.remove_node(&id);
-                self.spatial.positions.remove(&id);
-                self.spatial.velocities.remove(&id);
-                self.spatial.glow_nodes.remove(&id);
+                self.spatial.release(&id);
+                self.spatial.springs_dirty = true;
                 for edge in removed_edges {
                     self.spatial.glow_edges.remove(&edge);
                     self.spatial.touched_edges.remove(&edge);
@@ -822,6 +934,7 @@ impl GraphState {
                 self.touch_node_at(&edge.from, ts);
                 self.touch_node_at(&edge.to, ts);
                 self.spatial.dirty_layout = true;
+                self.spatial.springs_dirty = true;
                 self.note_path_change(&edge.from, ts);
                 self.note_path_change(&edge.to, ts);
 
@@ -847,6 +960,7 @@ impl GraphState {
             Delta::RemoveEdge { edge } => {
                 self.model.remove_edge(&edge);
                 self.spatial.glow_edges.remove(&edge);
+                self.spatial.springs_dirty = true;
 
                 self.push_timeline_at(
                     ts,
@@ -879,7 +993,7 @@ impl GraphState {
         } else {
             let until = ts + self.cfg.glow_duration;
             for nid in ids {
-                self.spatial.glow_nodes.insert(nid, until);
+                self.spatial.set_node_glow(&nid, until);
             }
         }
     }
@@ -904,11 +1018,7 @@ impl GraphState {
     fn net_on_connected(&mut self, stream: String) {
         self.set_demo_mode(false);
         let now = Instant::now();
-        let entry = self
-            .net
-            .streams
-            .entry(stream.clone())
-            .or_default();
+        let entry = self.net.streams.entry(stream.clone()).or_default();
         entry.status = NetStreamStatus::Connected;
         entry.last_msg = None;
         entry.msg_window.clear();
@@ -938,11 +1048,7 @@ impl GraphState {
         self.set_demo_mode(false);
         let now = Instant::now();
         let window = self.net.msg_window;
-        let entry = self
-            .net
-            .streams
-            .entry(stream.to_string())
-            .or_default();
+        let entry = self.net.streams.entry(stream.to_string()).or_default();
         entry.status = NetStreamStatus::Connected;
         entry.last_msg = Some(now);
         entry.last_seen = Some(now);
@@ -952,20 +1058,12 @@ impl GraphState {
     }
 
     fn net_on_snapshot(&mut self, stream: &str, now: Instant) {
-        let entry = self
-            .net
-            .streams
-            .entry(stream.to_string())
-            .or_default();
+        let entry = self.net.streams.entry(stream.to_string()).or_default();
         entry.last_snapshot_at = Some(now);
     }
 
     fn net_on_event(&mut self, stream: &str) {
-        let entry = self
-            .net
-            .streams
-            .entry(stream.to_string())
-            .or_default();
+        let entry = self.net.streams.entry(stream.to_string()).or_default();
         entry.last_event_at = Some(Instant::now());
     }
 
@@ -1027,7 +1125,7 @@ impl GraphState {
 
     // ---- Glow checks ----
     pub fn node_is_glowing(&self, id: &NodeId) -> bool {
-        self.spatial.glow_nodes.contains_key(id)
+        self.spatial.is_glowing(id)
     }
     pub fn edge_is_glowing(&self, e: &Edge) -> bool {
         self.spatial.glow_edges.contains_key(e)
@@ -1211,6 +1309,33 @@ impl GraphState {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn spatial_slot_reuse_clears_state() {
+        let mut sp = SpatialState::default();
+        let a = NodeId("a".to_string());
+        let ia = sp.intern(&a);
+        sp.set_position(ia, Vec3::new(1.0, 2.0, 3.0));
+        sp.velocities[ia.slot()] = Vec3::new(9.0, 9.0, 9.0);
+        sp.set_node_glow(&a, Instant::now() + Duration::from_secs(1));
+        assert!(sp.is_placed(&a));
+        assert!(sp.is_glowing(&a));
+
+        sp.release(&a);
+        assert!(!sp.is_placed(&a));
+        assert_eq!(sp.position_of(&a), None);
+        assert!(sp.index_of(&a).is_none());
+
+        // A new node must reuse the freed slot and start with cleared state.
+        let b = NodeId("b".to_string());
+        let ib = sp.intern(&b);
+        assert_eq!(ib, ia, "freed slot should be reused");
+        assert!(!sp.is_placed(&b));
+        assert_eq!(sp.positions[ib.slot()], Vec3::ZERO);
+        assert_eq!(sp.velocities[ib.slot()], Vec3::ZERO);
+        assert_eq!(sp.glow_until[ib.slot()], None);
+        assert!(!sp.is_glowing(&b));
+    }
     use spacegraph_core::{FileKind, Node};
 
     #[test]

@@ -3,6 +3,7 @@ use spacegraph_core::{Edge, FileKind, Node, NodeId};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::atomic::Ordering;
 
+use crate::graph::interner::NodeIndex;
 use crate::graph::state::{GraphState, ViewMode};
 use crate::graph::tree;
 
@@ -27,6 +28,7 @@ pub fn update_layout_or_timeline(time: Res<Time>, mut st: ResMut<GraphState>) {
 impl GraphState {
     pub(crate) fn mark_dirty_all(&mut self) {
         self.spatial.dirty_layout = true;
+        self.spatial.springs_dirty = true;
         self.spatial.active_vis_cache.clear();
         self.spatial.progressive_cursor = 0;
         self.explain_cache = None;
@@ -314,62 +316,45 @@ impl GraphState {
         } else {
             self.cfg.radius
         };
-        let y_spread = self.cfg.y_spread;
+        // When 3D is off, collapse the ring spread onto the y=0 plane.
+        let y_spread = if self.ui.show_3d {
+            self.cfg.y_spread
+        } else {
+            0.0
+        };
 
         let take = self.cfg.progressive_nodes_per_frame.max(1);
         let start = self.spatial.progressive_cursor;
         let end = (start + take).min(self.spatial.active_vis_cache.len());
 
-        let mut proc_ids = Vec::new();
-        let mut file_ids = Vec::new();
-        let mut user_ids = Vec::new();
+        // Snapshot the slice so we can intern (mutate spatial) while iterating.
+        let slice: Vec<NodeId> = self.spatial.active_vis_cache[start..end].to_vec();
 
-        for id in &self.spatial.active_vis_cache[start..end] {
-            if self.spatial.positions.contains_key(id) {
+        let mut proc_idx: Vec<NodeIndex> = Vec::new();
+        let mut file_idx: Vec<NodeIndex> = Vec::new();
+        let mut user_idx: Vec<NodeIndex> = Vec::new();
+
+        for id in &slice {
+            let kind = match self.model.nodes.get(id) {
+                Some(Node::Process { .. }) => 0u8,
+                Some(Node::File { .. }) => 1,
+                Some(Node::User { .. }) => 2,
+                None => continue,
+            };
+            let idx = self.spatial.intern(id);
+            if self.spatial.placed[idx.slot()] {
                 continue;
             }
-            if let Some(n) = self.model.nodes.get(id) {
-                match n {
-                    Node::Process { .. } => proc_ids.push(id.clone()),
-                    Node::File { .. } => file_ids.push(id.clone()),
-                    Node::User { .. } => user_ids.push(id.clone()),
-                }
+            match kind {
+                0 => proc_idx.push(idx),
+                1 => file_idx.push(idx),
+                _ => user_idx.push(idx),
             }
         }
 
-        place_ring(
-            &mut self.spatial.positions,
-            &proc_ids,
-            radius * 0.7,
-            0.0,
-            y_spread,
-        );
-        place_ring(
-            &mut self.spatial.positions,
-            &file_ids,
-            radius * 1.2,
-            0.0,
-            y_spread,
-        );
-        place_ring(
-            &mut self.spatial.positions,
-            &user_ids,
-            radius * 0.35,
-            0.0,
-            y_spread,
-        );
-
-        for id in &self.spatial.active_vis_cache[start..end] {
-            self.spatial
-                .velocities
-                .entry(id.clone())
-                .or_insert(Vec3::ZERO);
-            if !self.ui.show_3d {
-                if let Some(p) = self.spatial.positions.get_mut(id) {
-                    p.y = 0.0;
-                }
-            }
-        }
+        self.place_ring_idx(&proc_idx, radius * 0.7, y_spread);
+        self.place_ring_idx(&file_idx, radius * 1.2, y_spread);
+        self.place_ring_idx(&user_idx, radius * 0.35, y_spread);
 
         self.spatial.progressive_cursor = end;
         if self.spatial.progressive_cursor >= self.spatial.active_vis_cache.len() {
@@ -379,17 +364,70 @@ impl GraphState {
         self.needs_redraw.store(true, Ordering::Relaxed);
     }
 
+    /// Place a batch of nodes on a ring of radius `r`. Velocities default to
+    /// zero (interner storage), so no separate velocity init is needed.
+    fn place_ring_idx(&mut self, idxs: &[NodeIndex], r: f32, y_spread: f32) {
+        let n = idxs.len().max(1) as f32;
+        for (i, &idx) in idxs.iter().enumerate() {
+            if self.spatial.placed[idx.slot()] {
+                continue;
+            }
+            let t = (i as f32) / n * std::f32::consts::TAU;
+            let x = r * t.cos();
+            let z = r * t.sin();
+            let y = if y_spread > 0.0 {
+                ((i as f32) % 7.0) / 7.0 * y_spread
+            } else {
+                0.0
+            };
+            self.spatial.set_position(idx, Vec3::new(x, y, z));
+        }
+    }
+
+    /// Rebuild the index-based spring list from current model edges. Called only
+    /// when topology changes (`springs_dirty`), never per frame.
+    fn rebuild_springs(&mut self) {
+        let pairs: Vec<(NodeId, NodeId)> = self
+            .model
+            .edges
+            .iter()
+            .map(|e| (e.from.clone(), e.to.clone()))
+            .collect();
+        self.spatial.spring_edges.clear();
+        self.spatial.spring_edges.reserve(pairs.len());
+        for (from, to) in pairs {
+            let a = self.spatial.intern(&from);
+            let b = self.spatial.intern(&to);
+            self.spatial.spring_edges.push((a, b));
+        }
+        self.spatial.springs_dirty = false;
+    }
+
     pub fn force_step(&mut self, vis: &HashSet<NodeId>, dt: f32) {
         if !self.cfg.layout_force {
             return;
         }
 
-        let ids: Vec<NodeId> = vis
-            .iter()
-            .filter(|id| self.spatial.positions.contains_key(*id))
-            .cloned()
-            .collect();
-        if ids.len() <= 1 {
+        if self.spatial.springs_dirty {
+            self.rebuild_springs();
+        }
+
+        let cap = self.spatial.interner.capacity();
+
+        // Active set = visible AND placed; mask lets springs filter in O(1).
+        self.spatial.visible_mask.clear();
+        self.spatial.visible_mask.resize(cap, false);
+        self.spatial.active.clear();
+        for id in vis.iter() {
+            if let Some(idx) = self.spatial.interner.index_of(id) {
+                let i = idx.slot();
+                if self.spatial.placed[i] {
+                    self.spatial.visible_mask[i] = true;
+                    self.spatial.active.push(idx);
+                }
+            }
+        }
+        if self.spatial.active.len() <= 1 {
             return;
         }
 
@@ -397,88 +435,70 @@ impl GraphState {
         let repulsion = self.cfg.repulsion.max(0.0);
         let damping = self.cfg.damping.clamp(0.0, 1.0);
         let max_step = self.cfg.max_step.max(0.001);
+        let show_3d = self.ui.show_3d;
 
-        let mut forces: HashMap<NodeId, Vec3> = HashMap::new();
-        for id in ids.iter() {
-            forces.insert(id.clone(), Vec3::ZERO);
-        }
+        // Reset force accumulator (indexed by NodeIndex).
+        self.spatial.forces.clear();
+        self.spatial.forces.resize(cap, Vec3::ZERO);
 
-        for i in 0..ids.len() {
-            for j in (i + 1)..ids.len() {
-                let a = &ids[i];
-                let b = &ids[j];
-                let pa = *self.spatial.positions.get(a).unwrap_or(&Vec3::ZERO);
-                let pb = *self.spatial.positions.get(b).unwrap_or(&Vec3::ZERO);
-
+        // Repulsion: O(N^2) over the active set (algorithm unchanged from
+        // baseline; Phase 2 replaces this with a uniform grid). Index-based
+        // array access — no HashMap lookups, no per-pair NodeId clones.
+        let n = self.spatial.active.len();
+        for ai in 0..n {
+            let ia = self.spatial.active[ai].slot();
+            let pa = self.spatial.positions[ia];
+            for bi in (ai + 1)..n {
+                let ib = self.spatial.active[bi].slot();
+                let pb = self.spatial.positions[ib];
                 let mut dir = pa - pb;
-                if !self.ui.show_3d {
+                if !show_3d {
                     dir.y = 0.0;
                 }
                 let dist2 = dir.length_squared().max(0.01);
                 let f = (repulsion / dist2) * dir.normalize_or_zero();
-
-                *forces.get_mut(a).unwrap() += f;
-                *forces.get_mut(b).unwrap() -= f;
+                self.spatial.forces[ia] += f;
+                self.spatial.forces[ib] -= f;
             }
         }
 
-        for id in vis.iter() {
-            for edge in self.model.edges_for_node(id) {
-                if &edge.from != id {
-                    continue;
-                }
-                if !self.edge_visible(edge, vis) {
-                    continue;
-                }
-                if !(self.spatial.positions.contains_key(&edge.from)
-                    && self.spatial.positions.contains_key(&edge.to))
-                {
-                    continue;
-                }
-                let pa = *self
-                    .spatial
-                    .positions
-                    .get(&edge.from)
-                    .unwrap_or(&Vec3::ZERO);
-                let pb = *self.spatial.positions.get(&edge.to).unwrap_or(&Vec3::ZERO);
-
-                let mut d = pb - pa;
-                if !self.ui.show_3d {
-                    d.y = 0.0;
-                }
-                let len = d.length().max(0.001);
-                let dir = d / len;
-                let k = 0.6;
-                let stretch = len - link_dist;
-                let f = k * stretch * dir;
-
-                *forces.get_mut(&edge.from).unwrap() += f;
-                *forces.get_mut(&edge.to).unwrap() -= f;
+        // Springs: iterate the prebuilt index list, applying only to pairs that
+        // are both visible (mask check) — no edge scans, no clones.
+        let k = 0.6;
+        for si in 0..self.spatial.spring_edges.len() {
+            let (a, b) = self.spatial.spring_edges[si];
+            let ia = a.slot();
+            let ib = b.slot();
+            if !self.spatial.visible_mask[ia] || !self.spatial.visible_mask[ib] {
+                continue;
             }
+            let pa = self.spatial.positions[ia];
+            let pb = self.spatial.positions[ib];
+            let mut d = pb - pa;
+            if !show_3d {
+                d.y = 0.0;
+            }
+            let len = d.length().max(0.001);
+            let dir = d / len;
+            let stretch = len - link_dist;
+            let f = k * stretch * dir;
+            self.spatial.forces[ia] += f;
+            self.spatial.forces[ib] -= f;
         }
 
-        for id in ids.iter() {
-            let v = self
-                .spatial
-                .velocities
-                .entry(id.clone())
-                .or_insert(Vec3::ZERO);
-            let f = *forces.get(id).unwrap_or(&Vec3::ZERO);
-
+        // Integrate over the active set.
+        for k2 in 0..self.spatial.active.len() {
+            let i = self.spatial.active[k2].slot();
+            let f = self.spatial.forces[i];
+            let v = &mut self.spatial.velocities[i];
             *v = (*v + f * dt) * damping;
-
             let mut step = *v * dt;
             if step.length() > max_step {
                 step = step.normalize_or_zero() * max_step;
             }
-
-            let p = self
-                .spatial
-                .positions
-                .entry(id.clone())
-                .or_insert(Vec3::ZERO);
+            let p = &mut self.spatial.positions[i];
             *p += step;
-            if !self.ui.show_3d {
+            if !show_3d {
                 p.y = 0.0;
             }
         }
@@ -507,29 +527,19 @@ impl GraphState {
         } else {
             self.ui.tree_center = Vec3::ZERO;
         }
-        self.spatial.positions = positions;
-        self.spatial.velocities.clear();
+        // Tree layout replaces all spatial positions: clear placements, zero
+        // velocities, then set tree positions by index.
+        self.spatial.placed.iter_mut().for_each(|p| *p = false);
+        self.spatial
+            .velocities
+            .iter_mut()
+            .for_each(|v| *v = Vec3::ZERO);
+        for (id, pos) in &positions {
+            let idx = self.spatial.intern(id);
+            self.spatial.set_position(idx, *pos);
+        }
         self.spatial.dirty_layout = false;
         self.needs_redraw.store(true, Ordering::Relaxed);
-    }
-}
-
-fn place_ring(pos: &mut HashMap<NodeId, Vec3>, ids: &[NodeId], r: f32, y_base: f32, y_spread: f32) {
-    let n = ids.len().max(1) as f32;
-    for (i, id) in ids.iter().enumerate() {
-        if pos.contains_key(id) {
-            continue;
-        }
-        let t = (i as f32) / n * std::f32::consts::TAU;
-        let x = r * t.cos();
-        let z = r * t.sin();
-        let y = y_base
-            + if y_spread > 0.0 {
-                ((i as f32) % 7.0) / 7.0 * y_spread
-            } else {
-                0.0
-            };
-        pos.insert(id.clone(), Vec3::new(x, y, z));
     }
 }
 
@@ -580,5 +590,54 @@ mod tests {
         assert_eq!(vis.len(), 500);
         let (_, agg) = st.visible_edge_counts(&vis);
         assert!(agg > 0);
+    }
+
+    #[test]
+    fn spring_edges_resolve_after_node_removal() {
+        let mut st = state_with_synthetic(80, 10_000);
+        let vis = st.visible_set_capped();
+        st.cfg.progressive_nodes_per_frame = 10_000;
+        st.progressive_prepare(&vis);
+        st.force_step(&vis, 0.016); // builds the spring list
+
+        assert!(!st.spatial.spring_edges.is_empty());
+        for &(a, b) in &st.spatial.spring_edges {
+            assert!(st.spatial.interner.resolve(a).is_some());
+            assert!(st.spatial.interner.resolve(b).is_some());
+        }
+
+        // Remove a node (GC-style) and recompute; spring endpoints must still
+        // resolve and none may reference the removed node's slot.
+        let victim = st.model.nodes.keys().next().cloned().unwrap();
+        st.model.remove_node(&victim);
+        st.spatial.release(&victim);
+        st.spatial.springs_dirty = true;
+
+        let vis2 = st.visible_set_capped();
+        st.force_step(&vis2, 0.016);
+
+        assert!(st.spatial.index_of(&victim).is_none());
+        for &(a, b) in &st.spatial.spring_edges {
+            let ra = st.spatial.interner.resolve(a);
+            let rb = st.spatial.interner.resolve(b);
+            assert!(ra.is_some() && rb.is_some());
+            assert_ne!(ra, Some(&victim));
+            assert_ne!(rb, Some(&victim));
+        }
+    }
+
+    #[test]
+    fn force_step_is_finite_and_moves_nodes() {
+        let mut st = state_with_synthetic(200, 10_000);
+        let vis = st.visible_set_capped();
+        st.cfg.progressive_nodes_per_frame = 10_000;
+        st.progressive_prepare(&vis);
+        for _ in 0..20 {
+            st.force_step(&vis, 0.016);
+        }
+        // All placed positions stay finite (no NaN/inf blow-ups).
+        for (_, pos) in st.spatial.placed_positions() {
+            assert!(pos.is_finite(), "position went non-finite: {pos:?}");
+        }
     }
 }

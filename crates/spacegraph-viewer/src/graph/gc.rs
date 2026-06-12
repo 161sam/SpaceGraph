@@ -9,11 +9,10 @@ impl GraphState {
     // ----- Glow maintenance -----
     pub fn tick_glow(&mut self) {
         let now = Instant::now();
-        let before_n = self.spatial.glow_nodes.len();
+        let nodes_changed = self.spatial.expire_node_glow(now);
         let before_e = self.spatial.glow_edges.len();
-        self.spatial.glow_nodes.retain(|_, until| *until > now);
         self.spatial.glow_edges.retain(|_, until| *until > now);
-        if self.spatial.glow_nodes.len() != before_n || self.spatial.glow_edges.len() != before_e {
+        if nodes_changed || self.spatial.glow_edges.len() != before_e {
             self.needs_redraw.store(true, Ordering::Relaxed);
         }
     }
@@ -56,9 +55,7 @@ impl GraphState {
 
         for id in to_remove {
             self.model.nodes.remove(&id);
-            self.spatial.positions.remove(&id);
-            self.spatial.velocities.remove(&id);
-            self.spatial.glow_nodes.remove(&id);
+            self.spatial.release(&id);
             self.model.last_seen.remove(&id);
 
             if self.ui.focus.as_ref() == Some(&id) {
