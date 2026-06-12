@@ -2,8 +2,8 @@ use bevy::prelude::{Res, ResMut, Time, Vec3};
 use spacegraph_core::{Edge, FileKind, Node, NodeId};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::atomic::Ordering;
+use std::time::Instant;
 
-use crate::graph::interner::NodeIndex;
 use crate::graph::state::{GraphState, ViewMode};
 use crate::graph::tree;
 
@@ -311,88 +311,63 @@ impl GraphState {
             self.spatial.progressive_cursor = 0;
         }
 
-        let radius = if self.cfg.radius <= 0.0 {
-            25.0
+        let total = self.spatial.active_vis_cache.len().max(1);
+        let show_3d = self.ui.show_3d;
+        // Initial spacing ≈ the repulsion cell size, so the grid starts at ~1
+        // node per cell (bounded density). The region side scales with the node
+        // count, keeping density bounded as N grows — without this the uniform
+        // grid degenerates back to O(N²) because every node lands in a handful
+        // of cells.
+        let spacing = self
+            .cfg
+            .repulsion_radius
+            .max(self.cfg.link_distance)
+            .max(1.0);
+        let side = if show_3d {
+            (total as f32).cbrt() * spacing
         } else {
-            self.cfg.radius
-        };
-        // When 3D is off, collapse the ring spread onto the y=0 plane.
-        let y_spread = if self.ui.show_3d {
-            self.cfg.y_spread
-        } else {
-            0.0
+            (total as f32).sqrt() * spacing
         };
 
         let take = self.cfg.progressive_nodes_per_frame.max(1);
         let start = self.spatial.progressive_cursor;
-        let end = (start + take).min(self.spatial.active_vis_cache.len());
+        let end = (start + take).min(total);
 
         // Snapshot the slice so we can intern (mutate spatial) while iterating.
         let slice: Vec<NodeId> = self.spatial.active_vis_cache[start..end].to_vec();
 
-        let mut proc_idx: Vec<NodeIndex> = Vec::new();
-        let mut file_idx: Vec<NodeIndex> = Vec::new();
-        let mut user_idx: Vec<NodeIndex> = Vec::new();
-
-        for id in &slice {
-            let kind = match self.model.nodes.get(id) {
-                Some(Node::Process { .. }) => 0u8,
-                Some(Node::File { .. }) => 1,
-                Some(Node::User { .. }) => 2,
-                None => continue,
-            };
+        for (off, id) in slice.iter().enumerate() {
+            if !self.model.nodes.contains_key(id) {
+                continue;
+            }
             let idx = self.spatial.intern(id);
             if self.spatial.placed[idx.slot()] {
                 continue;
             }
-            match kind {
-                0 => proc_idx.push(idx),
-                1 => file_idx.push(idx),
-                _ => user_idx.push(idx),
-            }
+            let pos = scatter_position(start + off, side, show_3d);
+            self.spatial.set_position(idx, pos);
         }
 
-        self.place_ring_idx(&proc_idx, radius * 0.7, y_spread);
-        self.place_ring_idx(&file_idx, radius * 1.2, y_spread);
-        self.place_ring_idx(&user_idx, radius * 0.35, y_spread);
-
         self.spatial.progressive_cursor = end;
-        if self.spatial.progressive_cursor >= self.spatial.active_vis_cache.len() {
+        if self.spatial.progressive_cursor >= total {
             self.spatial.dirty_layout = false;
         }
 
         self.needs_redraw.store(true, Ordering::Relaxed);
     }
 
-    /// Place a batch of nodes on a ring of radius `r`. Velocities default to
-    /// zero (interner storage), so no separate velocity init is needed.
-    fn place_ring_idx(&mut self, idxs: &[NodeIndex], r: f32, y_spread: f32) {
-        let n = idxs.len().max(1) as f32;
-        for (i, &idx) in idxs.iter().enumerate() {
-            if self.spatial.placed[idx.slot()] {
-                continue;
-            }
-            let t = (i as f32) / n * std::f32::consts::TAU;
-            let x = r * t.cos();
-            let z = r * t.sin();
-            let y = if y_spread > 0.0 {
-                ((i as f32) % 7.0) / 7.0 * y_spread
-            } else {
-                0.0
-            };
-            self.spatial.set_position(idx, Vec3::new(x, y, z));
-        }
-    }
-
     /// Rebuild the index-based spring list from current model edges. Called only
-    /// when topology changes (`springs_dirty`), never per frame.
+    /// when topology changes (`springs_dirty`), never per frame. Endpoints are
+    /// interned in sorted edge order so index assignment (and thus the layout)
+    /// is deterministic regardless of `HashSet` iteration order.
     fn rebuild_springs(&mut self) {
-        let pairs: Vec<(NodeId, NodeId)> = self
+        let mut pairs: Vec<(NodeId, NodeId)> = self
             .model
             .edges
             .iter()
             .map(|e| (e.from.clone(), e.to.clone()))
             .collect();
+        pairs.sort_by(|a, b| a.0 .0.cmp(&b.0 .0).then_with(|| a.1 .0.cmp(&b.1 .0)));
         self.spatial.spring_edges.clear();
         self.spatial.spring_edges.reserve(pairs.len());
         for (from, to) in pairs {
@@ -415,6 +390,7 @@ impl GraphState {
         let cap = self.spatial.interner.capacity();
 
         // Active set = visible AND placed; mask lets springs filter in O(1).
+        // Sorted by index for deterministic force accumulation order.
         self.spatial.visible_mask.clear();
         self.spatial.visible_mask.resize(cap, false);
         self.spatial.active.clear();
@@ -428,38 +404,89 @@ impl GraphState {
             }
         }
         if self.spatial.active.len() <= 1 {
+            self.spatial.repulsion_cursor = 0;
             return;
         }
+        self.spatial.active.sort_unstable();
 
         let link_dist = self.cfg.link_distance.max(0.1);
         let repulsion = self.cfg.repulsion.max(0.0);
         let damping = self.cfg.damping.clamp(0.0, 1.0);
         let max_step = self.cfg.max_step.max(0.001);
         let show_3d = self.ui.show_3d;
+        // Cell size == cutoff radius, so adjacent-cell search captures every
+        // pair within the cutoff.
+        let cell = if self.cfg.repulsion_radius > 0.0 {
+            self.cfg.repulsion_radius
+        } else {
+            (2.5 * link_dist).max(0.1)
+        };
+        let cutoff2 = cell * cell;
+        let budget_ms = self.cfg.layout_budget_ms;
 
-        // Reset force accumulator (indexed by NodeIndex).
-        self.spatial.forces.clear();
-        self.spatial.forces.resize(cap, Vec3::ZERO);
+        // A repulsion pass spans one or more frames. At the start of a pass
+        // (cursor == 0) reset the force accumulator and rebuild the grid against
+        // the (frozen) positions; positions only change once a pass completes,
+        // so splitting a pass across frames is deterministic.
+        if self.spatial.repulsion_cursor == 0 {
+            self.spatial.forces.clear();
+            self.spatial.forces.resize(cap, Vec3::ZERO);
+            self.spatial
+                .grid
+                .rebuild(&self.spatial.positions, &self.spatial.active, cell, show_3d);
+        } else if self.spatial.forces.len() < cap {
+            self.spatial.forces.resize(cap, Vec3::ZERO);
+        }
 
-        // Repulsion: O(N^2) over the active set (algorithm unchanged from
-        // baseline; Phase 2 replaces this with a uniform grid). Index-based
-        // array access — no HashMap lookups, no per-pair NodeId clones.
+        // Neighbour-only repulsion, resumable under the per-frame time budget.
+        let start = Instant::now();
         let n = self.spatial.active.len();
-        for ai in 0..n {
-            let ia = self.spatial.active[ai].slot();
+        let mut i = self.spatial.repulsion_cursor.min(n);
+        let mut neigh = std::mem::take(&mut self.spatial.grid_scratch);
+        while i < n {
+            let a = self.spatial.active[i];
+            let ia = a.slot();
             let pa = self.spatial.positions[ia];
-            for bi in (ai + 1)..n {
-                let ib = self.spatial.active[bi].slot();
+            self.spatial.grid.neighbors_into(pa, &mut neigh);
+            // No sort needed: the grid is built by pushing `active` (sorted by
+            // index), so each bucket — and the gathered candidate list — is in a
+            // deterministic order across runs, giving a deterministic force
+            // accumulation order without an O(k log k) per-node sort.
+            for &b in neigh.iter() {
+                if b.0 <= a.0 {
+                    continue; // each unordered pair acted on once (lower index)
+                }
+                let ib = b.slot();
                 let pb = self.spatial.positions[ib];
                 let mut dir = pa - pb;
                 if !show_3d {
                     dir.y = 0.0;
                 }
-                let dist2 = dir.length_squared().max(0.01);
-                let f = (repulsion / dist2) * dir.normalize_or_zero();
+                let dist2 = dir.length_squared();
+                if dist2 > cutoff2 {
+                    continue;
+                }
+                let d2 = dist2.max(0.01);
+                let f = (repulsion / d2) * dir.normalize_or_zero();
                 self.spatial.forces[ia] += f;
                 self.spatial.forces[ib] -= f;
             }
+            i += 1;
+            if budget_ms > 0.0
+                && (i & 0xFF) == 0
+                && start.elapsed().as_secs_f32() * 1000.0 > budget_ms
+            {
+                break;
+            }
+        }
+        self.spatial.grid_scratch = neigh;
+
+        let pass_complete = i >= n;
+        self.spatial.repulsion_cursor = if pass_complete { 0 } else { i };
+        if !pass_complete {
+            // Positions stay frozen until the repulsion pass finishes.
+            self.needs_redraw.store(true, Ordering::Relaxed);
+            return;
         }
 
         // Springs: iterate the prebuilt index list, applying only to pairs that
@@ -540,6 +567,28 @@ impl GraphState {
         }
         self.spatial.dirty_layout = false;
         self.needs_redraw.store(true, Ordering::Relaxed);
+    }
+}
+
+/// Deterministic low-discrepancy scatter (R3 additive recurrence) over a cube
+/// of the given `side`, centred at the origin. Spreads nodes at roughly uniform
+/// density so the uniform-grid repulsion stays O(N) from the first frame. Pure
+/// function of `global_index`, so placement is reproducible across runs.
+fn scatter_position(global_index: usize, side: f32, show_3d: bool) -> Vec3 {
+    // 1/φ, 1/φ², 1/φ³ for the cubic plastic constant φ ≈ 1.2207440846.
+    const A1: f64 = 0.819_172_513_396_036_4;
+    const A2: f64 = 0.671_043_606_703_789_5;
+    const A3: f64 = 0.549_700_477_901_970_5;
+    let g = global_index as f64;
+    let frac = |x: f64| x - x.floor();
+    let u = (frac(0.5 + A1 * g) - 0.5) as f32;
+    let v = (frac(0.5 + A2 * g) - 0.5) as f32;
+    let x = u * side;
+    if show_3d {
+        let w = (frac(0.5 + A3 * g) - 0.5) as f32;
+        Vec3::new(x, w * side, v * side)
+    } else {
+        Vec3::new(x, 0.0, v * side)
     }
 }
 
@@ -639,5 +688,83 @@ mod tests {
         for (_, pos) in st.spatial.placed_positions() {
             assert!(pos.is_finite(), "position went non-finite: {pos:?}");
         }
+    }
+
+    #[test]
+    fn force_step_is_deterministic() {
+        fn run() -> Vec<(String, Vec3)> {
+            let mut st = state_with_synthetic(800, 10_000);
+            st.cfg.layout_budget_ms = 0.0; // full step per call (no budget split)
+            let vis = st.visible_set_capped();
+            st.cfg.progressive_nodes_per_frame = 10_000;
+            st.progressive_prepare(&vis);
+            for _ in 0..40 {
+                st.force_step(&vis, 0.016);
+            }
+            let mut ids: Vec<NodeId> = vis.iter().cloned().collect();
+            ids.sort_by(|a, b| a.0.cmp(&b.0));
+            ids.into_iter()
+                .map(|id| {
+                    let p = st.spatial.position_of(&id).unwrap_or(Vec3::ZERO);
+                    (id.0, p)
+                })
+                .collect()
+        }
+        assert_eq!(
+            run(),
+            run(),
+            "same seeded graph must produce identical positions after K steps"
+        );
+    }
+
+    #[test]
+    fn budget_split_matches_full_step() {
+        fn setup() -> (GraphState, HashSet<NodeId>) {
+            let mut st = state_with_synthetic(600, 10_000);
+            st.cfg.progressive_nodes_per_frame = 10_000;
+            let vis = st.visible_set_capped();
+            st.progressive_prepare(&vis);
+            (st, vis)
+        }
+        fn positions(st: &GraphState, vis: &HashSet<NodeId>) -> Vec<(String, Vec3)> {
+            let mut ids: Vec<NodeId> = vis.iter().cloned().collect();
+            ids.sort_by(|a, b| a.0.cmp(&b.0));
+            ids.into_iter()
+                .map(|id| {
+                    (
+                        id.0.clone(),
+                        st.spatial.position_of(&id).unwrap_or(Vec3::ZERO),
+                    )
+                })
+                .collect()
+        }
+
+        // One full pass, unbudgeted.
+        let (mut full, vis_full) = setup();
+        full.cfg.layout_budget_ms = 0.0;
+        full.force_step(&vis_full, 0.016);
+        let p_full = positions(&full, &vis_full);
+
+        // The same single pass, split across frames by a tiny time budget.
+        let (mut split, vis_split) = setup();
+        split.cfg.layout_budget_ms = 1e-6;
+        let mut frames = 0;
+        loop {
+            split.force_step(&vis_split, 0.016);
+            frames += 1;
+            if split.spatial.repulsion_cursor == 0 {
+                break; // pass completed (and integrated) this frame
+            }
+            assert!(frames < 100, "repulsion pass never completed");
+        }
+        assert!(
+            frames > 1,
+            "tiny budget should have split the pass across frames"
+        );
+        assert_eq!(
+            p_full,
+            positions(&split, &vis_split),
+            "budget-split pass must match an unbudgeted full step"
+        );
     }
 }

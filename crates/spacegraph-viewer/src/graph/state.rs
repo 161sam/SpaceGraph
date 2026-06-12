@@ -7,6 +7,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 use crate::graph::explain::{self, PathStep};
+use crate::graph::grid::Grid;
 use crate::graph::interner::{NodeIndex, NodeInterner};
 use crate::graph::model::GraphModel;
 use crate::graph::synthetic;
@@ -36,6 +37,12 @@ pub struct SpatialState {
     pub forces: Vec<Vec3>,
     pub active: Vec<NodeIndex>,
     pub visible_mask: Vec<bool>,
+
+    /// Uniform grid for neighbour-only repulsion + its reused candidate buffer.
+    pub grid: Grid,
+    pub grid_scratch: Vec<NodeIndex>,
+    /// Resume cursor for budget-split repulsion passes (0 = start of a pass).
+    pub repulsion_cursor: usize,
 
     pub in_batch: bool,
     pub touched_nodes: HashSet<NodeId>,
@@ -158,6 +165,9 @@ impl SpatialState {
         self.forces.clear();
         self.active.clear();
         self.visible_mask.clear();
+        self.grid.clear();
+        self.grid_scratch.clear();
+        self.repulsion_cursor = 0;
     }
 }
 
@@ -383,8 +393,14 @@ pub struct CfgState {
     pub layout_force: bool,
     pub link_distance: f32,
     pub repulsion: f32,
+    /// Repulsion cutoff radius / grid cell size. Drives the candidate count per
+    /// node (≈ 27 · (radius / spacing)³); kept at ~1.5 × link_distance so the
+    /// grid pass stays well inside the per-frame budget.
+    pub repulsion_radius: f32,
     pub damping: f32,
     pub max_step: f32,
+    /// Per-frame layout time budget in ms; ≤ 0 means unbounded (full step).
+    pub layout_budget_ms: f32,
 
     pub radius: f32,
     pub y_spread: f32,
@@ -522,9 +538,11 @@ impl Default for GraphState {
             cfg: CfgState {
                 layout_force: true,
                 link_distance: 6.0,
-                repulsion: 22.0,
+                repulsion: 400.0,
+                repulsion_radius: 8.0,
                 damping: 0.92,
                 max_step: 0.35,
+                layout_budget_ms: 6.0,
                 radius: 25.0,
                 y_spread: 6.0,
                 glow_duration: Duration::from_millis(900),
@@ -1255,8 +1273,10 @@ impl GraphState {
         self.cfg.layout_force = cfg.layout_force;
         self.cfg.link_distance = cfg.link_distance;
         self.cfg.repulsion = cfg.repulsion;
+        self.cfg.repulsion_radius = cfg.repulsion_radius;
         self.cfg.damping = cfg.damping;
         self.cfg.max_step = cfg.max_step;
+        self.cfg.layout_budget_ms = cfg.layout_budget_ms;
         self.timeline.window = Duration::from_secs(cfg.timeline_window_secs.max(1));
         self.timeline.scale = cfg.timeline_scale.max(0.01);
         self.cfg.lod_enabled = cfg.lod_enabled;
@@ -1290,8 +1310,10 @@ impl GraphState {
             layout_force: self.cfg.layout_force,
             link_distance: self.cfg.link_distance,
             repulsion: self.cfg.repulsion,
+            repulsion_radius: self.cfg.repulsion_radius,
             damping: self.cfg.damping,
             max_step: self.cfg.max_step,
+            layout_budget_ms: self.cfg.layout_budget_ms,
             timeline_window_secs: self.timeline.window.as_secs(),
             timeline_scale: self.timeline.scale,
             lod_enabled: self.cfg.lod_enabled,

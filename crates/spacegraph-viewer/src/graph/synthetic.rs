@@ -49,7 +49,11 @@ pub fn synthetic_graph(n: usize) -> (Vec<(NodeId, Node)>, Vec<Edge>) {
         return (Vec::new(), Vec::new());
     }
 
-    let num_users = (n / 100).max(1);
+    // ~10% users keeps `runs_as` hubs bounded (≈4 processes per user). A
+    // bounded node degree is what makes the uniform-grid repulsion genuinely
+    // O(N): with very few users (huge hubs) a hub's neighbourhood holds O(degree)
+    // nodes within the cutoff, which no uniform grid can keep linear.
+    let num_users = (n / 10).max(1);
     // Cap processes/users so files never go negative for tiny n.
     let num_procs = ((n * 2 / 5).max(1)).min(n.saturating_sub(num_users));
     let num_files = n - num_users - num_procs;

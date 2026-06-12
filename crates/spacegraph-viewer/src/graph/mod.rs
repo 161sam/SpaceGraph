@@ -1,5 +1,6 @@
 pub mod explain;
 pub mod gc;
+pub mod grid;
 pub mod interner;
 pub mod layout;
 pub mod metrics;

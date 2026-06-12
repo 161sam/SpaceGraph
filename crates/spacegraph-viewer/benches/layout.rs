@@ -23,6 +23,7 @@ fn placed_state(n: usize) -> (GraphState, HashSet<NodeId>) {
     let mut st = GraphState::default();
     st.cfg.max_visible_nodes = n + 16;
     st.cfg.progressive_nodes_per_frame = n + 16;
+    st.cfg.layout_budget_ms = 0.0; // measure a full step (no budget split)
     st.load_synthetic_graph(n);
     let vis = st.visible_set_capped();
     st.progressive_prepare(&vis); // place every node in one pass
