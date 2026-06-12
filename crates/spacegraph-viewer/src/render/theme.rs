@@ -22,8 +22,21 @@ pub const USER: Color = Color::srgb(0.98, 0.75, 0.25);
 pub const SOCKET: Color = Color::srgb(0.30, 0.60, 0.98);
 /// Host / Container / RemoteHost — violet (network layer).
 pub const HOST: Color = Color::srgb(0.70, 0.55, 0.99);
-/// Alert / threat — red (reserved for Phase 8).
+/// Alert / threat — red.
 pub const ALERT: Color = Color::srgb(0.98, 0.22, 0.25);
+/// Alert severity ramp: low = amber, medium = orange, high/critical = red.
+pub const ALERT_LOW: Color = Color::srgb(0.98, 0.75, 0.25);
+pub const ALERT_MEDIUM: Color = Color::srgb(0.99, 0.50, 0.15);
+pub const ALERT_HIGH: Color = Color::srgb(1.0, 0.18, 0.20);
+
+/// Colour for an alert severity string ("low" | "medium" | "high" | …).
+pub fn alert_severity_color(severity: &str) -> Color {
+    match severity {
+        "low" => ALERT_LOW,
+        "medium" => ALERT_MEDIUM,
+        _ => ALERT_HIGH, // high / critical / unknown → red
+    }
+}
 /// Recent-activity flash colour; decays back to the node's type colour.
 pub const RECENT_GLOW: Color = Color::srgb(1.0, 1.0, 1.0);
 
@@ -60,16 +73,18 @@ pub enum NodeKind {
     User,
     Socket,
     RemoteHost,
+    Alert,
 }
 
 impl NodeKind {
     /// All kinds, in stable index order (used to build per-kind material ramps).
-    pub const ALL: [NodeKind; 5] = [
+    pub const ALL: [NodeKind; 6] = [
         NodeKind::Process,
         NodeKind::File,
         NodeKind::User,
         NodeKind::Socket,
         NodeKind::RemoteHost,
+        NodeKind::Alert,
     ];
 
     pub fn of(node: &Node) -> Self {
@@ -79,6 +94,7 @@ impl NodeKind {
             Node::User { .. } => NodeKind::User,
             Node::Socket { .. } => NodeKind::Socket,
             Node::RemoteHost { .. } => NodeKind::RemoteHost,
+            Node::Alert { .. } => NodeKind::Alert,
         }
     }
 
@@ -89,6 +105,7 @@ impl NodeKind {
             NodeKind::User => 2,
             NodeKind::Socket => 3,
             NodeKind::RemoteHost => 4,
+            NodeKind::Alert => 5,
         }
     }
 
@@ -99,6 +116,7 @@ impl NodeKind {
             NodeKind::User => USER,
             NodeKind::Socket => SOCKET,
             NodeKind::RemoteHost => HOST,
+            NodeKind::Alert => ALERT,
         }
     }
 
@@ -117,6 +135,7 @@ pub fn edge_color(class: EdgeKindClass) -> Color {
         EdgeKindClass::OwnsSocket => EDGE_OWNS_SOCKET,
         EdgeKindClass::ConnectsTo => EDGE_CONNECTS_TO,
         EdgeKindClass::ListensOn => EDGE_LISTENS_ON,
+        EdgeKindClass::AlertsOn => ALERT,
     }
 }
 
@@ -140,7 +159,7 @@ mod tests {
     #[test]
     fn node_kind_indices_are_stable_and_distinct() {
         let idx: Vec<usize> = NodeKind::ALL.iter().map(|k| k.index()).collect();
-        assert_eq!(idx, vec![0, 1, 2, 3, 4]);
+        assert_eq!(idx, vec![0, 1, 2, 3, 4, 5]);
     }
 
     #[test]

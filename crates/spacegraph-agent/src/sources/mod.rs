@@ -17,6 +17,7 @@ use crate::config::AgentMode;
 use crate::path_policy::PathPolicy;
 
 pub mod net;
+pub mod suricata_eve;
 
 /// A source of graph events. `start` spawns the source's own task(s); it sends
 /// events on `tx` until the process exits.

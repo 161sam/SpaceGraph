@@ -143,6 +143,7 @@ pub fn timeline_lane_key(node: &Node) -> String {
             ..
         } => format!("sock:{proto}:{local_addr}:{local_port}"),
         Node::RemoteHost { addr, .. } => format!("remote:{addr}"),
+        Node::Alert { signature, ts, .. } => format!("alert:{signature}:{ts}"),
     }
 }
 

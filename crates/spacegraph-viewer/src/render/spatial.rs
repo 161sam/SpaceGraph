@@ -358,10 +358,13 @@ pub fn draw_spatial(mut st: ResMut<GraphState>, mut gizmos: Gizmos, mut contexts
             let Some(pos) = st.spatial.position_of(id) else {
                 continue;
             };
-            let color = if st.node_is_glowing(id) {
-                Color::WHITE
-            } else {
-                Color::srgb(0.7, 0.7, 0.95)
+            // Alerts always stand out (severity colour) even under LOD.
+            let color = match st.model.nodes.get(id) {
+                Some(spacegraph_core::Node::Alert { severity, .. }) => {
+                    theme::alert_severity_color(severity)
+                }
+                _ if st.node_is_glowing(id) => Color::WHITE,
+                _ => Color::srgb(0.7, 0.7, 0.95),
             };
             gizmos.line(
                 pos + Vec3::new(-marker, 0.0, 0.0),

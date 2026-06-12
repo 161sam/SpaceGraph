@@ -436,6 +436,8 @@ pub struct CfgState {
 
     pub max_visible_nodes: usize,
     pub progressive_nodes_per_frame: usize,
+    /// Cap on retained alert nodes; oldest evicted past this (default 200).
+    pub max_visible_alerts: usize,
 
     pub gc_enabled: bool,
     pub gc_ttl: Duration,
@@ -472,6 +474,8 @@ pub struct GraphState {
     pub net: NetState,
     pub cfg: CfgState,
     pub explain_cache: Option<ExplainCache>,
+    /// Insertion order of retained alert nodes (oldest first) for cap eviction.
+    pub alert_order: VecDeque<NodeId>,
     pub snapshot_loaded: bool,
     pub live_events_seen: bool,
     pub demo_loaded: bool,
@@ -576,6 +580,7 @@ impl Default for GraphState {
                 glow_duration: Duration::from_millis(900),
                 max_visible_nodes: 3000,
                 progressive_nodes_per_frame: 250,
+                max_visible_alerts: 200,
                 gc_enabled: true,
                 gc_ttl: Duration::from_secs(30),
                 gc_interval: Duration::from_secs(1),
@@ -598,6 +603,7 @@ impl Default for GraphState {
             },
             needs_redraw: AtomicBool::new(true),
             explain_cache: None,
+            alert_order: VecDeque::new(),
             snapshot_loaded: false,
             live_events_seen: false,
             demo_loaded: false,
@@ -637,6 +643,7 @@ impl GraphState {
         self.spatial.progressive_cursor = 0;
         self.spatial.dirty_layout = true;
         self.explain_cache = None;
+        self.alert_order.clear();
         self.snapshot_loaded = false;
         self.live_events_seen = false;
         self.demo_loaded = false;
@@ -989,6 +996,41 @@ impl GraphState {
         }
     }
 
+    /// Track a new alert node; evict the oldest past `max_visible_alerts`.
+    fn note_alert(&mut self, id: NodeId) {
+        if self.alert_order.contains(&id) {
+            return;
+        }
+        self.alert_order.push_back(id);
+        let cap = self.cfg.max_visible_alerts.max(1);
+        while self.alert_order.len() > cap {
+            if let Some(old) = self.alert_order.pop_front() {
+                self.model.remove_node(&old);
+                self.spatial.release(&old);
+            }
+        }
+    }
+
+    /// Count current alerts by severity (for the Alerts panel).
+    pub fn alert_severity_counts(&self) -> (usize, usize, usize) {
+        let (mut low, mut med, mut high) = (0, 0, 0);
+        for id in &self.alert_order {
+            if let Some(Node::Alert { severity, .. }) = self.model.nodes.get(id) {
+                match severity.as_str() {
+                    "low" => low += 1,
+                    "medium" => med += 1,
+                    _ => high += 1,
+                }
+            }
+        }
+        (low, med, high)
+    }
+
+    /// Alert node ids, newest first (for the Alerts panel list).
+    pub fn alerts_newest_first(&self) -> impl Iterator<Item = &NodeId> {
+        self.alert_order.iter().rev()
+    }
+
     fn apply_delta(&mut self, d: Delta) {
         let ts = Instant::now();
         match d {
@@ -1025,13 +1067,17 @@ impl GraphState {
                     None,
                 );
 
+                let is_alert = matches!(self.model.nodes.get(&id), Some(Node::Alert { .. }));
                 if matches!(self.model.nodes.get(&id), Some(Node::File { .. })) {
                     self.note_path_change(&id, ts);
                 } else if self.spatial.in_batch {
-                    self.spatial.touched_nodes.insert(id);
+                    self.spatial.touched_nodes.insert(id.clone());
                 } else {
                     let until = ts + self.cfg.glow_duration;
                     self.spatial.set_node_glow(&id, until);
+                }
+                if is_alert {
+                    self.note_alert(id);
                 }
                 self.needs_redraw.store(true, Ordering::Relaxed);
             }
@@ -1281,6 +1327,14 @@ impl GraphState {
                                 .as_deref()
                                 .is_some_and(|r| r.to_lowercase().contains(&q))
                     }
+                    Node::Alert {
+                        signature,
+                        severity,
+                        ..
+                    } => {
+                        signature.to_lowercase().contains(&q)
+                            || severity.to_lowercase().contains(&q)
+                    }
                 };
                 id_ok || node_ok
             })
@@ -1424,6 +1478,7 @@ impl GraphState {
         self.cfg.show_raw_edges = cfg.show_raw_edges;
         self.cfg.show_agg_edges = cfg.show_agg_edges;
         self.cfg.max_visible_nodes = cfg.max_visible_nodes.max(1);
+        self.cfg.max_visible_alerts = cfg.max_visible_alerts.max(1);
         self.cfg.progressive_nodes_per_frame = cfg.progressive_nodes_per_frame.max(1);
         self.cfg.layout_force = cfg.layout_force;
         self.cfg.link_distance = cfg.link_distance;
@@ -1462,6 +1517,7 @@ impl GraphState {
             path_excludes: self.cfg.path_excludes.clone(),
             focus_hops: self.ui.focus_hops,
             max_visible_nodes: self.cfg.max_visible_nodes,
+            max_visible_alerts: self.cfg.max_visible_alerts,
             progressive_nodes_per_frame: self.cfg.progressive_nodes_per_frame,
             layout_force: self.cfg.layout_force,
             link_distance: self.cfg.link_distance,
@@ -1593,6 +1649,73 @@ mod tests {
         // Re-enable restores exactly the same set.
         st.set_stream_enabled("a", true);
         assert_eq!(st.visible_set_capped().len(), 5);
+    }
+
+    #[test]
+    fn alert_cap_evicts_oldest() {
+        let mut st = GraphState::default();
+        st.cfg.max_visible_alerts = 3;
+        for i in 0..5 {
+            let id = NodeId(format!("host:alert:{i}"));
+            st.apply_delta(Delta::UpsertNode {
+                id,
+                node: Node::Alert {
+                    source: "suricata".to_string(),
+                    signature: format!("sig{i}"),
+                    severity: "high".to_string(),
+                    ts: format!("{i}"),
+                },
+            });
+        }
+        assert_eq!(
+            st.alert_order.len(),
+            3,
+            "alerts capped at max_visible_alerts"
+        );
+        assert!(!st
+            .model
+            .nodes
+            .contains_key(&NodeId("host:alert:0".to_string())));
+        assert!(!st
+            .model
+            .nodes
+            .contains_key(&NodeId("host:alert:1".to_string())));
+        assert!(st
+            .model
+            .nodes
+            .contains_key(&NodeId("host:alert:4".to_string())));
+        assert_eq!(st.alert_severity_counts(), (0, 0, 3));
+    }
+
+    #[test]
+    fn alerts_always_in_visible_set() {
+        let mut st = GraphState::default();
+        st.cfg.max_visible_nodes = 1; // tiny node cap
+                                      // One alert + many plain nodes; the alert must survive the cap.
+        st.apply_delta(Delta::UpsertNode {
+            id: NodeId("host:alert:x".to_string()),
+            node: Node::Alert {
+                source: "suricata".to_string(),
+                signature: "sig".to_string(),
+                severity: "high".to_string(),
+                ts: "t".to_string(),
+            },
+        });
+        for i in 0..20 {
+            st.model.nodes.insert(
+                NodeId(format!("host:file:/f{i}")),
+                Node::File {
+                    path: format!("/f{i}"),
+                    inode: i,
+                    kind: FileKind::Regular,
+                },
+            );
+        }
+        let vis = st.visible_set_capped();
+        assert!(
+            vis.contains(&NodeId("host:alert:x".to_string())),
+            "alerts bypass the node cap"
+        );
     }
 
     #[test]

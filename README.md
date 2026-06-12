@@ -63,11 +63,29 @@ Ziel ist **Verständnis**, nicht nur Monitoring.
 - Pause & Replay (Scrub)
 - Klick auf Event → Auswahl / Jump
 
+### Netzwerk-Layer (v0.3.x)
+- Agent-Source `net` (procfs `/proc/net/{tcp,tcp6,udp,udp6}` + inode→pid):
+  Prozess → Socket → RemoteHost-Topologie
+- Diff-basiert (nur Änderungen → beschränkte Event-Rate), Poll-Intervall,
+  CIDR-Filter (`--net-include`/`--net-exclude`), Loopback-Collapse
+
+### Threat-Viz (v0.3.x)
+- Suricata-EVE-Ingestion (`--eve-file`): `alert`-Events → `Alert`-Nodes,
+  5-Tuple-Korrelation zu RemoteHost/Socket (geteilte IDs)
+- Severity-Farben (low=amber, medium=orange, high=rot), Alerts immer sichtbar
+  (cap `max_visible_alerts`, älteste evict), Alerts-Panel (Counts + Jump)
+
 ### UX & Analyse
 - Ctrl+P Search & Jump
 - HUD (FPS, Eventrate, Visible Nodes)
 - Filter (Substring)
 - Konfigurierbare Caps & Performance-Grenzen
+
+### Agent Event-Sources (Erweiterungspunkt)
+Collectors implementieren das `EventSource`-Trait (`agent/src/sources/`):
+`fs`, `proc`, `net`, `suricata_eve`. **Geplant** als weitere
+`EventSource`-Implementierungen: eBPF, auditd, Zeek, Falco (Erweiterungspunkt
+dokumentiert, noch nicht implementiert).
 
 ---
 

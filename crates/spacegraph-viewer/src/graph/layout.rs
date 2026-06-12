@@ -60,6 +60,11 @@ impl GraphState {
                         .as_deref()
                         .is_some_and(|r| r.to_lowercase().contains(&f))
             }
+            Node::Alert {
+                signature,
+                severity,
+                ..
+            } => signature.to_lowercase().contains(&f) || severity.to_lowercase().contains(&f),
         };
         id_ok || node_ok
     }
@@ -107,7 +112,7 @@ impl GraphState {
             base = self.tree_visible_set(&base);
         }
 
-        if base.len() > self.cfg.max_visible_nodes {
+        let mut result = if base.len() > self.cfg.max_visible_nodes {
             if self.ui.view_mode == ViewMode::Tree {
                 // File paths sort hierarchically, so a lexicographic slice keeps
                 // subtrees contiguous — the right cap for the tree view.
@@ -120,7 +125,17 @@ impl GraphState {
             }
         } else {
             base
+        };
+
+        // Alerts always render regardless of the node cap or LOD: union them in
+        // (already bounded by `max_visible_alerts`).
+        for id in &self.alert_order {
+            if self.stream_enabled(id) {
+                result.insert(id.clone());
+            }
         }
+
+        result
     }
 
     /// Reduce `base` to at most `max_visible_nodes` while preserving graph

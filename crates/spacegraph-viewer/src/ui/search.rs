@@ -57,6 +57,13 @@ pub fn search_overlay(mut contexts: EguiContexts, mut st: ResMut<GraphState>) {
                                 spacegraph_core::Node::RemoteHost { addr, .. } => {
                                     format!("remote: {addr} ({})", id.0)
                                 }
+                                spacegraph_core::Node::Alert {
+                                    signature,
+                                    severity,
+                                    ..
+                                } => {
+                                    format!("alert[{severity}]: {signature} ({})", id.0)
+                                }
                             }
                         } else {
                             id.0.clone()

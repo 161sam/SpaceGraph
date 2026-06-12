@@ -156,5 +156,10 @@ und schreibt `Msg` auf den Broadcast-Bus.
   (`owns_socket`/`listens_on`/`connects_to`). Diff-basiert (nur Änderungen →
   beschränkte Event-Rate), Poll-Intervall konfigurierbar, CIDR-Filter,
   Loopback-Collapse. rDNS ist best-effort (Hook vorhanden).
+- `SuricataEveSource` (`sources/suricata_eve.rs`): tailt eine Suricata-EVE-JSON-
+  Datei (`--eve-file`), `alert`-Events → `Alert`-Nodes + `alerts_on`-Edge,
+  5-Tuple-Korrelation über geteilte `id_remote_host`/`id_socket`-IDs (Hit =
+  existierender RemoteHost; Miss = neu angelegt). Viewer cappt Alerts
+  (`max_visible_alerts`, älteste evict) und rendert sie immer (LOD-unabhängig).
 - eBPF/auditd/Zeek/Falco sind geplante weitere `EventSource`-Implementierungen
   (Erweiterungspunkt dokumentiert, nicht implementiert).
