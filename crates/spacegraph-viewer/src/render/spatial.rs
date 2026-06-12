@@ -40,8 +40,8 @@ pub fn hover_detection_spatial(
     }
 
     let mut best: Option<(f32, spacegraph_core::NodeId)> = None;
-    for (id, pos) in st.spatial.positions.iter() {
-        let Some(screen) = camera.world_to_viewport(cam_tf, *pos) else {
+    for (id, pos) in st.spatial.placed_positions() {
+        let Some(screen) = camera.world_to_viewport(cam_tf, pos) else {
             continue;
         };
         let d = screen.distance(cursor);
@@ -81,8 +81,8 @@ pub fn picking_focus(
     };
 
     let mut best: Option<(f32, spacegraph_core::NodeId)> = None;
-    for (id, pos) in st.spatial.positions.iter() {
-        let Some(screen) = camera.world_to_viewport(cam_tf, *pos) else {
+    for (id, pos) in st.spatial.placed_positions() {
+        let Some(screen) = camera.world_to_viewport(cam_tf, pos) else {
             continue;
         };
         let d = screen.distance(cursor);
@@ -180,7 +180,7 @@ pub fn draw_spatial(
                 if !st.passes_filter(id, node) {
                     continue;
                 }
-                let Some(pos) = st.spatial.positions.get(id).cloned() else {
+                let Some(pos) = st.spatial.position_of(id) else {
                     continue;
                 };
                 let use_glow = st.node_is_glowing(id);
@@ -205,7 +205,7 @@ pub fn draw_spatial(
     if lod_active {
         let marker = 0.35;
         for id in vis.iter() {
-            let Some(pos) = st.spatial.positions.get(id).cloned() else {
+            let Some(pos) = st.spatial.position_of(id) else {
                 continue;
             };
             let color = if st.node_is_glowing(id) {
@@ -239,7 +239,7 @@ pub fn draw_spatial(
             if !vis.contains(id) {
                 continue;
             }
-            let Some(pos) = st.spatial.positions.get(id).cloned() else {
+            let Some(pos) = st.spatial.position_of(id) else {
                 continue;
             };
             let base = pos + offset;
@@ -305,12 +305,12 @@ pub fn draw_spatial(
                     }
                     for key in agg_keys {
                         let (Some(a), Some(b)) = (
-                            st.spatial.positions.get(&key.from),
-                            st.spatial.positions.get(&key.to),
+                            st.spatial.position_of(&key.from),
+                            st.spatial.position_of(&key.to),
                         ) else {
                             continue;
                         };
-                        gizmos.line(*a, *b, Color::srgb(0.8, 0.8, 1.0));
+                        gizmos.line(a, b, Color::srgb(0.8, 0.8, 1.0));
                     }
                 }
                 if st.cfg.show_raw_edges && !focus_nodes.is_empty() {
@@ -325,15 +325,15 @@ pub fn draw_spatial(
                     }
                     for edge in raw_edges {
                         let (Some(a), Some(b)) = (
-                            st.spatial.positions.get(&edge.from),
-                            st.spatial.positions.get(&edge.to),
+                            st.spatial.position_of(&edge.from),
+                            st.spatial.position_of(&edge.to),
                         ) else {
                             continue;
                         };
                         if st.edge_is_glowing(&edge) {
-                            gizmos.line(*a, *b, Color::srgb(1.0, 1.0, 1.0));
+                            gizmos.line(a, b, Color::srgb(1.0, 1.0, 1.0));
                         }
-                        gizmos.line(*a, *b, Color::WHITE);
+                        gizmos.line(a, b, Color::WHITE);
                     }
                 }
             }
@@ -344,12 +344,12 @@ pub fn draw_spatial(
                             continue;
                         }
                         let (Some(a), Some(b)) = (
-                            st.spatial.positions.get(&edge.key.from),
-                            st.spatial.positions.get(&edge.key.to),
+                            st.spatial.position_of(&edge.key.from),
+                            st.spatial.position_of(&edge.key.to),
                         ) else {
                             continue;
                         };
-                        gizmos.line(*a, *b, Color::srgb(0.8, 0.8, 1.0));
+                        gizmos.line(a, b, Color::srgb(0.8, 0.8, 1.0));
                     }
                 }
                 if st.cfg.show_raw_edges {
@@ -362,15 +362,15 @@ pub fn draw_spatial(
                                 continue;
                             }
                             let (Some(a), Some(b)) = (
-                                st.spatial.positions.get(&edge.from),
-                                st.spatial.positions.get(&edge.to),
+                                st.spatial.position_of(&edge.from),
+                                st.spatial.position_of(&edge.to),
                             ) else {
                                 continue;
                             };
                             if st.edge_is_glowing(edge) {
-                                gizmos.line(*a, *b, Color::srgb(1.0, 1.0, 1.0));
+                                gizmos.line(a, b, Color::srgb(1.0, 1.0, 1.0));
                             }
-                            gizmos.line(*a, *b, Color::WHITE);
+                            gizmos.line(a, b, Color::WHITE);
                         }
                     }
                 }

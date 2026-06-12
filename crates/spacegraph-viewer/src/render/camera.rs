@@ -28,7 +28,7 @@ pub fn apply_jump_to(mut st: ResMut<GraphState>, mut cam_q: Query<&mut Transform
             let mut min = Vec3::new(f32::INFINITY, f32::INFINITY, f32::INFINITY);
             let mut max = Vec3::new(f32::NEG_INFINITY, f32::NEG_INFINITY, f32::NEG_INFINITY);
             for id in vis {
-                let Some(pos) = st.spatial.positions.get(&id) else {
+                let Some(pos) = st.spatial.position_of(&id) else {
                     continue;
                 };
                 min.x = min.x.min(pos.x);
@@ -64,7 +64,7 @@ pub fn apply_jump_to(mut st: ResMut<GraphState>, mut cam_q: Query<&mut Transform
         return;
     }
 
-    let Some(target) = st.spatial.positions.get(&id).cloned() else {
+    let Some(target) = st.spatial.position_of(&id) else {
         return;
     };
 
