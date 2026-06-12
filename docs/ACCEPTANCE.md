@@ -88,6 +88,31 @@ deterministische synthetische Graphen. Maschinen-Specs und Baseline-Zahlen in
 
 ---
 
+## Status-Reconciliation (Stand 2026-06-12, Tag v0.1.11)
+
+Abgleich der Gates mit dem tatsächlichen Stand nach der Perf-/Hardening-Arbeit
+(Phasen 0–4). „Automatisch verifiziert“ = via `cargo test`/`cargo bench`/
+`cargo clippy`; „lokal/GPU“ = braucht laufende App mit Display.
+
+- **Code Quality** — ✓ automatisch verifiziert (`fmt`, `clippy -D warnings`,
+  `test`; keine `unwrap()` in `render/`).
+- **Performance** — ✓ benchmark-enforced: `force_step` 2.19 ms @2000 / 7.57 ms
+  @5000; neighbour-only Grid (kein O(N²)/O(E_total) im Frame); Layout +
+  Render arbeiten auf capped Sets; Edge-Aggregation aktiv.
+- **v0.1.8** — ✓ Module vollständig (`app/ net/ graph/ render/ ui/ util/`).
+- **v0.1.9** — ✓ Indizes + Aggregation; Explain-BFS (Cap) liefert Pfade.
+- **v0.1.10** — ✓ Timeline-Determinismus-Tests; Klick-Selektion vorhanden.
+- **v0.1.11** — Viewer > 2000 Nodes: ✓ (Grid + persistente Entities, Steady
+  State ohne Entity-Churn — Headless-Test). Settings persistent: ✓ (Roundtrip-
+  Test). **FPS-Gate (≥60 @2000 / ≥30 @5000) lokal/GPU zu bestätigen** (Umgebung
+  headless) — die strukturellen Garantien dafür sind getestet.
+- **v0.2.0** — offen (Phase 6).
+
+Die `force_step`-Baseline-/Verlaufszahlen stehen in `docs/perf/BASELINE.md`
+und `docs/perf/RUNLOG.md`.
+
+---
+
 ## Definition „Release-fähig“
 
 Ein Release gilt als fertig, wenn:
