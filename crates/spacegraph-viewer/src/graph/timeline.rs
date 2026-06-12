@@ -136,6 +136,13 @@ pub fn timeline_lane_key(node: &Node) -> String {
         Node::Process { pid, .. } => format!("pid:{pid}"),
         Node::File { path, .. } => format!("path:{path}"),
         Node::User { uid, .. } => format!("uid:{uid}"),
+        Node::Socket {
+            proto,
+            local_addr,
+            local_port,
+            ..
+        } => format!("sock:{proto}:{local_addr}:{local_port}"),
+        Node::RemoteHost { addr, .. } => format!("remote:{addr}"),
     }
 }
 

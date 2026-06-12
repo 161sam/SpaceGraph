@@ -1270,6 +1270,17 @@ impl GraphState {
                         cmdline.to_lowercase().contains(&q) || exe.to_lowercase().contains(&q)
                     }
                     Node::User { name, .. } => name.to_lowercase().contains(&q),
+                    Node::Socket {
+                        proto, local_addr, ..
+                    } => {
+                        proto.to_lowercase().contains(&q) || local_addr.to_lowercase().contains(&q)
+                    }
+                    Node::RemoteHost { addr, rdns } => {
+                        addr.to_lowercase().contains(&q)
+                            || rdns
+                                .as_deref()
+                                .is_some_and(|r| r.to_lowercase().contains(&q))
+                    }
                 };
                 id_ok || node_ok
             })

@@ -46,6 +46,17 @@ pub fn search_overlay(mut contexts: EguiContexts, mut st: ResMut<GraphState>) {
                                 spacegraph_core::Node::User { name, uid } => {
                                     format!("user: {name} uid={uid} ({})", id.0)
                                 }
+                                spacegraph_core::Node::Socket {
+                                    proto,
+                                    local_addr,
+                                    local_port,
+                                    ..
+                                } => {
+                                    format!("socket: {proto} {local_addr}:{local_port} ({})", id.0)
+                                }
+                                spacegraph_core::Node::RemoteHost { addr, .. } => {
+                                    format!("remote: {addr} ({})", id.0)
+                                }
                             }
                         } else {
                             id.0.clone()
