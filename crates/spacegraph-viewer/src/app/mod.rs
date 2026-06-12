@@ -63,6 +63,7 @@ impl Plugin for SpaceGraphViewerPlugin {
                 crate::render::picking_focus,
                 crate::render::apply_picked_focus,
                 crate::render::update_tree_zoom,
+                crate::render::sync_visual_theme,
             ),
         )
         // Render pipeline runs in order: layout publishes the visible set, the
@@ -73,6 +74,7 @@ impl Plugin for SpaceGraphViewerPlugin {
                 crate::graph::update_layout_or_timeline,
                 crate::render::sync_node_entities,
                 crate::render::draw_scene,
+                crate::render::draw_node_labels,
                 crate::render::apply_jump_to,
             )
                 .chain(),

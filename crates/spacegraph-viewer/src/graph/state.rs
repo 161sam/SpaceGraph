@@ -14,7 +14,9 @@ use crate::graph::synthetic;
 use crate::graph::timeline::{BatchSpan, NodeLife, TimelineEvt, TimelineEvtKind};
 use crate::graph::tree;
 use crate::net::{Incoming, IncomingKind, ReaderHandle};
-use crate::util::config::{AgentEndpoint, AgentMode, LodEdgesMode, ViewerConfig, ViewerViewMode};
+use crate::util::config::{
+    AgentEndpoint, AgentMode, LodEdgesMode, ViewerConfig, ViewerViewMode, VisualTheme,
+};
 use crate::util::ids::{node_label_long, node_label_short};
 
 #[derive(Default)]
@@ -442,6 +444,7 @@ pub struct CfgState {
     pub path_includes: Vec<String>,
     pub path_excludes: Vec<String>,
     pub agent_default_mode: AgentMode,
+    pub visual_theme: VisualTheme,
 }
 
 impl CfgState {
@@ -582,6 +585,7 @@ impl Default for GraphState {
                     "/run".to_string(),
                 ],
                 agent_default_mode: AgentMode::User,
+                visual_theme: VisualTheme::Standard,
             },
             needs_redraw: AtomicBool::new(true),
             explain_cache: None,
@@ -1305,6 +1309,7 @@ impl GraphState {
         self.cfg.path_includes = cfg.path_includes.clone();
         self.cfg.path_excludes = cfg.path_excludes.clone();
         self.cfg.agent_default_mode = cfg.default_agent_mode;
+        self.cfg.visual_theme = cfg.visual_theme;
         self.sync_agent_endpoints(cfg.agents.clone());
 
         self.needs_redraw.store(true, Ordering::Relaxed);
@@ -1339,6 +1344,7 @@ impl GraphState {
             gc_enabled: self.cfg.gc_enabled,
             gc_ttl_secs: self.cfg.gc_ttl.as_secs(),
             default_agent_mode: self.cfg.agent_default_mode,
+            visual_theme: self.cfg.visual_theme,
             agents: self.net.endpoints.clone(),
         }
     }

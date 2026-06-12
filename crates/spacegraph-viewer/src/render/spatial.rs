@@ -2,13 +2,16 @@ use bevy::prelude::*;
 use bevy_egui::{egui, EguiContexts};
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::Ordering;
+use std::time::Instant;
 
 use crate::app::events::Picked;
 use crate::graph::interner::NodeIndex;
-use crate::graph::model::{edge_class_name, AggEdgeKey};
+use crate::graph::model::{edge_class_name, AggEdgeKey, EdgeKindClass};
 use crate::graph::{GraphState, ViewMode};
+use crate::render::theme;
 use crate::ui::tooltips::render_tooltip;
-use crate::util::config::LodEdgesMode;
+use crate::util::config::{LodEdgesMode, VisualTheme};
+use crate::util::ids::node_label_short;
 
 #[derive(Component)]
 pub struct NodeMarker;
@@ -17,14 +20,23 @@ pub struct NodeMarker;
 #[derive(Component, Clone, Copy)]
 pub struct NodeRef(pub NodeIndex);
 
+/// Number of emissive ramp steps per node type (idle → full recent-activity
+/// flash). The renderer picks a step from the glow-decay fraction.
+pub const GLOW_LEVELS: usize = 6;
+
 /// Mesh/material handles for node entities, created once at startup so the
 /// redraw path never allocates assets (the previous per-frame `meshes.add` /
 /// `mats.add` leaked a handle every redraw).
+///
+/// `standard[kind][level]` is a per-type emissive ramp for the Standard theme
+/// (level 0 = idle neon, last = white flash); `minimal_*` reproduce the flat
+/// pre-visual-pass look.
 #[derive(Resource)]
 pub struct NodeRenderResources {
     pub mesh: Handle<Mesh>,
-    pub normal: Handle<StandardMaterial>,
-    pub glow: Handle<StandardMaterial>,
+    pub standard: Vec<[Handle<StandardMaterial>; GLOW_LEVELS]>,
+    pub minimal_normal: Handle<StandardMaterial>,
+    pub minimal_glow: Handle<StandardMaterial>,
 }
 
 /// Persistent `NodeIndex → Entity` map for spatial node entities. Lets the
@@ -42,12 +54,84 @@ pub fn setup_node_render_resources(
     mut mats: ResMut<Assets<StandardMaterial>>,
 ) {
     let mesh = meshes.add(Sphere::new(0.28));
-    let normal = mats.add(StandardMaterial::default());
-    let glow = mats.add(StandardMaterial {
-        emissive: Color::srgb(1.0, 1.0, 1.0).into(),
+
+    let standard: Vec<[Handle<StandardMaterial>; GLOW_LEVELS]> = theme::NodeKind::ALL
+        .iter()
+        .map(|kind| {
+            let base = kind.base_color();
+            std::array::from_fn(|level| {
+                let t = level as f32 / (GLOW_LEVELS - 1) as f32;
+                // Idle nodes glow faintly in their type colour; recent activity
+                // ramps the emissive toward a bright white flash that blooms.
+                let emis = theme::lerp(base, theme::RECENT_GLOW, t).to_linear();
+                let intensity = 1.2 + t * t * 6.0;
+                mats.add(StandardMaterial {
+                    base_color: base,
+                    emissive: LinearRgba::rgb(
+                        emis.red * intensity,
+                        emis.green * intensity,
+                        emis.blue * intensity,
+                    ),
+                    perceptual_roughness: 0.5,
+                    metallic: 0.0,
+                    ..default()
+                })
+            })
+        })
+        .collect();
+
+    let minimal_normal = mats.add(StandardMaterial::default());
+    let minimal_glow = mats.add(StandardMaterial {
+        emissive: LinearRgba::rgb(1.0, 1.0, 1.0),
         ..default()
     });
-    commands.insert_resource(NodeRenderResources { mesh, normal, glow });
+
+    commands.insert_resource(NodeRenderResources {
+        mesh,
+        standard,
+        minimal_normal,
+        minimal_glow,
+    });
+}
+
+/// Pick the material handle for a node given the active theme and its glow
+/// decay. Standard: per-type emissive ramp by recency; Minimal: flat
+/// normal/glow (binary), matching the pre-visual-pass look.
+fn node_material(
+    res: &NodeRenderResources,
+    st: &GraphState,
+    idx: NodeIndex,
+    id: &spacegraph_core::NodeId,
+    now: std::time::Instant,
+    glow_secs: f32,
+) -> Handle<StandardMaterial> {
+    let glow_until = st.spatial.glow_until[idx.slot()];
+    match st.cfg.visual_theme {
+        crate::util::config::VisualTheme::Minimal => {
+            if glow_until.is_some() {
+                res.minimal_glow.clone()
+            } else {
+                res.minimal_normal.clone()
+            }
+        }
+        crate::util::config::VisualTheme::Standard => {
+            let kind = st
+                .model
+                .nodes
+                .get(id)
+                .map(theme::NodeKind::of)
+                .unwrap_or(theme::NodeKind::File);
+            let ramp = &res.standard[kind.index()];
+            let level = match glow_until {
+                Some(deadline) if glow_secs > 0.0 && deadline > now => {
+                    let frac = (deadline - now).as_secs_f32() / glow_secs;
+                    (frac.clamp(0.0, 1.0) * (GLOW_LEVELS - 1) as f32).round() as usize
+                }
+                _ => 0,
+            };
+            ramp[level.min(GLOW_LEVELS - 1)].clone()
+        }
+    }
 }
 
 /// Keep the persistent node entities in sync with the visible graph: spawn new
@@ -83,6 +167,8 @@ pub fn sync_node_entities(
     });
 
     // Spawn missing nodes; update Transform + material for existing ones.
+    let now = std::time::Instant::now();
+    let glow_secs = st.cfg.glow_duration.as_secs_f32();
     for id in vis.iter() {
         let Some(idx) = st.spatial.index_of(id) else {
             continue;
@@ -91,11 +177,7 @@ pub fn sync_node_entities(
             continue;
         }
         let pos = st.spatial.positions[idx.slot()];
-        let material = if st.spatial.glow_until[idx.slot()].is_some() {
-            res.glow.clone()
-        } else {
-            res.normal.clone()
-        };
+        let material = node_material(&res, &st, idx, id, now, glow_secs);
 
         if let Some(&entity) = entities.map.get(&idx) {
             if let Ok((mut tf, mut handle)) = q.get_mut(entity) {
@@ -227,6 +309,11 @@ pub fn draw_spatial(mut st: ResMut<GraphState>, mut gizmos: Gizmos, mut contexts
     if st.spatial.lod_active != lod_active {
         st.spatial.lod_active = lod_active;
         st.needs_redraw.store(true, Ordering::Relaxed);
+    }
+
+    // Scene dressing: faint floor grid (Standard theme, spatial view).
+    if st.cfg.visual_theme == VisualTheme::Standard && st.ui.view_mode == ViewMode::Spatial {
+        draw_floor_grid(&mut gizmos);
     }
 
     // Tooltip
@@ -373,7 +460,7 @@ pub fn draw_spatial(mut st: ResMut<GraphState>, mut gizmos: Gizmos, mut contexts
                         ) else {
                             continue;
                         };
-                        gizmos.line(a, b, Color::srgb(0.8, 0.8, 1.0));
+                        gizmos.line(a, b, theme::edge_color(key.class));
                     }
                 }
                 if st.cfg.show_raw_edges && !focus_nodes.is_empty() {
@@ -411,6 +498,7 @@ pub fn draw_spatial(mut st: ResMut<GraphState>, mut gizmos: Gizmos, mut contexts
                             if &edge.from != id || !st.edge_visible(edge, &vis) {
                                 continue;
                             }
+                            let class = EdgeKindClass::from_kind(&edge.kind);
                             if !seen.insert(AggEdgeKey::new(edge)) {
                                 continue;
                             }
@@ -420,7 +508,7 @@ pub fn draw_spatial(mut st: ResMut<GraphState>, mut gizmos: Gizmos, mut contexts
                             ) else {
                                 continue;
                             };
-                            gizmos.line(a, b, Color::srgb(0.8, 0.8, 1.0));
+                            gizmos.line(a, b, theme::edge_color(class));
                         }
                     }
                 }
@@ -448,6 +536,105 @@ pub fn draw_spatial(mut st: ResMut<GraphState>, mut gizmos: Gizmos, mut contexts
                 }
             }
         }
+
+        // Recent-activity pulse: a bright dot travels along each glowing edge
+        // as its glow decays (Standard theme).
+        if st.cfg.visual_theme == VisualTheme::Standard {
+            let now = Instant::now();
+            let dur = st.cfg.glow_duration.as_secs_f32().max(0.001);
+            for (edge, deadline) in st.spatial.glow_edges.iter() {
+                if *deadline <= now || !vis.contains(&edge.from) || !vis.contains(&edge.to) {
+                    continue;
+                }
+                let (Some(a), Some(b)) = (
+                    st.spatial.position_of(&edge.from),
+                    st.spatial.position_of(&edge.to),
+                ) else {
+                    continue;
+                };
+                let remaining = (*deadline - now).as_secs_f32();
+                let t = (1.0 - remaining / dur).clamp(0.0, 1.0);
+                let class = EdgeKindClass::from_kind(&edge.kind);
+                gizmos.sphere(a.lerp(b, t), Quat::IDENTITY, 0.18, theme::edge_color(class));
+            }
+        }
+    }
+}
+
+/// Billboarded labels for the focused / hovered / selected nodes only (capped),
+/// projected to screen via egui. Never labels every node at once.
+pub fn draw_node_labels(
+    mut contexts: EguiContexts,
+    st: Res<GraphState>,
+    cam_q: Query<(&Camera, &GlobalTransform)>,
+) {
+    if st.ui.view_mode == ViewMode::Timeline {
+        return;
+    }
+    let Ok((camera, cam_tf)) = cam_q.get_single() else {
+        return;
+    };
+
+    const CAP: usize = 6;
+    let mut targets: Vec<spacegraph_core::NodeId> = Vec::new();
+    for id in [
+        &st.ui.hovered,
+        &st.ui.selected,
+        &st.ui.focus,
+        &st.ui.selected_a,
+        &st.ui.selected_b,
+    ]
+    .into_iter()
+    .flatten()
+    {
+        if !targets.contains(id) {
+            targets.push(id.clone());
+        }
+    }
+    targets.truncate(CAP);
+    if targets.is_empty() {
+        return;
+    }
+
+    let ctx = contexts.ctx_mut();
+    let painter = ctx.layer_painter(egui::LayerId::new(
+        egui::Order::Foreground,
+        egui::Id::new("node_labels"),
+    ));
+    for id in targets {
+        let Some(pos) = st.spatial.position_of(&id) else {
+            continue;
+        };
+        let Some(screen) = camera.world_to_viewport(cam_tf, pos) else {
+            continue;
+        };
+        let label = st
+            .model
+            .nodes
+            .get(&id)
+            .map(node_label_short)
+            .unwrap_or_else(|| id.0.clone());
+        painter.text(
+            egui::pos2(screen.x + 10.0, screen.y - 6.0),
+            egui::Align2::LEFT_CENTER,
+            label,
+            egui::FontId::proportional(13.0),
+            egui::Color32::from_rgb(200, 230, 255),
+        );
+    }
+}
+
+/// Draw a faint floor grid on the XZ plane (scene dressing for the Standard
+/// theme). Immediate-mode gizmos with a bounded line count.
+fn draw_floor_grid(gizmos: &mut Gizmos) {
+    const HALF: i32 = 28;
+    const STEP: f32 = 4.0;
+    let extent = HALF as f32 * STEP;
+    let color = theme::GRID_LINE;
+    for i in -HALF..=HALF {
+        let o = i as f32 * STEP;
+        gizmos.line(Vec3::new(-extent, 0.0, o), Vec3::new(extent, 0.0, o), color);
+        gizmos.line(Vec3::new(o, 0.0, -extent), Vec3::new(o, 0.0, extent), color);
     }
 }
 
@@ -473,10 +660,13 @@ mod tests {
     }
 
     fn dummy_render_resources() -> NodeRenderResources {
+        let ramp: [Handle<StandardMaterial>; GLOW_LEVELS] =
+            std::array::from_fn(|_| Handle::default());
         NodeRenderResources {
             mesh: Handle::default(),
-            normal: Handle::default(),
-            glow: Handle::default(),
+            standard: vec![ramp.clone(), ramp.clone(), ramp],
+            minimal_normal: Handle::default(),
+            minimal_glow: Handle::default(),
         }
     }
 
@@ -513,6 +703,40 @@ mod tests {
         assert_eq!(
             frame1, frame2,
             "steady state must not spawn/despawn entities"
+        );
+    }
+
+    #[test]
+    fn minimal_theme_uses_flat_materials() {
+        use crate::util::config::VisualTheme;
+        let ramp: [Handle<StandardMaterial>; GLOW_LEVELS] =
+            std::array::from_fn(|_| Handle::default());
+        let res = NodeRenderResources {
+            mesh: Handle::default(),
+            standard: vec![ramp.clone(), ramp.clone(), ramp],
+            minimal_normal: Handle::weak_from_u128(11),
+            minimal_glow: Handle::weak_from_u128(22),
+        };
+
+        let mut gs = graph_state(50);
+        gs.cfg.visual_theme = VisualTheme::Minimal;
+        let id = gs.spatial.vis_cache.iter().next().cloned().unwrap();
+        let idx = gs.spatial.index_of(&id).unwrap();
+        let now = std::time::Instant::now();
+
+        // Not glowing → flat normal material (Phase 4 look).
+        assert_eq!(
+            node_material(&res, &gs, idx, &id, now, 0.9),
+            res.minimal_normal
+        );
+
+        // Glowing → flat white-emissive glow (Phase 4 look), binary, no ramp.
+        gs.spatial
+            .set_node_glow(&id, now + std::time::Duration::from_secs(1));
+        let idx = gs.spatial.index_of(&id).unwrap();
+        assert_eq!(
+            node_material(&res, &gs, idx, &id, now, 0.9),
+            res.minimal_glow
         );
     }
 
