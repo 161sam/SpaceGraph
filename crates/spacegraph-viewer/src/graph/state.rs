@@ -38,6 +38,11 @@ pub struct SpatialState {
     pub active: Vec<NodeIndex>,
     pub visible_mask: Vec<bool>,
 
+    /// Visible set computed once per frame by the layout system and reused by
+    /// the renderers (entity sync, edge/tooltip drawing) — avoids recomputing
+    /// the capped projection multiple times per frame.
+    pub vis_cache: HashSet<NodeId>,
+
     /// Uniform grid for neighbour-only repulsion + its reused candidate buffer.
     pub grid: Grid,
     pub grid_scratch: Vec<NodeIndex>,
@@ -130,6 +135,16 @@ impl SpatialState {
         self.node_glow(id).is_some()
     }
 
+    /// Whether an index is currently placed and its node is in `vis`.
+    pub fn index_visible(&self, idx: NodeIndex, vis: &HashSet<NodeId>) -> bool {
+        self.placed.get(idx.slot()).copied().unwrap_or(false)
+            && self
+                .interner
+                .resolve(idx)
+                .map(|id| vis.contains(id))
+                .unwrap_or(false)
+    }
+
     /// Iterate placed nodes as `(id, position)` for rendering / picking.
     pub fn placed_positions(&self) -> impl Iterator<Item = (&NodeId, Vec3)> + '_ {
         self.interner.iter().filter_map(move |(idx, id)| {
@@ -165,6 +180,7 @@ impl SpatialState {
         self.forces.clear();
         self.active.clear();
         self.visible_mask.clear();
+        self.vis_cache.clear();
         self.grid.clear();
         self.grid_scratch.clear();
         self.repulsion_cursor = 0;
