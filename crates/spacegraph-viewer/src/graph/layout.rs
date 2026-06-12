@@ -93,13 +93,74 @@ impl GraphState {
         }
 
         if base.len() > self.cfg.max_visible_nodes {
-            let mut v: Vec<NodeId> = base.into_iter().collect();
-            v.sort_by(|a, b| a.0.cmp(&b.0));
-            v.truncate(self.cfg.max_visible_nodes);
-            v.into_iter().collect()
+            if self.ui.view_mode == ViewMode::Tree {
+                // File paths sort hierarchically, so a lexicographic slice keeps
+                // subtrees contiguous — the right cap for the tree view.
+                let mut v: Vec<NodeId> = base.into_iter().collect();
+                v.sort_by(|a, b| a.0.cmp(&b.0));
+                v.truncate(self.cfg.max_visible_nodes);
+                v.into_iter().collect()
+            } else {
+                self.cap_visible_set_connected(base)
+            }
         } else {
             base
         }
+    }
+
+    /// Reduce `base` to at most `max_visible_nodes` while preserving graph
+    /// connectivity, so visible edges keep both endpoints.
+    ///
+    /// Node IDs sort by type prefix (`…:file:…` < `…:process:…` < `…:user:…`),
+    /// so a naive lexicographic truncation drops one whole type and leaves zero
+    /// edges with both endpoints visible — the "agg N edges but 0/0 visible"
+    /// bug. Instead we grow the set by deterministic BFS over the in-`base`
+    /// adjacency, pulling connected neighbours in together. Determinism: seed
+    /// order and per-node neighbour order are both sorted by ID.
+    fn cap_visible_set_connected(&self, base: HashSet<NodeId>) -> HashSet<NodeId> {
+        let cap = self.cfg.max_visible_nodes.max(1);
+        if base.len() <= cap {
+            return base;
+        }
+
+        let mut seeds: Vec<NodeId> = base.iter().cloned().collect();
+        seeds.sort_by(|a, b| a.0.cmp(&b.0));
+
+        let mut visible: HashSet<NodeId> = HashSet::with_capacity(cap);
+        let mut queue: VecDeque<NodeId> = VecDeque::new();
+
+        for seed in seeds {
+            if visible.len() >= cap {
+                break;
+            }
+            if !visible.insert(seed.clone()) {
+                continue;
+            }
+            queue.push_back(seed);
+
+            while let Some(cur) = queue.pop_front() {
+                if visible.len() >= cap {
+                    break;
+                }
+                let mut neighbors: Vec<NodeId> = self
+                    .model
+                    .neighbors(&cur)
+                    .filter(|nb| base.contains(nb) && !visible.contains(nb))
+                    .collect();
+                neighbors.sort_by(|a, b| a.0.cmp(&b.0));
+                neighbors.dedup();
+                for nb in neighbors {
+                    if visible.len() >= cap {
+                        break;
+                    }
+                    if visible.insert(nb.clone()) {
+                        queue.push_back(nb);
+                    }
+                }
+            }
+        }
+
+        visible
     }
 
     fn tree_visible_set(&mut self, base: &HashSet<NodeId>) -> HashSet<NodeId> {
@@ -469,5 +530,55 @@ fn place_ring(pos: &mut HashMap<NodeId, Vec3>, ids: &[NodeId], r: f32, y_base: f
                 0.0
             };
         pos.insert(id.clone(), Vec3::new(x, y, z));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn state_with_synthetic(n: usize, cap: usize) -> GraphState {
+        let mut st = GraphState::default();
+        st.cfg.max_visible_nodes = cap;
+        st.ui.view_mode = ViewMode::Spatial;
+        st.load_synthetic_graph(n);
+        st
+    }
+
+    #[test]
+    fn capped_visible_set_preserves_edges() {
+        // Regression for the "agg N edges but 0/0 visible" bug: lexicographic
+        // truncation dropped every process node (IDs sort by type prefix),
+        // leaving zero edges with both endpoints in the visible set.
+        let mut st = state_with_synthetic(3000, 1200);
+        let vis = st.visible_set_capped();
+        assert_eq!(vis.len(), 1200, "cap should saturate for a 3000-node graph");
+
+        let (raw, agg) = st.visible_edge_counts(&vis);
+        assert!(
+            agg > 0,
+            "connectivity-aware cap must keep visible aggregated edges (got 0)"
+        );
+        // A connectivity-preserving cap keeps a dense subgraph, not a handful.
+        assert!(
+            agg >= 100,
+            "expected many visible edges, got agg={agg} raw={raw}"
+        );
+    }
+
+    #[test]
+    fn capped_visible_set_is_deterministic() {
+        let mut a = state_with_synthetic(3000, 1200);
+        let mut b = state_with_synthetic(3000, 1200);
+        assert_eq!(a.visible_set_capped(), b.visible_set_capped());
+    }
+
+    #[test]
+    fn uncapped_visible_set_returns_all_nodes() {
+        let mut st = state_with_synthetic(500, 10_000);
+        let vis = st.visible_set_capped();
+        assert_eq!(vis.len(), 500);
+        let (_, agg) = st.visible_edge_counts(&vis);
+        assert!(agg > 0);
     }
 }
