@@ -13,6 +13,7 @@ pub enum EdgeKindClass {
     OwnsSocket,
     ConnectsTo,
     ListensOn,
+    AlertsOn,
 }
 
 impl EdgeKindClass {
@@ -24,6 +25,7 @@ impl EdgeKindClass {
             EdgeKind::OwnsSocket => Self::OwnsSocket,
             EdgeKind::ConnectsTo => Self::ConnectsTo,
             EdgeKind::ListensOn => Self::ListensOn,
+            EdgeKind::AlertsOn => Self::AlertsOn,
         }
     }
 }
@@ -78,6 +80,7 @@ pub fn edge_kind_name(k: &EdgeKind) -> &'static str {
         EdgeKind::OwnsSocket => "owns_socket",
         EdgeKind::ConnectsTo => "connects_to",
         EdgeKind::ListensOn => "listens_on",
+        EdgeKind::AlertsOn => "alerts_on",
     }
 }
 
@@ -89,6 +92,7 @@ pub fn edge_class_name(k: EdgeKindClass) -> &'static str {
         EdgeKindClass::OwnsSocket => "owns_socket",
         EdgeKindClass::ConnectsTo => "connects_to",
         EdgeKindClass::ListensOn => "listens_on",
+        EdgeKindClass::AlertsOn => "alerts_on",
     }
 }
 
@@ -100,6 +104,7 @@ pub fn edge_explain(k: &EdgeKind) -> String {
         EdgeKind::OwnsSocket => "process owns socket".to_string(),
         EdgeKind::ConnectsTo => "socket connects to remote host".to_string(),
         EdgeKind::ListensOn => "process listens on socket".to_string(),
+        EdgeKind::AlertsOn => "alert raised on this entity".to_string(),
     }
 }
 

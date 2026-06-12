@@ -98,6 +98,8 @@ pub struct ViewerConfig {
     pub focus_hops: usize,
     pub max_visible_nodes: usize,
     pub progressive_nodes_per_frame: usize,
+    #[serde(default = "default_max_visible_alerts")]
+    pub max_visible_alerts: usize,
     pub layout_force: bool,
     pub link_distance: f32,
     pub repulsion: f32,
@@ -139,6 +141,7 @@ impl Default for ViewerConfig {
             focus_hops: 2,
             max_visible_nodes: 3000,
             progressive_nodes_per_frame: 250,
+            max_visible_alerts: default_max_visible_alerts(),
             layout_force: true,
             link_distance: 6.0,
             repulsion: 400.0,
@@ -206,6 +209,10 @@ fn uid_from_proc() -> Option<u32> {
 
 fn default_agents() -> Vec<AgentEndpoint> {
     vec![AgentEndpoint::default()]
+}
+
+fn default_max_visible_alerts() -> usize {
+    200
 }
 
 fn config_file_path() -> Option<PathBuf> {

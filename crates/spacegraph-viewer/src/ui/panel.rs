@@ -202,6 +202,49 @@ pub fn ui_panel(
 
             ui.separator();
             ui.vertical(|ui| {
+                section_header(ui, "Alerts");
+                let (low, med, high) = st.alert_severity_counts();
+                ui.horizontal(|ui| {
+                    ui.colored_label(egui::Color32::from_rgb(250, 190, 60), format!("low {low}"));
+                    ui.colored_label(egui::Color32::from_rgb(252, 128, 40), format!("med {med}"));
+                    ui.colored_label(egui::Color32::from_rgb(255, 46, 51), format!("high {high}"));
+                });
+                if low + med + high == 0 {
+                    ui.label("no alerts");
+                } else {
+                    let recent: Vec<(spacegraph_core::NodeId, String, String)> = st
+                        .alerts_newest_first()
+                        .take(10)
+                        .filter_map(|id| match st.model.nodes.get(id) {
+                            Some(spacegraph_core::Node::Alert {
+                                signature,
+                                severity,
+                                ..
+                            }) => Some((id.clone(), severity.clone(), signature.clone())),
+                            _ => None,
+                        })
+                        .collect();
+                    let mut jump_to = None;
+                    for (id, sev, sig) in recent {
+                        if ui
+                            .selectable_label(false, format!("[{sev}] {sig}"))
+                            .clicked()
+                        {
+                            jump_to = Some(id);
+                        }
+                    }
+                    if let Some(id) = jump_to {
+                        st.ui.focus = Some(id.clone());
+                        st.ui.selected = Some(id.clone());
+                        st.ui.view_mode = ViewMode::Spatial;
+                        st.request_jump(id);
+                        st.needs_redraw.store(true, Ordering::Relaxed);
+                    }
+                }
+            });
+
+            ui.separator();
+            ui.vertical(|ui| {
                 section_header(ui, "Filtering");
                 ui.label("Filter (substring):");
                 ui.text_edit_singleline(&mut st.ui.filter);

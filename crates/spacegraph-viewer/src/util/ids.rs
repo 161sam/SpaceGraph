@@ -45,6 +45,7 @@ pub fn node_label_short(node: &Node) -> String {
             Some(name) => format!("{name} ({addr})"),
             None => addr.clone(),
         },
+        Node::Alert { signature, .. } => format!("⚠ {signature}"),
     }
 }
 
@@ -86,6 +87,18 @@ pub fn node_label_long(node: &Node) -> Vec<String> {
             "kind: remote_host".to_string(),
             format!("addr: {addr}"),
             format!("rdns: {}", rdns.as_deref().unwrap_or("-")),
+        ],
+        Node::Alert {
+            source,
+            signature,
+            severity,
+            ts,
+        } => vec![
+            "kind: alert".to_string(),
+            format!("severity: {severity}"),
+            format!("signature: {signature}"),
+            format!("source: {source}"),
+            format!("ts: {ts}"),
         ],
     }
 }

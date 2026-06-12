@@ -5,7 +5,8 @@ use serde::{Deserialize, Serialize};
 /// in the `Hello` handshake and reject mismatches.
 ///
 /// v1: multi-node handshake. v2: network nodes (`Socket`, `RemoteHost`).
-pub const PROTOCOL_VERSION: u32 = 2;
+/// v3: alert nodes (`Alert`) + `alerts_on` edges.
+pub const PROTOCOL_VERSION: u32 = 3;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub struct NodeId(pub String);
@@ -41,6 +42,13 @@ pub enum Node {
         addr: String,
         rdns: Option<String>,
     },
+    /// A security alert (e.g. from Suricata EVE) correlated to a connection.
+    Alert {
+        source: String,    // "suricata"
+        signature: String, // rule message
+        severity: String,  // "low" | "medium" | "high"
+        ts: String,        // ISO timestamp (display)
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -75,6 +83,8 @@ pub enum EdgeKind {
     ConnectsTo,
     /// process → socket (a listening socket).
     ListensOn,
+    /// alert → socket | process | remote_host (the alerted entity).
+    AlertsOn,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -151,6 +161,9 @@ pub fn id_socket(node_id: &str, proto: &str, local_addr: &str, local_port: u16) 
 }
 pub fn id_remote_host(node_id: &str, addr: &str) -> NodeId {
     NodeId(format!("{node_id}:remote:{addr}"))
+}
+pub fn id_alert(node_id: &str, key: &str) -> NodeId {
+    NodeId(format!("{node_id}:alert:{key}"))
 }
 
 #[cfg(test)]
