@@ -35,6 +35,16 @@ pub fn node_label_short(node: &Node) -> String {
         }
         Node::File { path, .. } => normalize_display_path(path),
         Node::User { name, .. } => name.clone(),
+        Node::Socket {
+            proto,
+            local_addr,
+            local_port,
+            ..
+        } => format!("{proto} {local_addr}:{local_port}"),
+        Node::RemoteHost { addr, rdns } => match rdns {
+            Some(name) => format!("{name} ({addr})"),
+            None => addr.clone(),
+        },
     }
 }
 
@@ -61,5 +71,21 @@ pub fn node_label_long(node: &Node) -> Vec<String> {
         Node::User { uid, name } => {
             vec!["kind: user".to_string(), format!("uid: {uid} name: {name}")]
         }
+        Node::Socket {
+            proto,
+            local_addr,
+            local_port,
+            state,
+        } => vec![
+            "kind: socket".to_string(),
+            format!("proto: {proto}"),
+            format!("local: {local_addr}:{local_port}"),
+            format!("state: {state}"),
+        ],
+        Node::RemoteHost { addr, rdns } => vec![
+            "kind: remote_host".to_string(),
+            format!("addr: {addr}"),
+            format!("rdns: {}", rdns.as_deref().unwrap_or("-")),
+        ],
     }
 }

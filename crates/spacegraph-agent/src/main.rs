@@ -2,12 +2,15 @@ mod config;
 mod path_policy;
 mod server;
 mod snapshot;
+mod sources;
 mod watch_fs;
 mod watch_proc;
 
 use anyhow::Result;
 use config::{default_excludes, default_includes, parse_args, should_warn_privileged_without_root};
 use path_policy::PathPolicy;
+use sources::net::{NetConfig, NetSource};
+use sources::{EventSource, FsSource, ProcSource};
 use spacegraph_core::{Capabilities, Delta, Msg, NodeIdentity};
 use std::sync::Arc;
 use tokio::sync::{broadcast, mpsc};
@@ -144,19 +147,6 @@ async fn main() -> Result<()> {
         })
     };
 
-    // Watchers publish to bus
-    let (fs_tx, fs_rx) = mpsc::channel::<Msg>(8192);
-    let (proc_tx, proc_rx) = mpsc::channel::<Msg>(8192);
-
-    watch_fs::spawn(
-        &node_id,
-        config.mode,
-        Arc::clone(&policy),
-        watch_roots,
-        fs_tx,
-    )?;
-    watch_proc::spawn(&node_id, proc_tx)?;
-
     tracing::info!(
         uds_path = %sock_path,
         mode = ?config.mode,
@@ -164,20 +154,38 @@ async fn main() -> Result<()> {
         exclude_root_count = policy.excludes().len(),
         snapshot_node_count,
         watch_root_count = effective_root_count,
+        net_enabled = config.net_enabled,
         "startup summary"
     );
 
-    // Forward watcher channels → broadcast bus
-    {
-        let bus_tx = bus_tx.clone();
-        tokio::spawn(async move {
-            forward_to_bus(fs_rx, bus_tx).await;
-        });
+    // Event sources (EventSource trait) publish onto the broadcast bus.
+    let mut sources: Vec<Box<dyn EventSource>> = vec![
+        Box::new(FsSource {
+            mode: config.mode,
+            policy: Arc::clone(&policy),
+            roots: watch_roots,
+        }),
+        Box::new(ProcSource),
+    ];
+    if config.net_enabled {
+        let net_cfg = NetConfig::from_args(
+            config.net_poll_secs,
+            &config.net_include,
+            &config.net_exclude,
+        );
+        sources.push(Box::new(NetSource { config: net_cfg }));
     }
-    {
+
+    for source in sources {
+        let name = source.name();
+        let (tx, rx) = mpsc::channel::<Msg>(8192);
+        if let Err(err) = source.start(node_id.clone(), tx) {
+            tracing::warn!(source = name, error = %err, "source failed to start");
+            continue;
+        }
         let bus_tx = bus_tx.clone();
         tokio::spawn(async move {
-            forward_to_bus(proc_rx, bus_tx).await;
+            forward_to_bus(rx, bus_tx).await;
         });
     }
 

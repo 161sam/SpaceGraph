@@ -3,12 +3,14 @@ use serde::{Deserialize, Serialize};
 /// Wire-protocol version. Bumped whenever the message schema changes
 /// (multi-node handshake, network nodes, alerts). Agent and viewer exchange it
 /// in the `Hello` handshake and reject mismatches.
-pub const PROTOCOL_VERSION: u32 = 1;
+///
+/// v1: multi-node handshake. v2: network nodes (`Socket`, `RemoteHost`).
+pub const PROTOCOL_VERSION: u32 = 2;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub struct NodeId(pub String);
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", content = "data")]
 pub enum Node {
     Process {
@@ -27,9 +29,21 @@ pub enum Node {
         uid: u32,
         name: String,
     },
+    /// A network socket owned by a process (network layer, v0.3.x).
+    Socket {
+        proto: String, // "tcp" | "tcp6" | "udp" | "udp6"
+        local_addr: String,
+        local_port: u16,
+        state: String, // "LISTEN" | "ESTABLISHED" | ...
+    },
+    /// A remote endpoint a socket connects to.
+    RemoteHost {
+        addr: String,
+        rdns: Option<String>,
+    },
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum FileKind {
     Regular,
     Dir,
@@ -49,9 +63,18 @@ pub struct Edge {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 #[serde(tag = "type", content = "data")]
 pub enum EdgeKind {
-    Opens { fd: i32, mode: String }, // "r" | "w" | "rw" | "?"
+    Opens {
+        fd: i32,
+        mode: String,
+    }, // "r" | "w" | "rw" | "?"
     Execs,
     RunsAs,
+    /// process → socket (the process holds this socket fd).
+    OwnsSocket,
+    /// socket → remote_host (an established connection).
+    ConnectsTo,
+    /// process → socket (a listening socket).
+    ListensOn,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -120,6 +143,14 @@ pub fn id_user(node_id: &str, uid: u32) -> NodeId {
 pub fn id_file(node_id: &str, path: &str) -> NodeId {
     // MVP: use raw path. Later you can hash/normalize for privacy.
     NodeId(format!("{node_id}:file:{path}"))
+}
+pub fn id_socket(node_id: &str, proto: &str, local_addr: &str, local_port: u16) -> NodeId {
+    NodeId(format!(
+        "{node_id}:socket:{proto}:{local_addr}:{local_port}"
+    ))
+}
+pub fn id_remote_host(node_id: &str, addr: &str) -> NodeId {
+    NodeId(format!("{node_id}:remote:{addr}"))
 }
 
 #[cfg(test)]

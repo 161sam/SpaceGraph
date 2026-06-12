@@ -24,6 +24,11 @@ pub struct AgentConfig {
     pub includes: Vec<PathBuf>,
     pub excludes: Vec<PathBuf>,
     pub uds_path: Option<PathBuf>,
+    /// Network source (procfs sockets → process/socket/remote-host topology).
+    pub net_enabled: bool,
+    pub net_poll_secs: u64,
+    pub net_include: Vec<String>, // CIDR allowlist for remote hosts (empty = all)
+    pub net_exclude: Vec<String>, // CIDR blocklist for remote hosts
 }
 
 pub fn parse_args() -> Result<AgentConfig> {
@@ -38,6 +43,10 @@ where
     let mut includes = Vec::new();
     let mut excludes = Vec::new();
     let mut uds_path = None;
+    let mut net_enabled = true;
+    let mut net_poll_secs = 2u64;
+    let mut net_include = Vec::new();
+    let mut net_exclude = Vec::new();
     let mut args = args.into_iter();
 
     while let Some(arg) = args.next() {
@@ -51,6 +60,26 @@ where
                 anyhow::bail!("--exclude expects a path");
             };
             excludes.push(PathBuf::from(path));
+        } else if arg == "--no-net" {
+            net_enabled = false;
+        } else if arg == "--net-poll-secs" {
+            let Some(value) = args.next() else {
+                anyhow::bail!("--net-poll-secs expects a number");
+            };
+            net_poll_secs = value
+                .to_string_lossy()
+                .parse()
+                .map_err(|_| anyhow::anyhow!("--net-poll-secs expects a number"))?;
+        } else if arg == "--net-include" {
+            let Some(value) = args.next() else {
+                anyhow::bail!("--net-include expects a CIDR");
+            };
+            net_include.push(value.to_string_lossy().to_string());
+        } else if arg == "--net-exclude" {
+            let Some(value) = args.next() else {
+                anyhow::bail!("--net-exclude expects a CIDR");
+            };
+            net_exclude.push(value.to_string_lossy().to_string());
         } else if arg == "--mode" {
             let Some(value) = args.next() else {
                 anyhow::bail!("--mode expects user|privileged");
@@ -72,6 +101,10 @@ where
         includes,
         excludes,
         uds_path,
+        net_enabled,
+        net_poll_secs: net_poll_secs.max(1),
+        net_include,
+        net_exclude,
     })
 }
 

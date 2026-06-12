@@ -10,6 +10,9 @@ pub enum EdgeKindClass {
     Opens,
     Execs,
     RunsAs,
+    OwnsSocket,
+    ConnectsTo,
+    ListensOn,
 }
 
 impl EdgeKindClass {
@@ -18,6 +21,9 @@ impl EdgeKindClass {
             EdgeKind::Opens { .. } => Self::Opens,
             EdgeKind::Execs => Self::Execs,
             EdgeKind::RunsAs => Self::RunsAs,
+            EdgeKind::OwnsSocket => Self::OwnsSocket,
+            EdgeKind::ConnectsTo => Self::ConnectsTo,
+            EdgeKind::ListensOn => Self::ListensOn,
         }
     }
 }
@@ -69,6 +75,9 @@ pub fn edge_kind_name(k: &EdgeKind) -> &'static str {
         EdgeKind::Opens { .. } => "opens",
         EdgeKind::Execs => "execs",
         EdgeKind::RunsAs => "runs_as",
+        EdgeKind::OwnsSocket => "owns_socket",
+        EdgeKind::ConnectsTo => "connects_to",
+        EdgeKind::ListensOn => "listens_on",
     }
 }
 
@@ -77,6 +86,9 @@ pub fn edge_class_name(k: EdgeKindClass) -> &'static str {
         EdgeKindClass::Opens => "opens",
         EdgeKindClass::Execs => "execs",
         EdgeKindClass::RunsAs => "runs_as",
+        EdgeKindClass::OwnsSocket => "owns_socket",
+        EdgeKindClass::ConnectsTo => "connects_to",
+        EdgeKindClass::ListensOn => "listens_on",
     }
 }
 
@@ -85,6 +97,9 @@ pub fn edge_explain(k: &EdgeKind) -> String {
         EdgeKind::Opens { fd, mode } => format!("process opened file (fd={fd}, mode={mode})"),
         EdgeKind::Execs => "process execs file (exe)".to_string(),
         EdgeKind::RunsAs => "process runs as user (uid)".to_string(),
+        EdgeKind::OwnsSocket => "process owns socket".to_string(),
+        EdgeKind::ConnectsTo => "socket connects to remote host".to_string(),
+        EdgeKind::ListensOn => "process listens on socket".to_string(),
     }
 }
 

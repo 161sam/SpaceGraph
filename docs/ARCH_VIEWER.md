@@ -142,3 +142,19 @@ Kein automatisches Merge ohne Namespace.
   `visible_set_capped`).
 - `PROTOCOL_VERSION` (in `spacegraph-core`) wird im `Hello`-Handshake geprüft;
   Mismatch → Ablehnung mit klarer Fehlermeldung.
+
+## Agent: Event-Sources (v0.3.x)
+
+Der Agent sammelt über das `EventSource`-Trait (`agent/src/sources/mod.rs`) —
+der **Erweiterungspunkt** für neue Collectors. Jede Source läuft eigenständig
+und schreibt `Msg` auf den Broadcast-Bus.
+
+- `FsSource` (fsnotify), `ProcSource` (procfs) — bestehende Collectors hinter
+  dem Trait.
+- `NetSource` (`sources/net.rs`): procfs `/proc/net/{tcp,tcp6,udp,udp6}` +
+  inode→pid (`/proc/<pid>/fd`) → `Socket`/`RemoteHost`-Nodes + Edges
+  (`owns_socket`/`listens_on`/`connects_to`). Diff-basiert (nur Änderungen →
+  beschränkte Event-Rate), Poll-Intervall konfigurierbar, CIDR-Filter,
+  Loopback-Collapse. rDNS ist best-effort (Hook vorhanden).
+- eBPF/auditd/Zeek/Falco sind geplante weitere `EventSource`-Implementierungen
+  (Erweiterungspunkt dokumentiert, nicht implementiert).

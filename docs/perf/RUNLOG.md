@@ -369,3 +369,54 @@ Branch: `feat/v0.2.0-multi-node`.
   agent's `Identity` host is shown as origin metadata. This is the blueprint's
   `node_key = "stream-<id>"` fallback form, always available and stable
   regardless of Identity timing.
+
+---
+
+## Phase 7 — Network layer (agent)
+
+Branch: `feat/agent-network-layer`.
+
+### Changed
+
+* `spacegraph-core`: node types `Socket { proto, local_addr, local_port, state }`
+  and `RemoteHost { addr, rdns }`; edge kinds `OwnsSocket`, `ConnectsTo`,
+  `ListensOn`; `id_socket` / `id_remote_host`; `PROTOCOL_VERSION` → 2. `Node` /
+  `FileKind` gain `PartialEq` (for diffing).
+* Agent: `sources/mod.rs` introduces the `EventSource` trait (the collector
+  extension point) with `FsSource` / `ProcSource` wrappers over the existing
+  watchers; `sources/net.rs` is the new network source — procfs
+  `/proc/net/{tcp,tcp6,udp,udp6}` + inode→pid (`/proc/<pid>/fd`) → socket /
+  remote-host graph, **diff-based emission** (only changes, batched), poll
+  interval (default 2 s), CIDR `--net-include`/`--net-exclude`, loopback
+  collapse. CLI: `--no-net`, `--net-poll-secs`, `--net-include/-exclude`.
+* `main.rs` wires all collectors uniformly through `Vec<Box<dyn EventSource>>`.
+* Viewer: theme colours for `Socket` (blue) / `RemoteHost` (violet) and the new
+  edge classes; network nodes placed on an outer shell (`progressive_prepare`
+  shell factor); labels / search / timeline / filters handle the new variants.
+
+### Gate 7 results
+
+* `cargo fmt --check`, `cargo clippy --workspace --all-targets -- -D warnings`,
+  `cargo test --workspace`: green. Agent tests (pure, with a committed
+  fixture): `parses_tcp_table`, v4 little-endian address, `parse_socket_inode`,
+  `build_graph_links_process_socket_remote`, `socket_without_pid_is_skipped`,
+  CIDR filtering, and **diff is empty for a stable graph** (bounded event rate),
+  added/removed detection.
+* Event-rate boundedness is structural: a stable socket table diffs to zero
+  deltas, so an idle system emits nothing between changes.
+
+### Open / to verify locally
+
+* Live demo (process → socket → remote-host topology, steady-state event rate
+  < 5/s) needs a running agent + viewer with real sockets — verify locally.
+  FPS gates unaffected (no viewer hot-path change).
+
+### Deviations (with justification)
+
+* `EventSource` `FsSource`/`ProcSource` are thin wrappers delegating to the
+  existing `watch_fs`/`watch_proc` rather than physically relocating those files
+  into `sources/`. Same architectural goal (a uniform collector extension
+  point) with far less churn; physical relocation can follow.
+* rDNS is a documented best-effort hook but not yet performing lookups (avoids
+  blocking/network in the agent hot path); `RemoteHost.rdns` stays `None` for
+  now.

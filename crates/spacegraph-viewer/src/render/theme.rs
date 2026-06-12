@@ -18,8 +18,10 @@ pub const PROCESS: Color = Color::srgb(0.20, 0.85, 0.95);
 pub const FILE: Color = Color::srgb(0.25, 0.95, 0.45);
 /// User — amber.
 pub const USER: Color = Color::srgb(0.98, 0.75, 0.25);
-/// Host / Container — violet (reserved for Phase 7 network nodes).
-pub const HOST: Color = Color::srgb(0.65, 0.45, 0.98);
+/// Socket — blue (network layer).
+pub const SOCKET: Color = Color::srgb(0.30, 0.60, 0.98);
+/// Host / Container / RemoteHost — violet (network layer).
+pub const HOST: Color = Color::srgb(0.70, 0.55, 0.99);
 /// Alert / threat — red (reserved for Phase 8).
 pub const ALERT: Color = Color::srgb(0.98, 0.22, 0.25);
 /// Recent-activity flash colour; decays back to the node's type colour.
@@ -29,6 +31,9 @@ pub const RECENT_GLOW: Color = Color::srgb(1.0, 1.0, 1.0);
 pub const EDGE_OPENS: Color = Color::srgb(0.25, 0.95, 0.45); // green
 pub const EDGE_EXECS: Color = Color::srgb(0.20, 0.85, 0.95); // cyan
 pub const EDGE_RUNS_AS: Color = Color::srgb(0.98, 0.75, 0.25); // amber
+pub const EDGE_OWNS_SOCKET: Color = Color::srgb(0.30, 0.60, 0.98); // blue
+pub const EDGE_CONNECTS_TO: Color = Color::srgb(0.40, 0.70, 1.0); // bright blue
+pub const EDGE_LISTENS_ON: Color = Color::srgb(0.30, 0.85, 0.85); // teal
 
 // ---- Timeline event-marker colours ----
 pub const TL_NODE_UPSERT: Color = FILE; // green
@@ -53,17 +58,27 @@ pub enum NodeKind {
     Process,
     File,
     User,
+    Socket,
+    RemoteHost,
 }
 
 impl NodeKind {
     /// All kinds, in stable index order (used to build per-kind material ramps).
-    pub const ALL: [NodeKind; 3] = [NodeKind::Process, NodeKind::File, NodeKind::User];
+    pub const ALL: [NodeKind; 5] = [
+        NodeKind::Process,
+        NodeKind::File,
+        NodeKind::User,
+        NodeKind::Socket,
+        NodeKind::RemoteHost,
+    ];
 
     pub fn of(node: &Node) -> Self {
         match node {
             Node::Process { .. } => NodeKind::Process,
             Node::File { .. } => NodeKind::File,
             Node::User { .. } => NodeKind::User,
+            Node::Socket { .. } => NodeKind::Socket,
+            Node::RemoteHost { .. } => NodeKind::RemoteHost,
         }
     }
 
@@ -72,6 +87,8 @@ impl NodeKind {
             NodeKind::Process => 0,
             NodeKind::File => 1,
             NodeKind::User => 2,
+            NodeKind::Socket => 3,
+            NodeKind::RemoteHost => 4,
         }
     }
 
@@ -80,7 +97,14 @@ impl NodeKind {
             NodeKind::Process => PROCESS,
             NodeKind::File => FILE,
             NodeKind::User => USER,
+            NodeKind::Socket => SOCKET,
+            NodeKind::RemoteHost => HOST,
         }
+    }
+
+    /// True for network-layer nodes that should sit on an outer shell.
+    pub fn is_network(self) -> bool {
+        matches!(self, NodeKind::Socket | NodeKind::RemoteHost)
     }
 }
 
@@ -90,6 +114,9 @@ pub fn edge_color(class: EdgeKindClass) -> Color {
         EdgeKindClass::Opens => EDGE_OPENS,
         EdgeKindClass::Execs => EDGE_EXECS,
         EdgeKindClass::RunsAs => EDGE_RUNS_AS,
+        EdgeKindClass::OwnsSocket => EDGE_OWNS_SOCKET,
+        EdgeKindClass::ConnectsTo => EDGE_CONNECTS_TO,
+        EdgeKindClass::ListensOn => EDGE_LISTENS_ON,
     }
 }
 
@@ -113,7 +140,7 @@ mod tests {
     #[test]
     fn node_kind_indices_are_stable_and_distinct() {
         let idx: Vec<usize> = NodeKind::ALL.iter().map(|k| k.index()).collect();
-        assert_eq!(idx, vec![0, 1, 2]);
+        assert_eq!(idx, vec![0, 1, 2, 3, 4]);
     }
 
     #[test]

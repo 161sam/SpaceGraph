@@ -51,6 +51,15 @@ impl GraphState {
                 cmdline.to_lowercase().contains(&f) || exe.to_lowercase().contains(&f)
             }
             Node::User { name, .. } => name.to_lowercase().contains(&f),
+            Node::Socket {
+                proto, local_addr, ..
+            } => proto.to_lowercase().contains(&f) || local_addr.to_lowercase().contains(&f),
+            Node::RemoteHost { addr, rdns } => {
+                addr.to_lowercase().contains(&f)
+                    || rdns
+                        .as_deref()
+                        .is_some_and(|r| r.to_lowercase().contains(&f))
+            }
         };
         id_ok || node_ok
     }
@@ -341,14 +350,19 @@ impl GraphState {
         let slice: Vec<NodeId> = self.spatial.active_vis_cache[start..end].to_vec();
 
         for (off, id) in slice.iter().enumerate() {
-            if !self.model.nodes.contains_key(id) {
-                continue;
-            }
+            // Network nodes sit on an outer shell (remote hosts furthest out),
+            // so connections fan outward from the process core.
+            let shell = match self.model.nodes.get(id) {
+                Some(Node::RemoteHost { .. }) => 1.8_f32,
+                Some(Node::Socket { .. }) => 1.25,
+                Some(_) => 1.0,
+                None => continue,
+            };
             let idx = self.spatial.intern(id);
             if self.spatial.placed[idx.slot()] {
                 continue;
             }
-            let pos = scatter_position(start + off, side, show_3d);
+            let pos = scatter_position(start + off, side, show_3d) * shell;
             self.spatial.set_position(idx, pos);
         }
 
