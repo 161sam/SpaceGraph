@@ -29,7 +29,8 @@ impl Plugin for SpaceGraphViewerPlugin {
         st.apply_viewer_config(&cfg);
         app.add_event::<Picked>()
             .insert_resource(st)
-            .insert_resource(UiLayout::default());
+            .insert_resource(UiLayout::default())
+            .insert_resource(crate::render::NodeEntities::default());
 
         match self.demo_load {
             Some(n) => {
@@ -41,26 +42,41 @@ impl Plugin for SpaceGraphViewerPlugin {
             }
         }
 
-        app.add_systems(Startup, crate::render::setup_scene)
-            .add_systems(
-                Update,
-                (
-                    process_net_commands,
-                    pump_network,
-                    crate::graph::tick_housekeeping,
-                    crate::ui::handle_shortcuts,
-                    crate::ui::ui_panel,
-                    crate::ui::help_overlay,
-                    crate::ui::hud_overlay,
-                    crate::render::hover_detection_spatial,
-                    crate::render::picking_focus,
-                    crate::render::apply_picked_focus,
-                    crate::render::update_tree_zoom,
-                    crate::graph::update_layout_or_timeline,
-                    crate::render::draw_scene,
-                    crate::render::apply_jump_to,
-                ),
-            );
+        app.add_systems(
+            Startup,
+            (
+                crate::render::setup_scene,
+                crate::render::setup_node_render_resources,
+            ),
+        )
+        .add_systems(
+            Update,
+            (
+                process_net_commands,
+                pump_network,
+                crate::graph::tick_housekeeping,
+                crate::ui::handle_shortcuts,
+                crate::ui::ui_panel,
+                crate::ui::help_overlay,
+                crate::ui::hud_overlay,
+                crate::render::hover_detection_spatial,
+                crate::render::picking_focus,
+                crate::render::apply_picked_focus,
+                crate::render::update_tree_zoom,
+            ),
+        )
+        // Render pipeline runs in order: layout publishes the visible set, the
+        // entity sync diffs against it, then overlays draw, then camera jumps.
+        .add_systems(
+            Update,
+            (
+                crate::graph::update_layout_or_timeline,
+                crate::render::sync_node_entities,
+                crate::render::draw_scene,
+                crate::render::apply_jump_to,
+            )
+                .chain(),
+        );
     }
 }
 

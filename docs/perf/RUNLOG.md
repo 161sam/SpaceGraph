@@ -159,3 +159,62 @@ Branch: `perf/grid-repulsion`.
   n/10 keeps hub degree ≈ 4 — representative of a real per-session/per-user
   system graph. The Phase 0 baseline `force_step` is all-pairs O(N²) and thus
   structure-independent, so the baseline comparison above remains valid.
+
+---
+
+## Phase 3 — Render fix (persistent node entities)
+
+Branch: `perf/persistent-node-entities`.
+
+### Changed
+
+* `render/spatial.rs`:
+  * `NodeRenderResources` (cached sphere mesh + normal/glow material handles)
+    created **once** at startup — kills the per-frame `meshes.add`/`mats.add`
+    handle leak that ran inside the old redraw path.
+  * `NodeEntities` resource = persistent `NodeIndex → Entity` map; `NodeRef`
+    component back-references the index.
+  * New `sync_node_entities` system: spawn on node-add, despawn on
+    node-remove/visibility-loss, otherwise **only mutate `Transform` and the
+    material handle** (glow = handle swap, never respawn). LOD / tree / timeline
+    modes despawn node entities (those draw via gizmos / nothing).
+  * `draw_spatial` no longer despawns+respawns every frame; it only draws
+    immediate-mode overlays (tooltip, edge/LOD/tree gizmos).
+  * Aggregated-edge drawing now iterates the **visible nodes' adjacency**
+    (bounded by the capped set, de-duped by agg key) instead of an O(E_total)
+    scan over every aggregated edge in the model.
+* Layout publishes the per-frame visible set once into `spatial.vis_cache`; the
+  render pipeline (`update_layout → sync_node_entities → draw_scene →
+  apply_jump_to`) is `.chain()`-ordered and reuses it (no repeated
+  `visible_set_capped`).
+
+### Gate 3 results
+
+* **Structural guarantees (headless ECS tests, `render::spatial::tests`):**
+  * `steady_state_has_no_entity_churn` — two frames with unchanged topology
+    reuse the exact same entity set (no spawn/despawn). ✓
+  * `spawns_one_entity_per_visible_node`, `lod_or_non_spatial_mode_despawns_node_entities`. ✓
+* No `unwrap()`/`expect()` in `render/` paths (audited); empty-graph / no-camera
+  handled via `get_single` guards + `Option` positions.
+* Edges visible by default on a fresh config (default `show_edges` +
+  `show_agg_edges`, LOD inactive at the default cap) — combined with the Phase 0
+  connectivity-aware cap.
+* `cargo fmt --check`, `cargo clippy --workspace --all-targets -- -D warnings`,
+  `cargo test --workspace`: green (49 viewer tests, +3 entity-sync tests).
+
+### Open / to verify locally
+
+* **FPS numbers (`≥60 @2000 LOD-off`, `≥30 @5000 LOD-on`) are not measured
+  here** — this environment is headless (no GPU/display). The structural fixes
+  that deliver them (no per-frame entity churn, cached handles, O(visible)
+  per-frame work) are verified by the tests above. Verify the wall-clock FPS
+  locally with `cargo run -p spacegraph-viewer -- --demo-load 2000` (and a
+  config with `max_visible_nodes ≥ lod_threshold` for the 5000 LOD-on case).
+
+### Deviations
+
+* `needs_redraw` is no longer the redraw gate; the entity sync diffs against the
+  cached visible set every frame (O(visible), bounded). `needs_redraw` is
+  retained only for LOD-state-change bookkeeping. Justification: per-frame
+  diffing is simpler and already bounded by the capped set; the layout moves
+  nodes every frame anyway, so a "dirty" gate would fire every frame regardless.

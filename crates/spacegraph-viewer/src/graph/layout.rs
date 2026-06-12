@@ -23,6 +23,10 @@ pub fn update_layout_or_timeline(time: Res<Time>, mut st: ResMut<GraphState>) {
         }
         ViewMode::Timeline => {}
     }
+
+    // Publish the visible set for the renderers (entity sync + edge/tooltip
+    // drawing) so they don't recompute the capped projection each.
+    st.spatial.vis_cache = vis;
 }
 
 impl GraphState {
