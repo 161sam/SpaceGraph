@@ -185,9 +185,15 @@ pub fn sync_node_entities(
         return;
     }
 
-    // Despawn entities whose node left the visible set.
+    // Despawn entities whose node left the visible set or is fogged.
     entities.map.retain(|&idx, &mut entity| {
-        let keep = st.spatial.index_visible(idx, vis);
+        let keep = st.spatial.index_visible(idx, vis)
+            && st
+                .spatial
+                .interner
+                .resolve(idx)
+                .map(|id| st.is_visible_rendered(id))
+                .unwrap_or(false);
         if !keep {
             commands.entity(entity).despawn_recursive();
         }
@@ -201,7 +207,7 @@ pub fn sync_node_entities(
         let Some(idx) = st.spatial.index_of(id) else {
             continue;
         };
-        if !st.spatial.placed[idx.slot()] {
+        if !st.spatial.placed[idx.slot()] || !st.is_visible_rendered(id) {
             continue;
         }
         let pos = st.spatial.positions[idx.slot()];
@@ -266,6 +272,9 @@ pub fn hover_detection_spatial(
     let dir = *ray.direction;
     let mut best: Option<(f32, spacegraph_core::NodeId)> = None;
     for (id, pos) in st.spatial.placed_positions() {
+        if !st.is_visible_rendered(id) {
+            continue;
+        }
         if let Some(t) = ray_sphere_t(ray.origin, dir, pos, PICK_RADIUS) {
             if best.as_ref().map(|(bt, _)| t < *bt).unwrap_or(true) {
                 best = Some((t, id.clone()));
@@ -345,6 +354,9 @@ pub fn picking_focus(
                 let dir = *ray.direction;
                 let mut best: Option<(f32, spacegraph_core::NodeId)> = None;
                 for (id, pos) in st.spatial.placed_positions() {
+                    if !st.is_visible_rendered(id) {
+                        continue;
+                    }
                     if let Some(t) = ray_sphere_t(ray.origin, dir, pos, PICK_RADIUS) {
                         if best.as_ref().map(|(bt, _)| t < *bt).unwrap_or(true) {
                             best = Some((t, id.clone()));
@@ -361,6 +373,9 @@ pub fn picking_focus(
             let rect = Rect::from_corners(start, cursor);
             let mut selected = HashSet::new();
             for (id, pos) in st.spatial.placed_positions() {
+                if !st.is_visible_rendered(id) {
+                    continue;
+                }
                 if let Some(screen) = camera.world_to_viewport(cam_tf, pos) {
                     if rect.contains(screen) {
                         selected.insert(id.clone());
@@ -462,6 +477,9 @@ pub fn draw_spatial(mut st: ResMut<GraphState>, mut gizmos: Gizmos, mut contexts
     if lod_active {
         let marker = 0.35;
         for id in vis.iter() {
+            if !st.is_visible_rendered(id) {
+                continue;
+            }
             let Some(pos) = st.spatial.position_of(id) else {
                 continue;
             };

@@ -72,6 +72,7 @@ impl Plugin for SpaceGraphViewerPlugin {
                 crate::render::fly_camera,
                 crate::render::scan_pulse,
                 crate::render::mission_tick,
+                crate::render::reveal_tick,
                 crate::ui::minimap,
             ),
         )

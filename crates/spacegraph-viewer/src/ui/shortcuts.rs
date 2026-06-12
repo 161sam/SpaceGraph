@@ -62,6 +62,10 @@ pub fn handle_shortcuts(mut contexts: EguiContexts, mut st: ResMut<GraphState>) 
         let pause = !st.timeline.pause;
         st.set_timeline_pause(pause);
     }
+    if ctx.input(|i| i.key_pressed(egui::Key::O)) {
+        st.cfg.fog_of_war = !st.cfg.fog_of_war;
+        st.needs_redraw.store(true, Ordering::Relaxed);
+    }
     if ctx.input(|i| i.key_pressed(egui::Key::T)) {
         st.ui.view_mode = match st.ui.view_mode {
             ViewMode::Spatial => ViewMode::Tree,
