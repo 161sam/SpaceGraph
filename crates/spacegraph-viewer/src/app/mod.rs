@@ -27,7 +27,8 @@ impl Plugin for SpaceGraphViewerPlugin {
         let cfg = config::load_or_default();
         let mut st = GraphState::default();
         st.apply_viewer_config(&cfg);
-        app.add_event::<Picked>()
+        app.add_plugins(bevy_panorbit_camera::PanOrbitCameraPlugin)
+            .add_event::<Picked>()
             .insert_resource(st)
             .insert_resource(UiLayout::default())
             .insert_resource(crate::render::NodeEntities::default());

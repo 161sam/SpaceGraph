@@ -12,9 +12,16 @@ pub fn help_overlay(mut contexts: EguiContexts, st: ResMut<GraphState>) {
         .collapsible(false)
         .resizable(false)
         .show(contexts.ctx_mut(), |ui| {
+            ui.label(egui::RichText::new("Navigation").strong());
+            ui.label("Left-click — Select node");
+            ui.label("Right-drag — Orbit camera");
+            ui.label("Middle-drag — Pan camera");
+            ui.label("Scroll — Zoom");
+            ui.label("F — Fly to / lock on selected");
+            ui.separator();
+            ui.label(egui::RichText::new("Shortcuts").strong());
             ui.label("Ctrl+P — Search");
             ui.label("Esc — Clear selection/focus, close overlays");
-            ui.label("F — Focus selected");
             ui.label("Space — Pause timeline");
             ui.label("T — Toggle view (Spatial/Tree/Timeline)");
             ui.label("? — Toggle help");

@@ -50,6 +50,9 @@ Ziel ist **Verständnis**, nicht nur Monitoring.
 ### Spatial View
 - 2D/3D Graphansicht
 - Force-Directed Layout
+- **Game-Navigation:** Orbit/Pan/Zoom-Kamera (bevy_panorbit_camera) —
+  Rechts-Drag = Orbit, Mittel-Drag = Pan, Scroll = Zoom, Linksklick = Auswahl,
+  `F` = sanftes Fly-to/Lock-on; Hover-/Selektions-Highlight-Bubbles
 - Focus Mode (N-Hop Subgraph)
 - Hover-Tooltips mit Kontext
 - „Why connected?“ Erklärung
