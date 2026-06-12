@@ -389,7 +389,12 @@ impl GraphState {
             self.spatial.dirty_layout = false;
         }
 
-        self.needs_redraw.store(true, Ordering::Relaxed);
+        // Only request a redraw while there is placement work in flight; an
+        // idle re-entry (everything already placed) must not keep the frame loop
+        // awake, or reactive rendering can never go idle.
+        if end > start {
+            self.needs_redraw.store(true, Ordering::Relaxed);
+        }
     }
 
     /// Rebuild the index-based spring list from current model edges. Called only
@@ -419,6 +424,19 @@ impl GraphState {
             return;
         }
 
+        // Any pending topology/placement work means the layout will move again.
+        if self.spatial.dirty_layout || self.spatial.springs_dirty {
+            self.spatial.layout_settled = false;
+            self.spatial.settle_streak = 0;
+        }
+
+        // Once converged, freeze: skip integration entirely so positions don't
+        // drift while the app renders reactively (and to save CPU). Any dirty
+        // flag above clears `layout_settled`, so this only fires at true rest.
+        if self.spatial.layout_settled && self.spatial.repulsion_cursor == 0 {
+            return;
+        }
+
         if self.spatial.springs_dirty {
             self.rebuild_springs();
         }
@@ -441,6 +459,7 @@ impl GraphState {
         }
         if self.spatial.active.len() <= 1 {
             self.spatial.repulsion_cursor = 0;
+            self.spatial.layout_settled = true;
             return;
         }
         self.spatial.active.sort_unstable();
@@ -549,7 +568,9 @@ impl GraphState {
             self.spatial.forces[ib] -= f;
         }
 
-        // Integrate over the active set.
+        // Integrate over the active set, tracking the largest displacement so we
+        // can detect convergence and stop requesting redraws once at rest.
+        let mut max_step2 = 0.0_f32;
         for k2 in 0..self.spatial.active.len() {
             let i = self.spatial.active[k2].slot();
             let f = self.spatial.forces[i];
@@ -564,9 +585,25 @@ impl GraphState {
             if !show_3d {
                 p.y = 0.0;
             }
+            max_step2 = max_step2.max(step.length_squared());
         }
 
-        self.needs_redraw.store(true, Ordering::Relaxed);
+        // The force layout doesn't damp to zero — a hard repulsion cutoff leaves
+        // a small residual limit cycle (~0.01-0.03/frame). Treat motion below
+        // SETTLE_EPS (well under the structural movement of an unsettled graph,
+        // well above that residual) as "at rest", and require a short streak so
+        // a single slow frame can't freeze a still-forming layout.
+        const SETTLE_EPS: f32 = 0.05;
+        const SETTLE_FRAMES: u32 = 8;
+        if max_step2 <= SETTLE_EPS * SETTLE_EPS {
+            self.spatial.settle_streak = self.spatial.settle_streak.saturating_add(1);
+        } else {
+            self.spatial.settle_streak = 0;
+        }
+        self.spatial.layout_settled = self.spatial.settle_streak >= SETTLE_FRAMES;
+        if !self.spatial.layout_settled {
+            self.needs_redraw.store(true, Ordering::Relaxed);
+        }
     }
 
     pub fn apply_tree_layout(&mut self, vis: &HashSet<NodeId>) {
@@ -709,6 +746,48 @@ mod tests {
             assert_ne!(ra, Some(&victim));
             assert_ne!(rb, Some(&victim));
         }
+    }
+
+    #[test]
+    fn force_layout_settles_freezes_and_wakes() {
+        let mut st = state_with_synthetic(80, 10_000);
+        let vis = st.visible_set_capped();
+        st.cfg.progressive_nodes_per_frame = 10_000;
+        st.progressive_prepare(&vis);
+
+        // Run until the force layout converges (bounded so a regression fails
+        // rather than hangs).
+        let mut settled = false;
+        for _ in 0..4000 {
+            st.force_step(&vis, 0.016);
+            if st.spatial.layout_settled {
+                settled = true;
+                break;
+            }
+        }
+        assert!(settled, "force layout should converge to a settled state");
+
+        // While settled, a step is frozen: positions don't drift and no redraw
+        // is requested (so the app can render reactively).
+        st.needs_redraw.store(false, Ordering::Relaxed);
+        let before = st.spatial.positions.clone();
+        st.force_step(&vis, 0.016);
+        assert_eq!(
+            before, st.spatial.positions,
+            "settled layout must not drift"
+        );
+        assert!(
+            !st.needs_redraw.load(Ordering::Relaxed),
+            "settled layout must not request redraws"
+        );
+
+        // Marking the layout dirty wakes it back up.
+        st.spatial.dirty_layout = true;
+        st.force_step(&vis, 0.016);
+        assert!(
+            !st.spatial.layout_settled,
+            "dirty layout is no longer settled"
+        );
     }
 
     #[test]

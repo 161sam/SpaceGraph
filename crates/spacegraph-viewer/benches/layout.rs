@@ -36,6 +36,10 @@ fn bench_force_step(c: &mut Criterion) {
         let (mut st, vis) = placed_state(n);
         group.bench_with_input(BenchmarkId::from_parameter(n), &n, |b, _| {
             b.iter(|| {
+                // Measure an active integration step, not the at-rest freeze
+                // early-out the layout reaches after it converges.
+                st.spatial.layout_settled = false;
+                st.spatial.settle_streak = 0;
                 st.force_step(black_box(&vis), 0.016);
             });
         });

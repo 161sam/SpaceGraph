@@ -61,6 +61,14 @@ pub struct SpatialState {
     pub active_vis_cache: Vec<NodeId>,
     pub progressive_cursor: usize,
     pub dirty_layout: bool,
+    /// True once the force layout has converged (max per-frame node displacement
+    /// stayed below the settle threshold for `SETTLE_FRAMES`). Lets the app drop
+    /// to reactive rendering and freeze integration instead of integrating
+    /// forever; reset whenever topology/config changes mark the layout dirty.
+    pub layout_settled: bool,
+    /// Consecutive frames whose max displacement was below the settle threshold
+    /// (hysteresis so a single slow frame can't freeze a still-forming layout).
+    pub settle_streak: u32,
     pub lod_active: bool,
     pub tree_dir_children: HashSet<NodeId>,
 }
@@ -136,6 +144,15 @@ impl SpatialState {
 
     pub fn is_glowing(&self, id: &NodeId) -> bool {
         self.node_glow(id).is_some()
+    }
+
+    /// Whether any node or edge glow is still fading (deadline in the future).
+    /// Used by frame pacing to stay continuous while glow animates.
+    pub fn has_active_glow(&self, now: Instant) -> bool {
+        self.glow_until
+            .iter()
+            .any(|g| matches!(g, Some(until) if *until > now))
+            || self.glow_edges.values().any(|until| *until > now)
     }
 
     /// Whether an index is currently placed and its node is in `vis`.
