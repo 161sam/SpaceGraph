@@ -1,7 +1,7 @@
 use crate::net::Incoming;
 use crossbeam_channel::Sender;
 use futures_util::{SinkExt, StreamExt};
-use spacegraph_core::Msg;
+use spacegraph_core::{Msg, PROTOCOL_VERSION};
 use tokio::net::UnixStream;
 use tokio::sync::watch;
 use tokio_util::codec::{Framed, LengthDelimitedCodec};
@@ -58,9 +58,10 @@ async fn run(
 
     let _ = tx.send(Incoming::connected(stream_name.clone()));
 
-    // Send hello (agent tolerates anything)
+    // Send hello with our protocol version.
     let hello = Msg::Hello {
-        version: "0.1.0".into(),
+        version: env!("CARGO_PKG_VERSION").into(),
+        protocol: PROTOCOL_VERSION,
     };
     let hello_bytes = match serde_json::to_vec(&hello) {
         Ok(bytes) => bytes,
@@ -93,6 +94,16 @@ async fn run(
                         match serde_json::from_slice::<Msg>(&bytes) {
                             Ok(m) => {
                                 let inc = match &m {
+                                    Msg::Hello { protocol, .. } if *protocol != PROTOCOL_VERSION => {
+                                        let _ = tx.send(Incoming::error(
+                                            stream_name.clone(),
+                                            format!(
+                                                "protocol mismatch: agent v{protocol}, viewer v{PROTOCOL_VERSION}"
+                                            ),
+                                        ));
+                                        let _ = tx.send(Incoming::disconnected(stream_name.clone()));
+                                        return;
+                                    }
                                     Msg::Identity { .. } => Incoming::identity(stream_name.clone(), m),
                                     Msg::Snapshot { .. } => Incoming::snapshot(stream_name.clone(), m),
                                     Msg::Event { .. } => Incoming::event(stream_name.clone(), m),
