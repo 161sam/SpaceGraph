@@ -420,3 +420,55 @@ Branch: `feat/agent-network-layer`.
 * rDNS is a documented best-effort hook but not yet performing lookups (avoids
   blocking/network in the agent hot path); `RemoteHost.rdns` stays `None` for
   now.
+
+---
+
+## Phase 8 — Threat-viz primitives (alert ingestion)
+
+Branch: `feat/alert-ingestion`.
+
+### Changed
+
+* `spacegraph-core`: `Node::Alert { source, signature, severity, ts }`,
+  `EdgeKind::AlertsOn`, `id_alert`; `PROTOCOL_VERSION` → 3.
+* Agent: `sources/suricata_eve.rs` (`EventSource`) — tails an EVE JSON file
+  (`--eve-file`), parses `event_type: alert`, builds an `Alert` node +
+  `alerts_on` edge to a `RemoteHost`. **5-tuple correlation is implicit via the
+  shared `id_remote_host` id** (hit = existing remote, miss = created). Tail
+  loop handles append + truncation/rotation.
+* Viewer:
+  * `cfg.max_visible_alerts` (default 200, persisted); `alert_order` deque caps
+    retained alerts, evicting oldest (`note_alert`).
+  * Alerts always render regardless of node cap / LOD: `visible_set_capped`
+    unions alert nodes; LOD gizmos colour alerts by severity.
+  * Severity colours in `theme.rs` (low amber / medium orange / high red);
+    `Alert` is a `NodeKind` (red base). Labels / search / filters / timeline
+    lanes handle `Alert`.
+  * "Alerts" panel section: severity counts + recent-alert list (click → focus +
+    jump). Tooltips show severity / signature / ts.
+
+### Gate 8 results
+
+* `cargo fmt --check`, `cargo clippy --workspace --all-targets -- -D warnings`,
+  `cargo test --workspace`: green (89 tests). Agent: EVE parse + non-alert
+  skip, severity mapping, 5-tuple correlation by shared id, loopback fallback,
+  committed fixture (`fixtures/suricata_eve.jsonl`, 3 alerts). Viewer:
+  `alert_cap_evicts_oldest`, `alerts_always_in_visible_set`.
+* `PROTOCOL_VERSION`=3 handshake-checked end to end.
+
+### Open / to verify locally
+
+* Replay a recorded EVE file against a live system view; capture
+  `docs/media/alerts.png` (red alert nodes on the correct connections). Tag
+  `v0.3.0-alpha.1`.
+
+### Deviations (with justification)
+
+* Timeline alert vertices: alert node upserts appear on the timeline as
+  `NodeUpsert` events but are not yet recoloured red per-node (timeline events
+  carry no node-kind today; per-node colouring is a follow-up). The spatial
+  threat view (red alert nodes + `alerts_on` edges + panel) is complete.
+* Alert→target correlation attaches to the **RemoteHost** (external 5-tuple
+  address); socket-level attachment can be added once the local side is
+  resolvable. This matches the blueprint's "uncorrelated alerts attach to a
+  RemoteHost from the external address" and correlates to live remotes via id.

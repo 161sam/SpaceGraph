@@ -112,6 +112,22 @@ Abgleich der Gates mit dem tatsächlichen Stand nach der Perf-/Hardening-Arbeit
   `PROTOCOL_VERSION`-Handshake (Agent/Viewer lehnen Mismatch ab). Zwei-Agenten-
   Livebetrieb lokal zu bestätigen. Tag `v0.2.0`.
 
+### v0.3.x — Network layer & Threat-Viz
+
+- **Phase 7 (Network)** — ✓ `EventSource`-Trait als Erweiterungspunkt;
+  `NetSource` parst procfs zu Socket/RemoteHost-Topologie; **Diff-basiert →
+  beschränkte Event-Rate** (Test: stabiler Graph ⇒ 0 Deltas); CIDR-Filter,
+  Loopback-Collapse. Pure-Parsing/Build/Diff getestet (Fixture). Live-Demo +
+  Steady-State < 5 Events/s lokal zu bestätigen.
+- **Phase 8 (Threat-Viz)** — ✓ `Alert`-Node + `alerts_on`-Edge; Suricata-EVE-
+  Source (`--eve-file`), 5-Tuple-Korrelation (Hit/Miss getestet), Severity→Farbe,
+  Alert-Cap-Eviction (getestet), Alerts immer sichtbar (LOD-unabhängig),
+  Alerts-Panel. `PROTOCOL_VERSION`=3. Tag `v0.3.0-alpha.1`. EVE-Replay-Demo +
+  Screenshot lokal zu erstellen (`docs/media/`).
+- **Teilweise/Deferred:** Timeline-Alert-Vertices erscheinen als NodeUpsert-
+  Events (rote Einfärbung pro Node noch offen); Mesh-Edges (statt Gizmos);
+  rDNS-Lookups (Hook vorhanden).
+
 Die `force_step`-Baseline-/Verlaufszahlen stehen in `docs/perf/BASELINE.md`
 und `docs/perf/RUNLOG.md`.
 
