@@ -218,3 +218,41 @@ Branch: `perf/persistent-node-entities`.
   retained only for LOD-state-change bookkeeping. Justification: per-frame
   diffing is simpler and already bounded by the capped set; the layout moves
   nodes every frame anyway, so a "dirty" gate would fire every frame regardless.
+
+---
+
+## Phase 4 — v0.1.x hardening close-out
+
+Branch: `fix/v0.1.11-closeout`.
+
+### Changed
+
+* **Defaults audit** (synced in `graph/state.rs` + `util/config.rs`):
+  `max_visible_nodes` 1200 → 3000, `lod_threshold_nodes` 1500 → 2500. Previously
+  the cap sat below the LOD threshold, so LOD never engaged; now mid-size graphs
+  render full emissive spheres and only large graphs (> 2500 visible) drop to
+  point gizmos. Edges remain visible by default. Documented in `README.md`.
+* `docs/ACCEPTANCE.md`: dated status reconciliation (automatically-verified vs
+  GPU/local gates) for v0.1.8–v0.1.11 + the benchmark perf gates.
+
+### Audit (already present, confirmed)
+
+* Help overlay (`ui/help.rs`) + consistent shortcuts (`ui/shortcuts.rs`: Esc,
+  Ctrl+P, ?, F, Space, T) + config apply/save (`ui/panel.rs` → `config::save` /
+  `apply_viewer_config`, roundtrip test).
+* Robustness: no `unwrap()`/`expect()` in `render/`; empty-graph / no-camera via
+  `get_single` guards.
+
+### Gate 4 results
+
+* `cargo fmt --check`, `cargo clippy --workspace --all-targets -- -D warnings`,
+  `cargo test --workspace`: green (65 tests total across crates).
+* ACCEPTANCE gates reconciled: all automatically-verifiable gates pass; the
+  interactive FPS/UX gates are documented as local/GPU verification.
+* Tag `v0.1.11` created.
+
+### Deviations
+
+* The interactive FPS gate cannot be measured in this headless environment; it
+  is documented (ACCEPTANCE + Phase 3 run-log) rather than asserted here. The
+  structural guarantees behind it are covered by automated tests.

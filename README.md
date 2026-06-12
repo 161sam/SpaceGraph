@@ -129,6 +129,25 @@ verbinden — nützlich für Performance- und Layout-Smoke-Tests:
 cargo run -p spacegraph-viewer -- --demo-load 2000
 ```
 
+### ⚙️ Viewer-Defaults (Erststart)
+
+Beim ersten Start (ohne `viewer.toml`) gelten diese Defaults; alle sind im
+Settings-Panel bzw. in `viewer.toml` änderbar:
+
+| Setting | Default | Bedeutung |
+|---|---:|---|
+| `max_visible_nodes` | 3000 | Cap der sichtbaren Nodes (konnektivitätserhaltend, behält Edge-Endpunkte) |
+| `lod_threshold_nodes` | 2500 | Ab hier Level-of-Detail: Punkte statt voller Spheres |
+| `show_edges` / `show_agg_edges` | an / an | Edges sind by default sichtbar (aggregiert) |
+| `show_raw_edges` | aus | Roh-Edges nur auf Wunsch/Focus |
+| `repulsion` / `repulsion_radius` | 400 / 8 | Force-Layout: Spread und Repulsion-Cutoff (Grid-Zellgröße) |
+| `layout_budget_ms` | 6 | Per-Frame-Zeitbudget fürs Layout (Pass über Frames teilbar) |
+| `link_distance` | 6 | Ziel-Kantenlänge (Spring-Ruhelänge) |
+| `lod_enabled` / `layout_force` | an / an | LOD bzw. Force-Layout aktiv |
+
+So sieht ein Erststart einen sinnvollen, gespreizten Graphen, Edges inklusive;
+LOD greift erst bei großen Graphen (> 2500 sichtbare Nodes).
+
 ### ✅ Diagnose: Agent-UDS prüfen
 
 ```bash
