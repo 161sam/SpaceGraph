@@ -8,6 +8,7 @@ use std::time::{Duration, Instant};
 
 use crate::graph::explain::{self, PathStep};
 use crate::graph::model::GraphModel;
+use crate::graph::synthetic;
 use crate::graph::timeline::{BatchSpan, NodeLife, TimelineEvt, TimelineEvtKind};
 use crate::graph::tree;
 use crate::net::{Incoming, IncomingKind, ReaderHandle};
@@ -183,6 +184,12 @@ pub enum NetCommand {
     Reconnect(String),
 }
 
+impl Default for NetStreamState {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl NetStreamState {
     pub fn new() -> Self {
         Self {
@@ -222,7 +229,7 @@ impl NetState {
     pub fn ensure_stream(&mut self, name: &str) {
         self.streams
             .entry(name.to_string())
-            .or_insert_with(NetStreamState::new);
+            .or_default();
     }
 
     pub fn active_connection_count(&self) -> usize {
@@ -652,6 +659,24 @@ impl GraphState {
         self.needs_redraw.store(true, Ordering::Relaxed);
     }
 
+    /// Seed a deterministic synthetic graph of `n` nodes (~`2n` edges).
+    ///
+    /// Used by the `--demo-load <n>` CLI flag and by benchmarks. Clears any
+    /// existing graph first. Not gated by `demo_mode`: this is an explicit
+    /// developer/bench load, not the interactive demo toggle.
+    pub fn load_synthetic_graph(&mut self, n: usize) {
+        self.clear();
+        let now = Instant::now();
+        let (nodes, edges) = synthetic::synthetic_graph(n);
+        self.model.load_snapshot(nodes, edges, now);
+        for id in self.model.nodes.keys() {
+            self.timeline.record_node_upsert(id, now);
+        }
+        self.snapshot_loaded = true;
+        self.spatial.dirty_layout = true;
+        self.needs_redraw.store(true, Ordering::Relaxed);
+    }
+
     // ----- Apply incoming graph data -----
     pub fn apply(&mut self, inc: Incoming) {
         if !self.net.is_configured(&inc.stream) {
@@ -883,7 +908,7 @@ impl GraphState {
             .net
             .streams
             .entry(stream.clone())
-            .or_insert_with(NetStreamState::new);
+            .or_default();
         entry.status = NetStreamStatus::Connected;
         entry.last_msg = None;
         entry.msg_window.clear();
@@ -917,7 +942,7 @@ impl GraphState {
             .net
             .streams
             .entry(stream.to_string())
-            .or_insert_with(NetStreamState::new);
+            .or_default();
         entry.status = NetStreamStatus::Connected;
         entry.last_msg = Some(now);
         entry.last_seen = Some(now);
@@ -931,7 +956,7 @@ impl GraphState {
             .net
             .streams
             .entry(stream.to_string())
-            .or_insert_with(NetStreamState::new);
+            .or_default();
         entry.last_snapshot_at = Some(now);
     }
 
@@ -940,7 +965,7 @@ impl GraphState {
             .net
             .streams
             .entry(stream.to_string())
-            .or_insert_with(NetStreamState::new);
+            .or_default();
         entry.last_event_at = Some(Instant::now());
     }
 

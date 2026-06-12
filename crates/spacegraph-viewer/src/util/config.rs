@@ -5,45 +5,30 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum ViewerViewMode {
+    #[default]
     Spatial,
     Tree,
     Timeline,
 }
 
-impl Default for ViewerViewMode {
-    fn default() -> Self {
-        Self::Spatial
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum LodEdgesMode {
     Off,
+    #[default]
     FocusOnly,
     All,
 }
 
-impl Default for LodEdgesMode {
-    fn default() -> Self {
-        Self::FocusOnly
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum AgentMode {
+    #[default]
     User,
     Privileged,
-}
-
-impl Default for AgentMode {
-    fn default() -> Self {
-        Self::User
-    }
 }
 
 impl AgentMode {
