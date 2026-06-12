@@ -316,6 +316,21 @@ pub fn draw_spatial(mut st: ResMut<GraphState>, mut gizmos: Gizmos, mut contexts
         draw_floor_grid(&mut gizmos);
     }
 
+    // Selection / hover highlight bubbles (lock-on feedback). Drawn in any LOD
+    // state; only the few picked nodes, so cost is negligible.
+    let highlights = [
+        (st.ui.hovered.clone(), Color::srgb(0.90, 0.95, 1.0), 0.50),
+        (st.ui.selected.clone(), Color::srgb(0.25, 0.95, 1.0), 0.62),
+        (st.ui.focus.clone(), Color::srgb(0.20, 1.0, 0.85), 0.72),
+    ];
+    for (maybe_id, color, radius) in highlights {
+        if let Some(id) = maybe_id {
+            if let Some(pos) = st.spatial.position_of(&id) {
+                gizmos.sphere(pos, Quat::IDENTITY, radius, color);
+            }
+        }
+    }
+
     // Tooltip
     let hovered = st.ui.hovered.clone();
     let selected = st.ui.selected.clone();

@@ -51,7 +51,8 @@ pub fn handle_shortcuts(mut contexts: EguiContexts, mut st: ResMut<GraphState>) 
     }
     if ctx.input(|i| i.key_pressed(egui::Key::F)) {
         if let Some(id) = st.ui.selected.clone().or_else(|| st.ui.selected_a.clone()) {
-            st.ui.focus = Some(id);
+            st.ui.focus = Some(id.clone());
+            st.request_jump(id); // lock-on: ease the camera to the node
             st.needs_redraw.store(true, Ordering::Relaxed);
         }
     }

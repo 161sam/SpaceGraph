@@ -33,6 +33,10 @@ bevy = { version = "0.14", default-features = false, features = [
     "tonemapping_luts",
 ] }
 bevy_egui = "0.28"
+# Pinned exactly: 0.19.2 is the last bevy_panorbit_camera that targets
+# bevy 0.14 + bevy_egui ^0.28 (the egui feature avoids stealing pointer input
+# over UI panels). Newer releases require bevy_egui 0.29+.
+bevy_panorbit_camera = { version = "=0.19.2", features = ["bevy_egui"] }
 
 [features]
 audio = ["bevy/bevy_audio"]
