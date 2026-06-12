@@ -1,0 +1,5 @@
+{"timestamp":"2024-01-01T12:00:00.000000+0000","event_type":"alert","src_ip":"10.0.0.5","src_port":54321,"dest_ip":"93.184.216.34","dest_port":443,"proto":"TCP","alert":{"signature":"ET MALWARE Suspicious TLS","severity":1,"category":"A Network Trojan was detected"}}
+{"timestamp":"2024-01-01T12:00:01.000000+0000","event_type":"flow","src_ip":"10.0.0.5","dest_ip":"93.184.216.34"}
+{"timestamp":"2024-01-01T12:00:02.000000+0000","event_type":"alert","src_ip":"10.0.0.5","src_port":54322,"dest_ip":"45.33.32.156","dest_port":80,"proto":"TCP","alert":{"signature":"ET POLICY curl User-Agent","severity":2}}
+{"timestamp":"2024-01-01T12:00:03.000000+0000","event_type":"stats"}
+{"timestamp":"2024-01-01T12:00:04.000000+0000","event_type":"alert","src_ip":"203.0.113.9","src_port":1234,"dest_ip":"10.0.0.5","dest_port":22,"proto":"TCP","alert":{"signature":"ET SCAN SSH brute force","severity":3}}

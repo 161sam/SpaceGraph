@@ -29,6 +29,8 @@ pub struct AgentConfig {
     pub net_poll_secs: u64,
     pub net_include: Vec<String>, // CIDR allowlist for remote hosts (empty = all)
     pub net_exclude: Vec<String>, // CIDR blocklist for remote hosts
+    /// Suricata EVE JSON file to tail for alerts (None disables the source).
+    pub eve_file: Option<PathBuf>,
 }
 
 pub fn parse_args() -> Result<AgentConfig> {
@@ -47,6 +49,7 @@ where
     let mut net_poll_secs = 2u64;
     let mut net_include = Vec::new();
     let mut net_exclude = Vec::new();
+    let mut eve_file = None;
     let mut args = args.into_iter();
 
     while let Some(arg) = args.next() {
@@ -80,6 +83,11 @@ where
                 anyhow::bail!("--net-exclude expects a CIDR");
             };
             net_exclude.push(value.to_string_lossy().to_string());
+        } else if arg == "--eve-file" {
+            let Some(path) = args.next() else {
+                anyhow::bail!("--eve-file expects a path");
+            };
+            eve_file = Some(PathBuf::from(path));
         } else if arg == "--mode" {
             let Some(value) = args.next() else {
                 anyhow::bail!("--mode expects user|privileged");
@@ -105,6 +113,7 @@ where
         net_poll_secs: net_poll_secs.max(1),
         net_include,
         net_exclude,
+        eve_file,
     })
 }
 

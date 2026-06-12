@@ -10,9 +10,11 @@ use anyhow::Result;
 use config::{default_excludes, default_includes, parse_args, should_warn_privileged_without_root};
 use path_policy::PathPolicy;
 use sources::net::{NetConfig, NetSource};
+use sources::suricata_eve::SuricataEveSource;
 use sources::{EventSource, FsSource, ProcSource};
 use spacegraph_core::{Capabilities, Delta, Msg, NodeIdentity};
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::sync::{broadcast, mpsc};
 
 fn init_tracing() {
@@ -174,6 +176,12 @@ async fn main() -> Result<()> {
             &config.net_exclude,
         );
         sources.push(Box::new(NetSource { config: net_cfg }));
+    }
+    if let Some(eve_file) = config.eve_file.clone() {
+        sources.push(Box::new(SuricataEveSource {
+            eve_file,
+            poll_interval: Duration::from_secs(1),
+        }));
     }
 
     for source in sources {
