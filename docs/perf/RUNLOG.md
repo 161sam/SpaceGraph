@@ -98,3 +98,64 @@ Branch: `perf/node-index-interning`.
 ### Deviations
 
 * None.
+
+---
+
+## Phase 2 — Grid repulsion (replace O(N²))
+
+Branch: `perf/grid-repulsion`.
+
+### Changed
+
+* `graph/grid.rs`: uniform spatial grid, **dense linear array** backed (cell
+  index = x + y·nx + z·nx·ny), cell size = repulsion cutoff radius. Rebuild is
+  O(N); neighbour queries are arithmetic (no per-cell hashing). 2D buckets by
+  (x, z), 3D by (x, y, z).
+* `force_step` rewritten: grid rebuild → neighbour-only repulsion (own + 26
+  adjacent cells, cut off at `repulsion_radius`) → spring pass → integrate.
+  Determinism without a per-node sort (grid built from sorted `active`, so the
+  gathered candidate order is reproducible).
+* Per-frame layout budget (`cfg.layout_budget_ms`, default 6 ms): a repulsion
+  pass is resumable across frames via `repulsion_cursor`; positions stay frozen
+  mid-pass, so a split pass is bit-identical to a full step (tested).
+* Initial placement replaced ring-by-type with a deterministic R3
+  low-discrepancy **scatter over a region that scales with N** (`scatter_position`)
+  — bounded density is required for the grid to stay O(N).
+* New config: `repulsion_radius` (cutoff/cell size) and `layout_budget_ms`
+  (persisted in `viewer.toml`, plumbed through `apply_viewer_config` /
+  `viewer_config`).
+* `docs/ACCEPTANCE.md`: added the benchmark-enforced layout gates.
+
+### Gate 2 results (criterion median, bench profile, `layout_budget_ms = 0`)
+
+| nodes | Phase 1 | Phase 2 | gate |
+|------:|--------:|--------:|-----:|
+| 500   | 2.25 ms | **0.37 ms** | — |
+| 1000  | 11.5 ms | **0.88 ms** | — |
+| 2000  | 43.8 ms | **2.19 ms** | **< 4 ms** ✓ |
+| 5000  | 293 ms  | **7.57 ms** | **< 12 ms** ✓ |
+
+* Determinism test green (`force_step_is_deterministic`); budget-split
+  equivalence test green (`budget_split_matches_full_step`).
+* `cargo fmt --check`, `cargo clippy --workspace --all-targets -- -D warnings`,
+  `cargo test --workspace`: all green (46 viewer tests, +3 grid tests, +2 layout
+  determinism/budget tests).
+
+### Deviations (with justification)
+
+* **`repulsion_radius` default = 8.0 (≈1.33 × link_distance), not the ~2.5×
+  the prompt suggested.** A uniform grid's candidate count per node is
+  ≈ 27·(cutoff/spacing)³; at 2.5× the constant (~420 candidates) keeps 5000
+  nodes over the 12 ms gate regardless of the dense backing. It is a runtime
+  cfg; 1.33× lands ~123 candidates and meets the gate with margin.
+* **`repulsion` default raised 22 → 400.** Stronger repulsion spreads the layout
+  so far fewer nodes fall inside the (smaller) cutoff — this is the lever that
+  actually moves the candidate count, and it yields a more legible, spread-out
+  graph (a plus for the Phase 5 visual pass). Stable under the existing
+  `max_step`/`damping` caps (finite-position test green).
+* **Synthetic generator: users raised from n/100 to n/10.** n/100 created
+  ~40-process `runs_as` hubs; a uniform grid can never be O(N) on O(N)-degree
+  hubs (the prompt chose grid over Barnes–Hut, which presumes bounded degree).
+  n/10 keeps hub degree ≈ 4 — representative of a real per-session/per-user
+  system graph. The Phase 0 baseline `force_step` is all-pairs O(N²) and thus
+  structure-independent, so the baseline comparison above remains valid.

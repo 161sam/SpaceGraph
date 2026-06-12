@@ -19,6 +19,20 @@ Dieses Dokument definiert, wann ein Release als „fertig“ gilt.
 - Timeline & Layout arbeiten nur auf capped Sets
 - Event-Coalescing & Aggregation aktiv
 
+#### Layout-Benchmarks (benchmark-enforced, ab v0.1.x Perf-Arbeit)
+
+Gemessen via `cargo bench -p spacegraph-viewer` (criterion, bench-Profil) gegen
+deterministische synthetische Graphen. Maschinen-Specs und Baseline-Zahlen in
+`docs/perf/BASELINE.md`, Verlauf in `docs/perf/RUNLOG.md`.
+
+- `force_step` bei **2000 Nodes < 4 ms** pro Step.
+- `force_step` bei **5000 Nodes < 12 ms** pro Step.
+- Layout ist deterministisch: gleiche Seeds → identische Positionen nach K
+  Steps (`force_step_is_deterministic`).
+- Repulsion ist neighbour-only über ein Uniform-Grid (kein O(N²) im Frame).
+- Per-Frame Layout-Budget (`layout_budget_ms`, Default 6 ms); ein Pass wird bei
+  Überschreitung über Frames fortgesetzt (Cursor), ohne das Ergebnis zu ändern.
+
 ---
 
 ### Stabilität
