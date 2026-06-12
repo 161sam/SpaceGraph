@@ -9,6 +9,7 @@ pub fn ui_panel(
     mut contexts: EguiContexts,
     mut st: ResMut<GraphState>,
     mut layout: ResMut<UiLayout>,
+    mission: bevy::prelude::Res<crate::render::Mission>,
 ) {
     let ctx = contexts.ctx_mut();
     let resp = egui::SidePanel::left("panel").show(ctx, |ui| {
@@ -198,6 +199,22 @@ pub fn ui_panel(
                     ui.checkbox(&mut st.cfg.show_agg_edges, "Agg edges");
                     ui.checkbox(&mut st.cfg.show_raw_edges, "Raw edges");
                 });
+            });
+
+            ui.separator();
+            ui.vertical(|ui| {
+                section_header(ui, "Incident Hunt");
+                ui.label(format!("Score: {}", mission.score));
+                if mission.active {
+                    ui.label(
+                        egui::RichText::new(format!("▶ {}", mission.signature))
+                            .color(egui::Color32::from_rgb(255, 120, 60)),
+                    );
+                }
+                if !mission.last_message.is_empty() {
+                    ui.label(&mission.last_message);
+                }
+                ui.label("Press M to investigate the next alert.");
             });
 
             ui.separator();

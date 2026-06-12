@@ -19,6 +19,11 @@ pub fn help_overlay(mut contexts: EguiContexts, st: ResMut<GraphState>) {
             ui.label("Scroll — Zoom");
             ui.label("F — Fly to / lock on selected");
             ui.label("V — Free-fly (pilot): WASD/QE move, mouse look, Shift boost");
+            ui.label("Left-drag — Box-select (multi)");
+            ui.separator();
+            ui.label(egui::RichText::new("Gameplay").strong());
+            ui.label("G — Scan pulse (reveal nearby nodes)");
+            ui.label("M — Incident hunt: investigate next alert");
             ui.separator();
             ui.label(egui::RichText::new("Shortcuts").strong());
             ui.label("Ctrl+P — Search");
