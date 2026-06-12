@@ -339,7 +339,10 @@ impl GraphState {
             self.spatial.progressive_cursor = 0;
         }
 
-        let total = self.spatial.active_vis_cache.len().max(1);
+        let count = self.spatial.active_vis_cache.len();
+        // `.max(1)` only guards the side-scale maths below; slice bounds use the
+        // real length so an empty visible set (no agent / no demo) can't panic.
+        let total = count.max(1);
         let show_3d = self.ui.show_3d;
         // Initial spacing ≈ the repulsion cell size, so the grid starts at ~1
         // node per cell (bounded density). The region side scales with the node
@@ -358,8 +361,8 @@ impl GraphState {
         };
 
         let take = self.cfg.progressive_nodes_per_frame.max(1);
-        let start = self.spatial.progressive_cursor;
-        let end = (start + take).min(total);
+        let start = self.spatial.progressive_cursor.min(count);
+        let end = (start + take).min(count);
 
         // Snapshot the slice so we can intern (mutate spatial) while iterating.
         let slice: Vec<NodeId> = self.spatial.active_vis_cache[start..end].to_vec();
@@ -382,7 +385,7 @@ impl GraphState {
         }
 
         self.spatial.progressive_cursor = end;
-        if self.spatial.progressive_cursor >= total {
+        if self.spatial.progressive_cursor >= count {
             self.spatial.dirty_layout = false;
         }
 
@@ -721,6 +724,17 @@ mod tests {
         for (_, pos) in st.spatial.placed_positions() {
             assert!(pos.is_finite(), "position went non-finite: {pos:?}");
         }
+    }
+
+    #[test]
+    fn empty_graph_layout_does_not_panic() {
+        // First-run state: no agent, no demo → empty visible set.
+        let mut st = GraphState::default();
+        let vis = st.visible_set_capped();
+        assert!(vis.is_empty());
+        st.progressive_prepare(&vis);
+        st.force_step(&vis, 0.016);
+        st.apply_tree_layout(&vis);
     }
 
     #[test]
