@@ -14,7 +14,7 @@ pub use camera::{apply_jump_to, setup_scene, sync_visual_theme, update_tree_zoom
 pub use freefly::{fly_camera, FlyCam};
 pub use spatial::{
     apply_picked_focus, draw_node_labels, draw_spatial, hover_detection_spatial, picking_focus,
-    setup_node_render_resources, sync_node_entities, NodeEntities,
+    setup_node_render_resources, sync_node_entities, DragSelect, NodeEntities,
 };
 pub use timeline::draw_timeline;
 

@@ -8,6 +8,7 @@ use crate::app::events::Picked;
 use crate::graph::interner::NodeIndex;
 use crate::graph::model::{edge_class_name, AggEdgeKey, EdgeKindClass};
 use crate::graph::{GraphState, ViewMode};
+use crate::render::freefly::FlyCam;
 use crate::render::theme;
 use crate::ui::tooltips::render_tooltip;
 use crate::util::config::{LodEdgesMode, VisualTheme};
@@ -45,6 +46,33 @@ pub struct NodeRenderResources {
 #[derive(Resource, Default)]
 pub struct NodeEntities {
     pub map: HashMap<NodeIndex, Entity>,
+}
+
+/// In-progress box-select drag (LMB press position in viewport coords).
+#[derive(Resource, Default)]
+pub struct DragSelect {
+    pub start: Option<Vec2>,
+}
+
+/// Pick radius for ray-sphere selection (a touch larger than the node mesh).
+const PICK_RADIUS: f32 = 0.45;
+
+/// Nearest positive ray-sphere intersection distance, or `None` if the ray
+/// misses. Depth-correct (unlike screen-space distance).
+fn ray_sphere_t(origin: Vec3, dir: Vec3, center: Vec3, radius: f32) -> Option<f32> {
+    let oc = origin - center;
+    let a = dir.dot(dir);
+    let b = 2.0 * oc.dot(dir);
+    let c = oc.dot(oc) - radius * radius;
+    let disc = b * b - 4.0 * a * c;
+    if disc < 0.0 || a == 0.0 {
+        return None;
+    }
+    let sq = disc.sqrt();
+    let t0 = (-b - sq) / (2.0 * a);
+    let t1 = (-b + sq) / (2.0 * a);
+    let t = if t0 > 0.0 { t0 } else { t1 };
+    (t > 0.0).then_some(t)
 }
 
 /// Create the cached node mesh/material handles (startup, once).
@@ -231,37 +259,42 @@ pub fn hover_detection_spatial(
         return;
     }
 
+    let Some(ray) = camera.viewport_to_world(cam_tf, cursor) else {
+        st.ui.hovered = None;
+        return;
+    };
+    let dir = *ray.direction;
     let mut best: Option<(f32, spacegraph_core::NodeId)> = None;
     for (id, pos) in st.spatial.placed_positions() {
-        let Some(screen) = camera.world_to_viewport(cam_tf, pos) else {
-            continue;
-        };
-        let d = screen.distance(cursor);
-        if d < 18.0 && best.as_ref().map(|(bd, _)| d < *bd).unwrap_or(true) {
-            best = Some((d, id.clone()));
+        if let Some(t) = ray_sphere_t(ray.origin, dir, pos, PICK_RADIUS) {
+            if best.as_ref().map(|(bt, _)| t < *bt).unwrap_or(true) {
+                best = Some((t, id.clone()));
+            }
         }
     }
     st.ui.hovered = best.map(|(_, id)| id);
 }
 
+/// Threshold (viewport px) above which an LMB drag becomes a box-select
+/// instead of a single click.
+const DRAG_THRESHOLD: f32 = 5.0;
+
+#[allow(clippy::too_many_arguments)]
 pub fn picking_focus(
     buttons: Res<ButtonInput<MouseButton>>,
     windows: Query<&Window>,
     cam_q: Query<(&Camera, &GlobalTransform)>,
     mut contexts: EguiContexts,
-    st: Res<GraphState>,
+    mut st: ResMut<GraphState>,
     mut out: EventWriter<Picked>,
+    mut drag: ResMut<DragSelect>,
+    fly: Res<FlyCam>,
 ) {
-    if st.ui.view_mode == ViewMode::Timeline {
+    if st.ui.view_mode == ViewMode::Timeline || fly.active {
+        drag.start = None;
         return;
     }
-    if !buttons.just_pressed(MouseButton::Left) {
-        return;
-    }
-    if contexts.ctx_mut().wants_pointer_input() {
-        return;
-    }
-
+    let egui_pointer = contexts.ctx_mut().wants_pointer_input();
     let Ok(window) = windows.get_single() else {
         return;
     };
@@ -272,18 +305,71 @@ pub fn picking_focus(
         return;
     };
 
-    let mut best: Option<(f32, spacegraph_core::NodeId)> = None;
-    for (id, pos) in st.spatial.placed_positions() {
-        let Some(screen) = camera.world_to_viewport(cam_tf, pos) else {
-            continue;
-        };
-        let d = screen.distance(cursor);
-        if d < 14.0 && best.as_ref().map(|(bd, _)| d < *bd).unwrap_or(true) {
-            best = Some((d, id.clone()));
+    if buttons.just_pressed(MouseButton::Left) && !egui_pointer {
+        drag.start = Some(cursor);
+    }
+
+    // While dragging far enough, draw the selection rectangle.
+    if buttons.pressed(MouseButton::Left) {
+        if let Some(start) = drag.start {
+            if (cursor - start).length() > DRAG_THRESHOLD {
+                let rect = egui::Rect::from_two_pos(
+                    egui::pos2(start.x, start.y),
+                    egui::pos2(cursor.x, cursor.y),
+                );
+                let painter = contexts.ctx_mut().layer_painter(egui::LayerId::new(
+                    egui::Order::Background,
+                    egui::Id::new("box_select"),
+                ));
+                painter.rect_filled(
+                    rect,
+                    0.0,
+                    egui::Color32::from_rgba_unmultiplied(80, 180, 255, 24),
+                );
+                painter.rect_stroke(
+                    rect,
+                    0.0,
+                    egui::Stroke::new(1.0, egui::Color32::from_rgb(120, 200, 255)),
+                );
+            }
         }
     }
-    if let Some((_, picked)) = best {
-        out.send(Picked(picked));
+
+    if buttons.just_released(MouseButton::Left) {
+        let Some(start) = drag.start.take() else {
+            return;
+        };
+        if (cursor - start).length() <= DRAG_THRESHOLD {
+            // Click → single ray-pick (depth-correct, nearest sphere hit).
+            if let Some(ray) = camera.viewport_to_world(cam_tf, cursor) {
+                let dir = *ray.direction;
+                let mut best: Option<(f32, spacegraph_core::NodeId)> = None;
+                for (id, pos) in st.spatial.placed_positions() {
+                    if let Some(t) = ray_sphere_t(ray.origin, dir, pos, PICK_RADIUS) {
+                        if best.as_ref().map(|(bt, _)| t < *bt).unwrap_or(true) {
+                            best = Some((t, id.clone()));
+                        }
+                    }
+                }
+                if let Some((_, picked)) = best {
+                    out.send(Picked(picked));
+                }
+            }
+        } else {
+            // Drag → box-select: every placed node whose screen point is in the
+            // rectangle.
+            let rect = Rect::from_corners(start, cursor);
+            let mut selected = HashSet::new();
+            for (id, pos) in st.spatial.placed_positions() {
+                if let Some(screen) = camera.world_to_viewport(cam_tf, pos) {
+                    if rect.contains(screen) {
+                        selected.insert(id.clone());
+                    }
+                }
+            }
+            st.ui.multi_selected = selected;
+            st.needs_redraw.store(true, Ordering::Relaxed);
+        }
     }
 }
 
@@ -328,6 +414,12 @@ pub fn draw_spatial(mut st: ResMut<GraphState>, mut gizmos: Gizmos, mut contexts
             if let Some(pos) = st.spatial.position_of(&id) {
                 gizmos.sphere(pos, Quat::IDENTITY, radius, color);
             }
+        }
+    }
+    // Box-selected nodes.
+    for id in st.ui.multi_selected.iter() {
+        if let Some(pos) = st.spatial.position_of(id) {
+            gizmos.sphere(pos, Quat::IDENTITY, 0.55, Color::srgb(0.30, 0.90, 1.0));
         }
     }
 
@@ -686,6 +778,18 @@ mod tests {
             minimal_normal: Handle::default(),
             minimal_glow: Handle::default(),
         }
+    }
+
+    #[test]
+    fn ray_sphere_hits_and_misses() {
+        // Ray from origin along -Z hits a sphere centred 5 ahead.
+        let t = ray_sphere_t(Vec3::ZERO, Vec3::NEG_Z, Vec3::new(0.0, 0.0, -5.0), 0.5);
+        assert!(t.is_some());
+        assert!((t.unwrap() - 4.5).abs() < 1e-3);
+        // Sphere off to the side → miss.
+        assert!(ray_sphere_t(Vec3::ZERO, Vec3::NEG_Z, Vec3::new(5.0, 0.0, -5.0), 0.5).is_none());
+        // Sphere behind the ray → no positive hit.
+        assert!(ray_sphere_t(Vec3::ZERO, Vec3::NEG_Z, Vec3::new(0.0, 0.0, 5.0), 0.5).is_none());
     }
 
     #[test]

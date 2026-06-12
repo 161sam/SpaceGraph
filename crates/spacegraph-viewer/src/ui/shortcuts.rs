@@ -27,11 +27,13 @@ pub fn handle_shortcuts(mut contexts: EguiContexts, mut st: ResMut<GraphState>) 
             || st.ui.selected_a.is_some()
             || st.ui.selected_b.is_some()
             || st.ui.hovered.is_some()
+            || !st.ui.multi_selected.is_empty()
         {
             st.ui.selected = None;
             st.ui.selected_a = None;
             st.ui.selected_b = None;
             st.ui.hovered = None;
+            st.ui.multi_selected.clear();
             changed = true;
         }
         if changed {

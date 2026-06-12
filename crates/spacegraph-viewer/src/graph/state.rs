@@ -232,6 +232,8 @@ pub struct UiState {
     pub selected: Option<NodeId>,
     pub selected_a: Option<NodeId>,
     pub selected_b: Option<NodeId>,
+    /// Multi-selection from box-select (drag rectangle).
+    pub multi_selected: HashSet<NodeId>,
 
     pub search_open: bool,
     pub search_query: String,
@@ -541,6 +543,7 @@ impl Default for GraphState {
                 selected: None,
                 selected_a: None,
                 selected_b: None,
+                multi_selected: HashSet::new(),
                 search_open: false,
                 search_query: String::new(),
                 search_hits: Vec::new(),
@@ -620,6 +623,7 @@ impl GraphState {
         self.ui.selected = None;
         self.ui.selected_a = None;
         self.ui.selected_b = None;
+        self.ui.multi_selected.clear();
 
         self.ui.search_open = false;
         self.ui.search_query.clear();
