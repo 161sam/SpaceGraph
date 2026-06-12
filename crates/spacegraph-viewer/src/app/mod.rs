@@ -29,13 +29,23 @@ impl Plugin for SpaceGraphViewerPlugin {
         st.apply_viewer_config(&cfg);
         app.add_plugins(bevy_panorbit_camera::PanOrbitCameraPlugin)
             .add_event::<Picked>()
+            // Reactive rendering: idle low-power, full speed only while animating
+            // (see `render::pacing`). Continuous to start so the initial layout
+            // converges at full speed; pacing takes over from the first frame.
+            .insert_resource(bevy::winit::WinitSettings {
+                focused_mode: bevy::winit::UpdateMode::Continuous,
+                unfocused_mode: bevy::winit::UpdateMode::reactive_low_power(
+                    std::time::Duration::from_millis(500),
+                ),
+            })
             .insert_resource(st)
             .insert_resource(UiLayout::default())
             .insert_resource(crate::render::NodeEntities::default())
             .insert_resource(crate::render::FlyCam::default())
             .insert_resource(crate::render::DragSelect::default())
             .insert_resource(crate::render::ScanPulse::default())
-            .insert_resource(crate::render::Mission::default());
+            .insert_resource(crate::render::Mission::default())
+            .insert_resource(crate::render::FramePacing::default());
 
         match self.demo_load {
             Some(n) => {
@@ -90,7 +100,10 @@ impl Plugin for SpaceGraphViewerPlugin {
                 crate::render::apply_jump_to,
             )
                 .chain(),
-        );
+        )
+        // Runs after every Update system so it sees all redraw requests made
+        // this frame before deciding whether the next frame can be skipped.
+        .add_systems(Last, crate::render::update_frame_pacing);
     }
 }
 

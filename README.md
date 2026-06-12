@@ -257,6 +257,12 @@ SpaceGraph folgt klaren Qualitäts-Gates:
 - keine O(E)-Scans im Frame-Loop
 - deterministische Graph-Zustände
 - Tests für Timeline, GC, Search, Aggregation
+- **Reaktives Rendering:** Das Force-Layout erkennt Konvergenz und „friert"
+  ein; solange nichts animiert (Layout settled, keine Glow/Scan/Mission/Fly,
+  keine Kamerafahrt), schaltet der Viewer auf einen energiesparenden
+  Reactive-Heartbeat (~4 Hz) statt 60 fps — Eingaben zeichnen sofort neu.
+  Gemessen: Leerlauf-CPU fällt von ~90 % auf ~20 % eines Kerns (Debug-Build,
+  iGPU); im Release entsprechend tiefer.
 
 Details: siehe `ACCEPTANCE.md`.
 
