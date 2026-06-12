@@ -6,12 +6,12 @@ use std::time::Instant;
 
 use crate::app::events::Picked;
 use crate::graph::interner::NodeIndex;
-use crate::graph::model::{edge_class_name, AggEdgeKey, EdgeKindClass};
+use crate::graph::model::{edge_class_name, EdgeKindClass};
 use crate::graph::{GraphState, ViewMode};
 use crate::render::freefly::FlyCam;
 use crate::render::theme;
 use crate::ui::tooltips::render_tooltip;
-use crate::util::config::{LodEdgesMode, VisualTheme};
+use crate::util::config::VisualTheme;
 use crate::util::ids::node_label_short;
 
 #[derive(Component)]
@@ -540,127 +540,31 @@ pub fn draw_spatial(mut st: ResMut<GraphState>, mut gizmos: Gizmos, mut contexts
     }
 
     if st.ui.show_edges {
-        let edges_mode = if lod_active {
-            st.cfg.lod_edges_mode
-        } else {
-            LodEdgesMode::All
-        };
-
-        let mut focus_nodes = HashSet::new();
-        if let Some(id) = st.ui.focus.clone() {
-            if vis.contains(&id) {
-                focus_nodes.insert(id);
-            }
-        }
-        if let Some(id) = st.ui.selected.clone() {
-            if vis.contains(&id) {
-                focus_nodes.insert(id);
-            }
-        }
-        if let Some(id) = st.ui.selected_a.clone() {
-            if vis.contains(&id) {
-                focus_nodes.insert(id);
-            }
-        }
-        if let Some(id) = st.ui.selected_b.clone() {
-            if vis.contains(&id) {
-                focus_nodes.insert(id);
-            }
-        }
-
-        match edges_mode {
-            LodEdgesMode::Off => {}
-            LodEdgesMode::FocusOnly => {
-                if st.cfg.show_agg_edges && !focus_nodes.is_empty() {
-                    let mut agg_keys = HashSet::new();
-                    for id in focus_nodes.iter() {
-                        for edge in st.model.edges_for_node(id) {
-                            if !st.edge_visible(edge, &vis) {
-                                continue;
-                            }
-                            agg_keys.insert(AggEdgeKey::new(edge));
-                        }
-                    }
-                    for key in agg_keys {
-                        let (Some(a), Some(b)) = (
-                            st.spatial.position_of(&key.from),
-                            st.spatial.position_of(&key.to),
-                        ) else {
-                            continue;
-                        };
-                        gizmos.line(a, b, theme::edge_color(key.class));
-                    }
+        // Aggregated edges are drawn by the mesh edge renderer
+        // (`update_edge_mesh`) so they participate in bloom. Raw edges are an
+        // opt-in debugging overlay and stay as gizmos here.
+        if st.cfg.show_raw_edges {
+            for id in vis.iter() {
+                if !st.is_visible_rendered(id) {
+                    continue;
                 }
-                if st.cfg.show_raw_edges && !focus_nodes.is_empty() {
-                    let mut raw_edges = HashSet::new();
-                    for id in focus_nodes.iter() {
-                        for edge in st.model.edges_for_node(id) {
-                            if !st.edge_visible(edge, &vis) {
-                                continue;
-                            }
-                            raw_edges.insert(edge.clone());
-                        }
+                for edge in st.model.edges_for_node(id) {
+                    if &edge.from != id
+                        || !st.edge_visible(edge, &vis)
+                        || !st.is_visible_rendered(&edge.to)
+                    {
+                        continue;
                     }
-                    for edge in raw_edges {
-                        let (Some(a), Some(b)) = (
-                            st.spatial.position_of(&edge.from),
-                            st.spatial.position_of(&edge.to),
-                        ) else {
-                            continue;
-                        };
-                        if st.edge_is_glowing(&edge) {
-                            gizmos.line(a, b, Color::srgb(1.0, 1.0, 1.0));
-                        }
-                        gizmos.line(a, b, Color::WHITE);
+                    let (Some(a), Some(b)) = (
+                        st.spatial.position_of(&edge.from),
+                        st.spatial.position_of(&edge.to),
+                    ) else {
+                        continue;
+                    };
+                    if st.edge_is_glowing(edge) {
+                        gizmos.line(a, b, Color::srgb(1.0, 1.0, 1.0));
                     }
-                }
-            }
-            LodEdgesMode::All => {
-                if st.cfg.show_agg_edges {
-                    // Iterate the visible nodes' adjacency (bounded by the capped
-                    // set), de-duplicating by aggregated-edge key — instead of an
-                    // O(E_total) scan over every aggregated edge in the model.
-                    let mut seen = HashSet::new();
-                    for id in vis.iter() {
-                        for edge in st.model.edges_for_node(id) {
-                            if &edge.from != id || !st.edge_visible(edge, &vis) {
-                                continue;
-                            }
-                            let class = EdgeKindClass::from_kind(&edge.kind);
-                            if !seen.insert(AggEdgeKey::new(edge)) {
-                                continue;
-                            }
-                            let (Some(a), Some(b)) = (
-                                st.spatial.position_of(&edge.from),
-                                st.spatial.position_of(&edge.to),
-                            ) else {
-                                continue;
-                            };
-                            gizmos.line(a, b, theme::edge_color(class));
-                        }
-                    }
-                }
-                if st.cfg.show_raw_edges {
-                    for id in vis.iter() {
-                        for edge in st.model.edges_for_node(id) {
-                            if &edge.from != id {
-                                continue;
-                            }
-                            if !st.edge_visible(edge, &vis) {
-                                continue;
-                            }
-                            let (Some(a), Some(b)) = (
-                                st.spatial.position_of(&edge.from),
-                                st.spatial.position_of(&edge.to),
-                            ) else {
-                                continue;
-                            };
-                            if st.edge_is_glowing(edge) {
-                                gizmos.line(a, b, Color::srgb(1.0, 1.0, 1.0));
-                            }
-                            gizmos.line(a, b, Color::WHITE);
-                        }
-                    }
+                    gizmos.line(a, b, Color::WHITE);
                 }
             }
         }

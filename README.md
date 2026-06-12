@@ -57,6 +57,9 @@ Ziel ist **Verständnis**, nicht nur Monitoring.
 - Hover-Tooltips mit Kontext
 - „Why connected?“ Erklärung
 - Glow bei neuen/aktuellen Events
+- **Edges als Mesh-Polylines** (ein gebatchter `LineList` mit Per-Vertex-HDR-
+  Farben) → volle Bloom-Teilnahme im Standard/Neon-Theme; LOD-Edge-Modus
+  (Off/Focus/All) bleibt wirksam
 
 ### Timeline / Feynman Mode
 - Zeitachse (Vergangenheit → Jetzt)
@@ -86,8 +89,10 @@ Ziel ist **Verständnis**, nicht nur Monitoring.
 - **Incident-Hunt** (`M`): wähle den alarmierten Host → Score (schneller = mehr),
   Anzeige im „Incident Hunt"-Panel
 - **Minimap/Radar** (Top-Down-Overlay) mit Kamera-Marker
-- _Geplant:_ Audio (Hum/Blip/Klaxon — `audio`-Feature vorhanden, braucht Assets),
-  echtes Fog-of-war (Reveal/Placement-Entkopplung)
+- **Fog-of-war** (`O`): Layout/Placement laufen auf der vollen Projektion, aber
+  nur erkundete Nodes werden gerendert. Reveal durch Annähern der Kamera,
+  Scan-Puls oder Fly-to; Alarme bleiben immer sichtbar. Default: aus.
+- _Geplant:_ Audio (Hum/Blip/Klaxon — `audio`-Feature vorhanden, braucht Assets)
 
 ### UX & Analyse
 - Ctrl+P Search & Jump
