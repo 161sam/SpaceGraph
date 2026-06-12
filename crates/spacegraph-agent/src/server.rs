@@ -1,5 +1,5 @@
 use anyhow::Result;
-use spacegraph_core::Msg;
+use spacegraph_core::{Msg, PROTOCOL_VERSION};
 
 #[cfg(unix)]
 use anyhow::Context;
@@ -46,16 +46,27 @@ pub async fn run(
         // Per-connection receiver
         let mut bus_rx = bus_tx.subscribe();
 
-        // Expect optional hello/request, but MVP is tolerant.
+        // Expect optional hello/request; reject a protocol mismatch.
         if let Some(Ok(bytes)) = framed.next().await {
-            let _ = serde_json::from_slice::<Msg>(&bytes); // ignore errors
+            if let Ok(Msg::Hello { protocol, .. }) = serde_json::from_slice::<Msg>(&bytes) {
+                if protocol != PROTOCOL_VERSION {
+                    tracing::warn!(
+                        client_protocol = protocol,
+                        expected = PROTOCOL_VERSION,
+                        "protocol_mismatch: closing client"
+                    );
+                    active_clients.fetch_sub(1, Ordering::SeqCst);
+                    continue;
+                }
+            }
         }
 
         // Send hello + identity + snapshot
         framed
             .send(
                 serde_json::to_vec(&Msg::Hello {
-                    version: "0.1.0".into(),
+                    version: env!("CARGO_PKG_VERSION").into(),
+                    protocol: PROTOCOL_VERSION,
                 })?
                 .into(),
             )

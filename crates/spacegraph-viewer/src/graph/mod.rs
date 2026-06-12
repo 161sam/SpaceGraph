@@ -5,6 +5,7 @@ pub mod interner;
 pub mod layout;
 pub mod metrics;
 pub mod model;
+pub mod namespace;
 pub mod state;
 pub mod synthetic;
 pub mod timeline;

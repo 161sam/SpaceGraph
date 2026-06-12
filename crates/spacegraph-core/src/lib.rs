@@ -1,5 +1,10 @@
 use serde::{Deserialize, Serialize};
 
+/// Wire-protocol version. Bumped whenever the message schema changes
+/// (multi-node handshake, network nodes, alerts). Agent and viewer exchange it
+/// in the `Hello` handshake and reject mismatches.
+pub const PROTOCOL_VERSION: u32 = 1;
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub struct NodeId(pub String);
 
@@ -84,6 +89,10 @@ pub struct NodeIdentity {
 pub enum Msg {
     Hello {
         version: String,
+        /// Wire-protocol version; receiver rejects on mismatch with
+        /// [`PROTOCOL_VERSION`].
+        #[serde(default)]
+        protocol: u32,
     },
     Identity {
         ident: NodeIdentity,
@@ -111,4 +120,34 @@ pub fn id_user(node_id: &str, uid: u32) -> NodeId {
 pub fn id_file(node_id: &str, path: &str) -> NodeId {
     // MVP: use raw path. Later you can hash/normalize for privacy.
     NodeId(format!("{node_id}:file:{path}"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn hello_roundtrips_protocol() {
+        let m = Msg::Hello {
+            version: "x".to_string(),
+            protocol: PROTOCOL_VERSION,
+        };
+        let s = serde_json::to_string(&m).expect("serialize");
+        match serde_json::from_str::<Msg>(&s).expect("deserialize") {
+            Msg::Hello { protocol, .. } => assert_eq!(protocol, PROTOCOL_VERSION),
+            other => panic!("expected Hello, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn legacy_hello_without_protocol_defaults_to_zero() {
+        // A pre-v0.2.0 Hello has no `protocol` field; it must decode to 0 so the
+        // receiver detects the mismatch against PROTOCOL_VERSION.
+        let legacy = r#"{"type":"Hello","data":{"version":"0.1.0"}}"#;
+        match serde_json::from_str::<Msg>(legacy).expect("deserialize legacy") {
+            Msg::Hello { protocol, .. } => assert_eq!(protocol, 0),
+            other => panic!("expected Hello, got {other:?}"),
+        }
+        assert_ne!(0, PROTOCOL_VERSION, "current protocol must reject legacy 0");
+    }
 }

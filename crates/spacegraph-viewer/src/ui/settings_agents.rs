@@ -174,6 +174,17 @@ pub fn agent_manager_window(ctx: &egui::Context, st: &mut GraphState, layout: &U
                                     .commands
                                     .push(NetCommand::Reconnect(endpoint_name.clone()));
                             }
+                            // Per-stream visibility toggle: hides/restores this
+                            // stream's subgraph without losing its data.
+                            let mut show = st
+                                .net
+                                .streams
+                                .get(&endpoint_name)
+                                .map(|s| s.enabled)
+                                .unwrap_or(true);
+                            if ui.checkbox(&mut show, "Show").changed() {
+                                st.set_stream_enabled(&endpoint_name, show);
+                            }
                             if ui.button("Remove").clicked() {
                                 remove_index = Some(idx);
                             }

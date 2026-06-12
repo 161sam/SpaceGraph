@@ -60,7 +60,7 @@ impl GraphState {
             .model
             .nodes
             .iter()
-            .filter(|(id, n)| self.passes_filter(id, n))
+            .filter(|(id, n)| self.passes_filter(id, n) && self.stream_enabled(id))
             .map(|(id, _)| id.clone())
             .collect();
 
