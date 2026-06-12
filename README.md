@@ -144,6 +144,10 @@ Settings-Panel bzw. in `viewer.toml` änderbar:
 | `layout_budget_ms` | 6 | Per-Frame-Zeitbudget fürs Layout (Pass über Frames teilbar) |
 | `link_distance` | 6 | Ziel-Kantenlänge (Spring-Ruhelänge) |
 | `lod_enabled` / `layout_force` | an / an | LOD bzw. Force-Layout aktiv |
+| `visual_theme` | `standard` | `standard` = Neon/HDR+Bloom („Ghost in the Shell"), `minimal` = flach (Accessibility/Perf) |
+
+Die Farb-/Design-Sprache ist in `docs/DESIGN_LANGUAGE.md` festgelegt
+(Quelle der Wahrheit für Farben: `render/theme.rs`).
 
 So sieht ein Erststart einen sinnvollen, gespreizten Graphen, Edges inklusive;
 LOD greift erst bei großen Graphen (> 2500 sichtbare Nodes).

@@ -256,3 +256,59 @@ Branch: `fix/v0.1.11-closeout`.
 * The interactive FPS gate cannot be measured in this headless environment; it
   is documented (ACCEPTANCE + Phase 3 run-log) rather than asserted here. The
   structural guarantees behind it are covered by automated tests.
+
+---
+
+## Phase 5 — Visual pass ("Ghost in the Shell")
+
+Branch: `feat/visual-design-pass`.
+
+### Changed
+
+* `docs/DESIGN_LANGUAGE.md` — binding colour/motion/typography spec.
+* `render/theme.rs` — single source of truth for colours (node types, edge
+  classes, timeline events, scene dressing) + `NodeKind` + `lerp`. Tested.
+* `cfg.visual_theme` (`Standard` / `Minimal`), persisted in `viewer.toml` and
+  plumbed through apply/viewer config.
+* HDR + bloom camera (`Camera{hdr:true}` + `BloomSettings::NATURAL` +
+  TonyMcMapface tonemapping); `sync_visual_theme` themes the clear colour and
+  bloom intensity (Minimal = flat background, bloom 0).
+* Per-type **emissive node materials** with a `GLOW_LEVELS`-step ramp; the
+  renderer picks a step from the glow-decay fraction (recency drives emissive
+  strength, not just a binary swap). Minimal theme keeps the flat
+  normal/white-glow materials (Phase 4 look).
+* Scene dressing: near-black space background + faint floor grid (Standard).
+* Recent-activity **edge pulse** (bright dot travels each glowing edge as it
+  decays); edges recoloured by class via `theme::edge_color`.
+* **Billboard labels** for focused/hovered/selected nodes only (capped at 6),
+  egui-projected — never all nodes.
+* Timeline event colours now come from `theme.rs` (`TL_*`), replacing the
+  hardcoded literals.
+
+### Gate 5 results
+
+* `cargo fmt --check`, `cargo clippy --workspace --all-targets -- -D warnings`,
+  `cargo test --workspace`: green (53 viewer tests, +theme tests, +Minimal
+  flat-material equivalence test).
+* **Minimal == Phase 4 behaviour**: `minimal_theme_uses_flat_materials` asserts
+  the Minimal theme picks the flat normal/glow materials (no ramp); bloom is 0
+  and the background is flat in Minimal (`sync_visual_theme`).
+* Persistent-entity FPS structure from Phase 3 is unchanged (the visual pass
+  only swaps cached material handles — still no per-frame entity churn).
+
+### Open / to verify locally (headless: no GPU)
+
+* **Screenshots** (`docs/media/`: spatial 2k, focus, timeline) — capture locally
+  with `cargo run -p spacegraph-viewer -- --demo-load 2000`. See
+  `docs/media/README.md`.
+* FPS with theme Standard (bloom on) — confirm the Phase 3 targets locally.
+
+### Deviations (with justification)
+
+* **Edges are HDR gizmos coloured by class, not mesh polylines.** The prompt
+  asks for mesh-based edge polylines so edges participate in bloom. Gizmo lines
+  render reliably and carry the class palette + pulse; mesh-polyline edges
+  (full bloom participation, alpha/animation) are deferred because their
+  correctness (line-mesh + emissive material + bloom) cannot be validated in
+  this headless build and shipping unverifiable render code is the larger risk.
+  Documented in `DESIGN_LANGUAGE.md` as the next visual iteration.
