@@ -128,3 +128,17 @@ Keine Graph-Logik.
   - oder Projection über aktive Nodes
 
 Kein automatisches Merge ohne Namespace.
+
+### Implementierung (v0.2.0)
+
+- `graph/namespace.rs`: `(NodeKey, LocalId)` wird als **Prefix-String** kodiert
+  (`<stream>\u{1}<local>`), siehe `globalize` / `origin` / `local_part`. Ein
+  einziges `GraphModel`, keyed by global eindeutigem `NodeId`. (Blueprint
+  erlaubt „string prefix" explizit.)
+- Namespacing passiert **nur an der Ingest-Grenze** (`GraphState::apply`):
+  Snapshots ersetzen genau ihren Stream-Subgraphen (`remove_stream`), Deltas
+  werden pro Stream globalisiert. Kein Merge über Streams.
+- Per-Stream `enabled`-Flag filtert die Projektion (`stream_enabled` in
+  `visible_set_capped`).
+- `PROTOCOL_VERSION` (in `spacegraph-core`) wird im `Hello`-Handshake geprüft;
+  Mismatch → Ablehnung mit klarer Fehlermeldung.

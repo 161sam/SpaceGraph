@@ -312,3 +312,60 @@ Branch: `feat/visual-design-pass`.
   correctness (line-mesh + emissive material + bloom) cannot be validated in
   this headless build and shipping unverifiable render code is the larger risk.
   Documented in `DESIGN_LANGUAGE.md` as the next visual iteration.
+
+---
+
+## Phase 6 — v0.2.0 Multi-Node
+
+Branch: `feat/v0.2.0-multi-node`.
+
+### Changed
+
+* `spacegraph-core`: `PROTOCOL_VERSION: u32 = 1`; `Msg::Hello` gains a
+  `protocol` field (`#[serde(default)]`, so legacy hellos decode to 0).
+* Handshake check: viewer rejects a mismatched agent (`Incoming::error` +
+  disconnect with a clear message); agent closes a client with a mismatched
+  protocol. Both send their `PROTOCOL_VERSION`.
+* `graph/namespace.rs`: stream namespacing — `globalize(stream, local)` prefixes
+  incoming `NodeId`s with the stream key (SOH separator) so two streams with the
+  same local id never collide and **namespaces never merge**; `origin` /
+  `local_part` recover the parts. (Blueprint's "string prefix" option for
+  `Gid { node, local }`.)
+* `state.rs` ingest: snapshots replace **only their own stream's** subgraph
+  (`remove_stream` + globalized upserts); deltas are globalized per stream;
+  `Identity` records the origin host. Per-stream `enabled` flag +
+  `set_stream_enabled` + `stream_enabled` filter in `visible_set_capped`
+  (disable hides exactly that subgraph, re-enable restores). Tooltips show the
+  local id + `origin: <stream> (host)`.
+* `ui/settings_agents.rs`: per-stream "Show" checkbox (visibility toggle)
+  alongside Connect/Disconnect/Reconnect/Remove.
+
+### Gate 6 results
+
+* `cargo fmt --check`, `cargo clippy --workspace --all-targets -- -D warnings`,
+  `cargo test --workspace`: green (core: Hello protocol serde tests; viewer:
+  `multi_stream_colliding_local_ids_do_not_merge`,
+  `snapshot_replaces_only_its_own_stream`,
+  `disabling_stream_hides_only_its_subgraph`).
+* ACCEPTANCE v0.2.0: no ID collisions ✓, per-stream snapshots don't merge ✓,
+  streams individually disableable ✓, tooltips show node origin ✓.
+* Tag `v0.2.0` created.
+
+### Open / to verify locally
+
+* Two live agents (or one agent + a replayed second stream) against one viewer —
+  run locally; the data-model guarantees are covered by the tests above.
+
+### Deviations (with justification)
+
+* **Namespacing is string-prefix, not maps keyed by a `Gid` struct / per-stream
+  `GraphModel`s.** `docs/Implementation-Blueprint.md` §v0.2.0 C explicitly
+  offers "`Gid { node, local }` ODER string prefix"; the prefix keeps a single
+  `GraphModel` and confines the change to the ingest boundary instead of
+  re-keying every graph/layout/render structure (a Phase-1-scale churn) — same
+  guarantees (collision-free, no auto-merge, origin-addressable), far smaller
+  blast radius. `NodeKey`/`Gid` semantics live in `graph/namespace.rs`.
+* NodeKey = the stream/endpoint name (always unique per connection). The
+  agent's `Identity` host is shown as origin metadata. This is the blueprint's
+  `node_key = "stream-<id>"` fallback form, always available and stable
+  regardless of Identity timing.

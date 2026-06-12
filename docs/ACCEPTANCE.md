@@ -106,7 +106,11 @@ Abgleich der Gates mit dem tatsächlichen Stand nach der Perf-/Hardening-Arbeit
   State ohne Entity-Churn — Headless-Test). Settings persistent: ✓ (Roundtrip-
   Test). **FPS-Gate (≥60 @2000 / ≥30 @5000) lokal/GPU zu bestätigen** (Umgebung
   headless) — die strukturellen Garantien dafür sind getestet.
-- **v0.2.0** — offen (Phase 6).
+- **v0.2.0** — ✓ Multi-Node: Stream-Namespacing per Prefix (keine ID-Kollision,
+  kein Auto-Merge — getestet), per-Stream Snapshot-Replace, Streams einzeln
+  deaktivierbar (`enabled`-Flag, Headless-Test), Tooltips zeigen Node-Origin,
+  `PROTOCOL_VERSION`-Handshake (Agent/Viewer lehnen Mismatch ab). Zwei-Agenten-
+  Livebetrieb lokal zu bestätigen. Tag `v0.2.0`.
 
 Die `force_step`-Baseline-/Verlaufszahlen stehen in `docs/perf/BASELINE.md`
 und `docs/perf/RUNLOG.md`.
