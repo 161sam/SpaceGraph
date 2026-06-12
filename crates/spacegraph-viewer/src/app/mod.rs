@@ -52,6 +52,7 @@ impl Plugin for SpaceGraphViewerPlugin {
             (
                 crate::render::setup_scene,
                 crate::render::setup_node_render_resources,
+                crate::render::setup_edge_mesh,
             ),
         )
         .add_systems(
@@ -72,6 +73,7 @@ impl Plugin for SpaceGraphViewerPlugin {
                 crate::render::fly_camera,
                 crate::render::scan_pulse,
                 crate::render::mission_tick,
+                crate::render::reveal_tick,
                 crate::ui::minimap,
             ),
         )
@@ -82,6 +84,7 @@ impl Plugin for SpaceGraphViewerPlugin {
             (
                 crate::graph::update_layout_or_timeline,
                 crate::render::sync_node_entities,
+                crate::render::update_edge_mesh,
                 crate::render::draw_scene,
                 crate::render::draw_node_labels,
                 crate::render::apply_jump_to,

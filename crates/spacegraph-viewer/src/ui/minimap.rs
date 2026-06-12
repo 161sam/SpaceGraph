@@ -43,7 +43,10 @@ pub fn minimap(
             // Bounds over placed nodes (X/Z top-down).
             let mut min = Vec2::splat(f32::INFINITY);
             let mut max = Vec2::splat(f32::NEG_INFINITY);
-            for (_, p) in st.spatial.placed_positions() {
+            for (id, p) in st.spatial.placed_positions() {
+                if !st.is_visible_rendered(id) {
+                    continue;
+                }
                 let xz = Vec2::new(p.x, p.z);
                 min = min.min(xz);
                 max = max.max(xz);
@@ -64,6 +67,9 @@ pub fn minimap(
             for (i, (id, p)) in st.spatial.placed_positions().enumerate() {
                 if i >= MAX_DOTS {
                     break;
+                }
+                if !st.is_visible_rendered(id) {
+                    continue;
                 }
                 let color = st
                     .model

@@ -458,6 +458,9 @@ pub struct CfgState {
     pub path_excludes: Vec<String>,
     pub agent_default_mode: AgentMode,
     pub visual_theme: VisualTheme,
+    /// Fog-of-war: when on, only revealed (explored) nodes render; placement and
+    /// layout still run on the full projection so nodes can be revealed.
+    pub fog_of_war: bool,
 }
 
 impl CfgState {
@@ -478,6 +481,9 @@ pub struct GraphState {
     pub explain_cache: Option<ExplainCache>,
     /// Insertion order of retained alert nodes (oldest first) for cap eviction.
     pub alert_order: VecDeque<NodeId>,
+    /// Nodes revealed by exploration (camera proximity, scan, focus) — the
+    /// fog-of-war render gate. Independent of placement/layout.
+    pub revealed: HashSet<NodeId>,
     pub snapshot_loaded: bool,
     pub live_events_seen: bool,
     pub demo_loaded: bool,
@@ -603,10 +609,12 @@ impl Default for GraphState {
                 ],
                 agent_default_mode: AgentMode::User,
                 visual_theme: VisualTheme::Standard,
+                fog_of_war: false,
             },
             needs_redraw: AtomicBool::new(true),
             explain_cache: None,
             alert_order: VecDeque::new(),
+            revealed: HashSet::new(),
             snapshot_loaded: false,
             live_events_seen: false,
             demo_loaded: false,
@@ -648,6 +656,7 @@ impl GraphState {
         self.spatial.dirty_layout = true;
         self.explain_cache = None;
         self.alert_order.clear();
+        self.revealed.clear();
         self.snapshot_loaded = false;
         self.live_events_seen = false;
         self.demo_loaded = false;
@@ -1033,6 +1042,27 @@ impl GraphState {
     /// Alert node ids, newest first (for the Alerts panel list).
     pub fn alerts_newest_first(&self) -> impl Iterator<Item = &NodeId> {
         self.alert_order.iter().rev()
+    }
+
+    /// Fog-of-war render gate: fog off → always shown; fog on → only revealed
+    /// nodes, plus alerts and the active focus/selection/hover.
+    pub fn is_visible_rendered(&self, id: &NodeId) -> bool {
+        if !self.cfg.fog_of_war
+            || self.revealed.contains(id)
+            || matches!(self.model.nodes.get(id), Some(Node::Alert { .. }))
+        {
+            return true;
+        }
+        self.ui.focus.as_ref() == Some(id)
+            || self.ui.selected.as_ref() == Some(id)
+            || self.ui.hovered.as_ref() == Some(id)
+    }
+
+    /// Mark a node as explored (fog-of-war).
+    pub fn reveal(&mut self, id: &NodeId) {
+        if self.revealed.insert(id.clone()) {
+            self.needs_redraw.store(true, Ordering::Relaxed);
+        }
     }
 
     fn apply_delta(&mut self, d: Delta) {
@@ -1504,6 +1534,7 @@ impl GraphState {
         self.cfg.path_excludes = cfg.path_excludes.clone();
         self.cfg.agent_default_mode = cfg.default_agent_mode;
         self.cfg.visual_theme = cfg.visual_theme;
+        self.cfg.fog_of_war = cfg.fog_of_war;
         self.sync_agent_endpoints(cfg.agents.clone());
 
         self.needs_redraw.store(true, Ordering::Relaxed);
@@ -1540,6 +1571,7 @@ impl GraphState {
             gc_ttl_secs: self.cfg.gc_ttl.as_secs(),
             default_agent_mode: self.cfg.agent_default_mode,
             visual_theme: self.cfg.visual_theme,
+            fog_of_war: self.cfg.fog_of_war,
             agents: self.net.endpoints.clone(),
         }
     }
@@ -1653,6 +1685,39 @@ mod tests {
         // Re-enable restores exactly the same set.
         st.set_stream_enabled("a", true);
         assert_eq!(st.visible_set_capped().len(), 5);
+    }
+
+    #[test]
+    fn fog_gates_rendering_but_not_placement() {
+        let mut st = GraphState::default();
+        let n = NodeId("host:file:/x".to_string());
+        st.model.nodes.insert(
+            n.clone(),
+            Node::File {
+                path: "/x".to_string(),
+                inode: 1,
+                kind: FileKind::Regular,
+            },
+        );
+        // Fog off → everything renders.
+        assert!(st.is_visible_rendered(&n));
+        // Fog on → hidden until revealed.
+        st.cfg.fog_of_war = true;
+        assert!(!st.is_visible_rendered(&n));
+        st.reveal(&n);
+        assert!(st.is_visible_rendered(&n));
+        // Alerts always render, even unrevealed.
+        let a = NodeId("host:alert:1".to_string());
+        st.model.nodes.insert(
+            a.clone(),
+            Node::Alert {
+                source: "s".to_string(),
+                signature: "x".to_string(),
+                severity: "high".to_string(),
+                ts: "t".to_string(),
+            },
+        );
+        assert!(st.is_visible_rendered(&a));
     }
 
     #[test]

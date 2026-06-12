@@ -24,6 +24,7 @@ pub fn help_overlay(mut contexts: EguiContexts, st: ResMut<GraphState>) {
             ui.label(egui::RichText::new("Gameplay").strong());
             ui.label("G — Scan pulse (reveal nearby nodes)");
             ui.label("M — Incident hunt: investigate next alert");
+            ui.label("O — Toggle fog-of-war (explore to reveal)");
             ui.separator();
             ui.label(egui::RichText::new("Shortcuts").strong());
             ui.label("Ctrl+P — Search");

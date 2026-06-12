@@ -1,4 +1,5 @@
 pub mod camera;
+pub mod edges;
 pub mod freefly;
 pub mod gameplay;
 pub mod spatial;
@@ -12,8 +13,9 @@ use crate::graph::{GraphState, ViewMode};
 use crate::ui::UiLayout;
 
 pub use camera::{apply_jump_to, setup_scene, sync_visual_theme, update_tree_zoom};
+pub use edges::{setup_edge_mesh, update_edge_mesh, EdgeMesh};
 pub use freefly::{fly_camera, FlyCam};
-pub use gameplay::{mission_tick, scan_pulse, Mission, ScanPulse};
+pub use gameplay::{mission_tick, reveal_tick, scan_pulse, Mission, ScanPulse};
 pub use spatial::{
     apply_picked_focus, draw_node_labels, draw_spatial, hover_detection_spatial, picking_focus,
     setup_node_render_resources, sync_node_entities, DragSelect, NodeEntities,

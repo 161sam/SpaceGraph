@@ -24,6 +24,34 @@ const SCAN_SPEED: f32 = 70.0;
 const SCAN_MAX: f32 = 500.0;
 const SCAN_BAND: f32 = 10.0;
 
+/// Fog-of-war reveal radius around the camera.
+const REVEAL_RADIUS: f32 = 55.0;
+
+/// Reveal nodes the camera comes close to (fog-of-war exploration). Placement
+/// runs on the full projection, so unrevealed nodes already have positions to
+/// test against here. No-op when fog is off.
+pub fn reveal_tick(cam_q: Query<&Transform, With<Camera>>, mut st: ResMut<GraphState>) {
+    if !st.cfg.fog_of_war {
+        return;
+    }
+    let Ok(tf) = cam_q.get_single() else {
+        return;
+    };
+    let cam = tf.translation;
+    let r2 = REVEAL_RADIUS * REVEAL_RADIUS;
+    let mut newly: Vec<NodeId> = st
+        .spatial
+        .placed_positions()
+        .filter(|(id, p)| (*p - cam).length_squared() <= r2 && !st.revealed.contains(*id))
+        .map(|(id, _)| id.clone())
+        .collect();
+    // The active focus/selection is always revealed (e.g. mission jump targets).
+    newly.extend(st.ui.focus.iter().chain(st.ui.selected.iter()).cloned());
+    for id in newly {
+        st.reveal(&id);
+    }
+}
+
 pub fn scan_pulse(
     mut scan: ResMut<ScanPulse>,
     keys: Res<ButtonInput<KeyCode>>,
@@ -61,6 +89,7 @@ pub fn scan_pulse(
     let until = Instant::now() + st.cfg.glow_duration;
     for id in hits {
         st.spatial.set_node_glow(&id, until);
+        st.revealed.insert(id); // scanning reveals (fog-of-war)
     }
     st.needs_redraw
         .store(true, std::sync::atomic::Ordering::Relaxed);

@@ -118,6 +118,8 @@ pub struct ViewerConfig {
     pub default_agent_mode: AgentMode,
     #[serde(default)]
     pub visual_theme: VisualTheme,
+    #[serde(default)]
+    pub fog_of_war: bool,
     #[serde(default = "default_agents")]
     pub agents: Vec<AgentEndpoint>,
 }
@@ -159,6 +161,7 @@ impl Default for ViewerConfig {
             gc_ttl_secs: 30,
             default_agent_mode: AgentMode::User,
             visual_theme: VisualTheme::Standard,
+            fog_of_war: false,
             agents: vec![AgentEndpoint::default()],
         }
     }
