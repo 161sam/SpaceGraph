@@ -10,6 +10,7 @@ use crate::graph::explain::{self, PathStep};
 use crate::graph::grid::Grid;
 use crate::graph::interner::{NodeIndex, NodeInterner};
 use crate::graph::model::GraphModel;
+use crate::graph::namespace;
 use crate::graph::synthetic;
 use crate::graph::timeline::{BatchSpan, NodeLife, TimelineEvt, TimelineEvtKind};
 use crate::graph::tree;
@@ -316,6 +317,12 @@ pub enum NetStreamStatus {
 
 pub struct NetStreamState {
     pub status: NetStreamStatus,
+    /// Whether this stream's subgraph is shown. Disabling hides exactly this
+    /// stream's nodes/edges (data retained); re-enabling restores them.
+    pub enabled: bool,
+    /// Origin identity reported by the agent's `Identity` message (host etc.),
+    /// shown in tooltips. The namespace key is the stream name itself.
+    pub origin_host: Option<String>,
     pub last_msg: Option<Instant>,
     pub last_seen: Option<Instant>,
     pub last_snapshot_at: Option<Instant>,
@@ -349,6 +356,8 @@ impl NetStreamState {
     pub fn new() -> Self {
         Self {
             status: NetStreamStatus::Disconnected,
+            enabled: true,
+            origin_host: None,
             last_msg: None,
             last_seen: None,
             last_snapshot_at: None,
@@ -857,9 +866,17 @@ impl GraphState {
                 self.net_on_message(&inc.stream);
                 let now = Instant::now();
                 self.net_on_snapshot(&inc.stream, now);
-                self.model.load_snapshot(nodes, edges, now);
-                for id in self.model.nodes.keys() {
-                    self.timeline.record_node_upsert(id, now);
+                // Replace only THIS stream's subgraph (namespaced) — never merge
+                // across streams.
+                self.remove_stream(&inc.stream);
+                for (id, node) in nodes {
+                    let gid = namespace::globalize(&inc.stream, &id);
+                    self.model.upsert_node(gid.clone(), node, now);
+                    self.timeline.record_node_upsert(&gid, now);
+                }
+                for edge in edges {
+                    self.model
+                        .upsert_edge(namespace::globalize_edge(&inc.stream, &edge), now);
                 }
                 self.snapshot_loaded = true;
                 self.mark_dirty_all();
@@ -869,14 +886,106 @@ impl GraphState {
                 self.on_message();
                 self.net_on_message(&inc.stream);
                 self.net_on_event(&inc.stream);
+                let delta = Self::globalize_delta(&inc.stream, delta);
                 self.apply_delta(delta);
             }
-            IncomingKind::Identity(_) | IncomingKind::Other(_) => {
+            IncomingKind::Identity(msg) => {
+                self.on_message();
+                self.net_on_message(&inc.stream);
+                if let Msg::Identity { ident, .. } = &msg {
+                    if let Some(s) = self.net.streams.get_mut(&inc.stream) {
+                        s.origin_host = Some(ident.hostname.clone());
+                    }
+                }
+            }
+            IncomingKind::Other(_) => {
                 self.on_message();
                 self.net_on_message(&inc.stream);
             }
 
             _ => {}
+        }
+    }
+
+    /// Namespace a delta's node/edge ids by the originating stream so two
+    /// streams with colliding local ids never merge.
+    fn globalize_delta(stream: &str, d: Delta) -> Delta {
+        match d {
+            Delta::UpsertNode { id, node } => Delta::UpsertNode {
+                id: namespace::globalize(stream, &id),
+                node,
+            },
+            Delta::RemoveNode { id } => Delta::RemoveNode {
+                id: namespace::globalize(stream, &id),
+            },
+            Delta::UpsertEdge { edge } => Delta::UpsertEdge {
+                edge: namespace::globalize_edge(stream, &edge),
+            },
+            Delta::RemoveEdge { edge } => Delta::RemoveEdge {
+                edge: namespace::globalize_edge(stream, &edge),
+            },
+            other => other,
+        }
+    }
+
+    /// Remove an entire stream's subgraph from the model and spatial state.
+    fn remove_stream(&mut self, stream: &str) {
+        let prefix = namespace::prefix(stream);
+        let ids: Vec<NodeId> = self
+            .model
+            .nodes
+            .keys()
+            .filter(|id| id.0.starts_with(&prefix))
+            .cloned()
+            .collect();
+        if ids.is_empty() {
+            return;
+        }
+        for id in ids {
+            self.model.remove_node(&id);
+            self.spatial.release(&id);
+            if self.ui.focus.as_ref() == Some(&id) {
+                self.ui.focus = None;
+            }
+            if self.ui.selected.as_ref() == Some(&id) {
+                self.ui.selected = None;
+            }
+            if self.ui.selected_a.as_ref() == Some(&id) {
+                self.ui.selected_a = None;
+            }
+            if self.ui.selected_b.as_ref() == Some(&id) {
+                self.ui.selected_b = None;
+            }
+            if self.ui.hovered.as_ref() == Some(&id) {
+                self.ui.hovered = None;
+            }
+        }
+        self.spatial.springs_dirty = true;
+        self.mark_dirty_all();
+    }
+
+    /// Whether the node's origin stream is enabled (non-namespaced nodes — demo
+    /// / synthetic — are always shown).
+    pub fn stream_enabled(&self, id: &NodeId) -> bool {
+        match namespace::origin(id) {
+            Some(stream) => self
+                .net
+                .streams
+                .get(stream)
+                .map(|s| s.enabled)
+                .unwrap_or(true),
+            None => true,
+        }
+    }
+
+    /// Toggle a stream's visibility (hides/restores its subgraph without losing
+    /// data).
+    pub fn set_stream_enabled(&mut self, stream: &str, enabled: bool) {
+        if let Some(s) = self.net.streams.get_mut(stream) {
+            if s.enabled != enabled {
+                s.enabled = enabled;
+                self.mark_dirty_all();
+            }
         }
     }
 
@@ -1121,8 +1230,23 @@ impl GraphState {
             return vec![id.0.clone()];
         };
         let mut out = Vec::new();
-        out.push(format!("{} ({})", node_label_short(n), id.0));
+        out.push(format!(
+            "{} ({})",
+            node_label_short(n),
+            namespace::local_part(id)
+        ));
         out.extend(node_label_long(n));
+        if let Some(stream) = namespace::origin(id) {
+            match self
+                .net
+                .streams
+                .get(stream)
+                .and_then(|s| s.origin_host.clone())
+            {
+                Some(host) => out.push(format!("origin: {stream} ({host})")),
+                None => out.push(format!("origin: {stream}")),
+            }
+        }
         out
     }
 
@@ -1353,6 +1477,112 @@ impl GraphState {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use spacegraph_core::id_process;
+
+    fn endpoint(name: &str) -> AgentEndpoint {
+        AgentEndpoint {
+            name: name.to_string(),
+            ..Default::default()
+        }
+    }
+
+    /// A snapshot Incoming with `n` distinct process nodes (local ids reused
+    /// across streams to exercise namespacing).
+    fn snapshot_with(stream: &str, n: i32) -> Incoming {
+        let nodes: Vec<(NodeId, Node)> = (0..n)
+            .map(|i| {
+                (
+                    id_process("host", 1000 + i),
+                    Node::Process {
+                        pid: 1000 + i,
+                        ppid: 1,
+                        exe: "x".to_string(),
+                        cmdline: "x".to_string(),
+                        uid: 0,
+                    },
+                )
+            })
+            .collect();
+        Incoming::snapshot(
+            stream.to_string(),
+            Msg::Snapshot {
+                nodes,
+                edges: Vec::new(),
+            },
+        )
+    }
+
+    #[test]
+    fn multi_stream_colliding_local_ids_do_not_merge() {
+        let mut st = GraphState::default();
+        st.net.endpoints = vec![endpoint("a"), endpoint("b")];
+        st.net.ensure_stream("a");
+        st.net.ensure_stream("b");
+
+        // Same local pid emitted by two streams must not collide.
+        st.apply(snapshot_with("a", 1));
+        st.apply(snapshot_with("b", 1));
+
+        assert_eq!(
+            st.model.nodes.len(),
+            2,
+            "colliding local ids across streams must not merge"
+        );
+        let origins: HashSet<Option<&str>> = st
+            .model
+            .nodes
+            .keys()
+            .map(|id| namespace::origin(id))
+            .collect();
+        assert!(origins.contains(&Some("a")) && origins.contains(&Some("b")));
+    }
+
+    #[test]
+    fn snapshot_replaces_only_its_own_stream() {
+        let mut st = GraphState::default();
+        st.net.endpoints = vec![endpoint("a"), endpoint("b")];
+        st.net.ensure_stream("a");
+        st.net.ensure_stream("b");
+
+        st.apply(snapshot_with("a", 2));
+        st.apply(snapshot_with("b", 3));
+        assert_eq!(st.model.nodes.len(), 5);
+
+        // A fresh snapshot from "a" replaces only a's subgraph; b is untouched.
+        st.apply(snapshot_with("a", 1));
+        assert_eq!(st.model.nodes.len(), 4);
+        let b_count = st
+            .model
+            .nodes
+            .keys()
+            .filter(|id| namespace::origin(id) == Some("b"))
+            .count();
+        assert_eq!(
+            b_count, 3,
+            "other streams must survive a per-stream snapshot"
+        );
+    }
+
+    #[test]
+    fn disabling_stream_hides_only_its_subgraph() {
+        let mut st = GraphState::default();
+        st.net.endpoints = vec![endpoint("a"), endpoint("b")];
+        st.net.ensure_stream("a");
+        st.net.ensure_stream("b");
+        st.apply(snapshot_with("a", 2));
+        st.apply(snapshot_with("b", 3));
+
+        assert_eq!(st.visible_set_capped().len(), 5);
+
+        st.set_stream_enabled("a", false);
+        let vis = st.visible_set_capped();
+        assert_eq!(vis.len(), 3);
+        assert!(vis.iter().all(|id| namespace::origin(id) == Some("b")));
+
+        // Re-enable restores exactly the same set.
+        st.set_stream_enabled("a", true);
+        assert_eq!(st.visible_set_capped().len(), 5);
+    }
 
     #[test]
     fn spatial_slot_reuse_clears_state() {
@@ -1456,6 +1686,8 @@ mod tests {
             stream.clone(),
             NetStreamState {
                 status: NetStreamStatus::Connected,
+                enabled: true,
+                origin_host: None,
                 last_msg: Some(now),
                 last_seen: Some(now),
                 last_snapshot_at: None,
@@ -1487,6 +1719,8 @@ mod tests {
             stream.clone(),
             NetStreamState {
                 status: NetStreamStatus::Connected,
+                enabled: true,
+                origin_host: None,
                 last_msg: Some(start),
                 last_seen: Some(start),
                 last_snapshot_at: None,
