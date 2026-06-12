@@ -4,6 +4,7 @@ pub mod layout;
 pub mod metrics;
 pub mod model;
 pub mod state;
+pub mod synthetic;
 pub mod timeline;
 pub mod tree;
 

@@ -121,6 +121,14 @@ spacegraph-agent --include /etc --include /home/dev --exclude /etc/cni
 Standardmäßig kommunizieren beide über eine Unix-Domain-Socket unter
 `/run/user/$(id -u)/spacegraph.sock` (falls verfügbar) oder `/tmp/spacegraph.sock`.
 
+Zum Testen ohne Agent seedet der Viewer mit `--demo-load <n>` einen
+deterministischen synthetischen Graphen (`n` Nodes, ~`2n` Edges) statt sich zu
+verbinden — nützlich für Performance- und Layout-Smoke-Tests:
+
+```bash
+cargo run -p spacegraph-viewer -- --demo-load 2000
+```
+
 ### ✅ Diagnose: Agent-UDS prüfen
 
 ```bash

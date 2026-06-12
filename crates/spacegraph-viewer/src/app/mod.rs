@@ -12,7 +12,15 @@ use crate::util::config::AgentEndpointKind;
 pub mod events;
 pub mod resources;
 
-pub struct SpaceGraphViewerPlugin;
+#[derive(Default)]
+pub struct SpaceGraphViewerPlugin {
+    /// When set (via `--demo-load <n>`), seed a deterministic synthetic graph
+    /// of `n` nodes instead of auto-connecting to agents.
+    pub demo_load: Option<usize>,
+}
+
+#[derive(Resource)]
+struct DemoLoad(usize);
 
 impl Plugin for SpaceGraphViewerPlugin {
     fn build(&self, app: &mut App) {
@@ -21,9 +29,19 @@ impl Plugin for SpaceGraphViewerPlugin {
         st.apply_viewer_config(&cfg);
         app.add_event::<Picked>()
             .insert_resource(st)
-            .insert_resource(UiLayout::default())
-            .add_systems(Startup, auto_connect_agents)
-            .add_systems(Startup, crate::render::setup_scene)
+            .insert_resource(UiLayout::default());
+
+        match self.demo_load {
+            Some(n) => {
+                app.insert_resource(DemoLoad(n))
+                    .add_systems(Startup, seed_demo_load);
+            }
+            None => {
+                app.add_systems(Startup, auto_connect_agents);
+            }
+        }
+
+        app.add_systems(Startup, crate::render::setup_scene)
             .add_systems(
                 Update,
                 (
@@ -50,6 +68,10 @@ fn pump_network(mut st: ResMut<GraphState>, rx: Res<NetRx>) {
     for msg in rx.0.try_iter().take(100_000) {
         st.apply(msg);
     }
+}
+
+fn seed_demo_load(mut st: ResMut<GraphState>, demo: Res<DemoLoad>) {
+    st.load_synthetic_graph(demo.0);
 }
 
 fn auto_connect_agents(mut st: ResMut<GraphState>) {
