@@ -596,3 +596,40 @@ Branch: `feat/alert-ingestion`.
 * `cargo run -p spacegraph-viewer -- --demo-load 2000`; drag a node (pins +
   marker), hover/click an edge (highlight + trace), right-click a node (menu),
   mark a node. Capture `docs/media/interaction.png`.
+
+### Phase 5 — Cyberspace post-process (`feat/cyberspace-postfx`)
+
+* `assets/shaders/cyberspace_post.wgsl`: self-contained (no `#import`, so `naga`
+  validates it) scanline + vignette + chromatic-aberration + grain pass.
+* `render/postfx.rs`: `PostFxSettings` (ExtractComponent + ShaderType uniform),
+  `PostFxPipeline` (FromWorld), `PostFxNode` (ViewNode), `PostFxPlugin` wiring the
+  graph node `Tonemapping → PostFxLabel → EndMainPassPostProcessing` in `Core3d`
+  (pinned-Bevy-0.14 API). Shader embedded via `load_internal_asset!` (no asset
+  deploy). `sync_postfx` attaches/updates/removes the per-camera component.
+* Config: `PostFxConfig { enabled, scanline, vignette, aberration, grain }`
+  persisted; panel "Post-FX" section. `postfx_active(theme, enabled)` gates the
+  pass — Minimal forces off **without** clobbering the saved config (so the
+  attachment is removed rather than mutating `cfg.enabled` in `sync_visual_theme`).
+* `naga` added as a pinned dev-dependency (`=0.20.0`, the lockfile version).
+
+### Gate 5 results
+
+* `wgsl_postfx_validates` (naga parse + validate) green; `postfx_plugin_builds_
+  without_render_app` (headless, no panic) green; `postfx_active_forces_minimal_
+  off` green; config round-trip covered by `viewer_config_roundtrip_save_load`.
+* `cargo fmt --check`, `cargo clippy --workspace --all-targets -- -D warnings`,
+  `cargo test --workspace`: green (92 viewer-lib tests).
+* **GPU verification (beyond headless):** ran the real Vulkan build
+  (`--demo-load 400`, Standard theme → pass active) for 12 s — pipeline created,
+  render-graph node executed, **no wgpu validation error or panic**. Full visual
+  capture is still the documented local step below.
+* Deviations: (1) Minimal-off is enforced by removing the per-camera component in
+  `sync_postfx` rather than mutating `cfg` in `sync_visual_theme` (that would
+  erase the user's saved setting). (2) No hotkey added — no clearly-free key; the
+  panel "Post-FX" toggle covers it (hotkey was optional).
+
+### Local capture
+
+* `cargo run -p spacegraph-viewer -- --demo-load 2000`; confirm scanlines /
+  vignette / aberration / grain in Standard, toggle off + switch to Minimal (no
+  effect). Capture `docs/media/postfx.png`.

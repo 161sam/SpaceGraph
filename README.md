@@ -73,6 +73,9 @@ Ziel ist **Verständnis**, nicht nur Monitoring.
   fest); **Edge-Picking** (Hover → Highlight+Tooltip, Klick → Trace);
   **Rechtsklick** auf Node = Radial-Kontextmenü (Fly-to/Isolate/Trace/Pin/Mark/
   Inspect); **Mark** für persistente Hervorhebung.
+- **Cyberspace-Post-FX** (Standard, abschaltbar): Vollbild-Pass mit Scanlines,
+  Vignette, Chromatic Aberration und Grain (nach Tonemapping/Bloom). Intensitäten
+  im Panel („Post-FX"), persistiert; Minimal erzwingt aus.
 
 ### Timeline / Feynman Mode
 - Zeitachse (Vergangenheit → Jetzt)

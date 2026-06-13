@@ -88,6 +88,16 @@ no rings.
   Fly-to / Isolate / Trace / Pin / Mark / Inspect.
 - **Marks:** marked nodes carry a persistent magenta tint (`theme::MARKED`).
 
+## Cyberspace post-process (v0.4.0)
+
+A fullscreen post pass (`render::postfx`, WGSL in
+`assets/shaders/cyberspace_post.wgsl`) adds **scanlines + vignette + chromatic
+aberration + film grain** after Tonemapping/Bloom — the final "screen" layer of
+the Ghost-in-the-Shell look. Standard-theme only and toggleable
+(`cfg.postfx.enabled` + per-effect intensities, persisted); `postfx_active`
+forces it off under Minimal without clobbering the saved config. The pass only
+runs when its per-camera `PostFxSettings` is attached (`sync_postfx`).
+
 ## Motion & recency
 
 - **Recent activity glow:** on upsert/touch a node flashes toward white

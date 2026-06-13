@@ -16,7 +16,7 @@ use crate::graph::timeline::{BatchSpan, NodeLife, TimelineEvt, TimelineEvtKind};
 use crate::graph::tree;
 use crate::net::{Incoming, IncomingKind, ReaderHandle};
 use crate::util::config::{
-    AgentEndpoint, AgentMode, LodEdgesMode, ViewerConfig, ViewerViewMode, VisualTheme,
+    AgentEndpoint, AgentMode, LodEdgesMode, PostFxConfig, ViewerConfig, ViewerViewMode, VisualTheme,
 };
 use crate::util::ids::{node_label_long, node_label_short};
 
@@ -521,6 +521,9 @@ pub struct CfgState {
     /// Edge-pick hit threshold (world units) for ray-vs-segment edge picking.
     pub edge_pick_threshold: f32,
 
+    /// Cyberspace post-process intensities (Standard theme).
+    pub postfx: PostFxConfig,
+
     /// UI sound effects (effective only in builds with the `audio` feature).
     pub audio_enabled: bool,
     pub audio_volume: f32,
@@ -690,6 +693,7 @@ impl Default for GraphState {
                 node_rings: true,
                 ring_min_degree: 6,
                 edge_pick_threshold: 0.15,
+                postfx: PostFxConfig::default(),
                 audio_enabled: true,
                 audio_volume: 0.6,
             },
@@ -1664,6 +1668,7 @@ impl GraphState {
         self.cfg.node_rings = cfg.node_rings;
         self.cfg.ring_min_degree = cfg.ring_min_degree.max(1);
         self.cfg.edge_pick_threshold = cfg.edge_pick_threshold.max(0.01);
+        self.cfg.postfx = cfg.postfx;
         self.cfg.audio_enabled = cfg.audio_enabled;
         self.cfg.audio_volume = cfg.audio_volume.clamp(0.0, 1.0);
         self.sync_agent_endpoints(cfg.agents.clone());
@@ -1717,6 +1722,7 @@ impl GraphState {
             node_rings: self.cfg.node_rings,
             ring_min_degree: self.cfg.ring_min_degree,
             edge_pick_threshold: self.cfg.edge_pick_threshold,
+            postfx: self.cfg.postfx,
             audio_enabled: self.cfg.audio_enabled,
             audio_volume: self.cfg.audio_volume,
             agents: self.net.endpoints.clone(),

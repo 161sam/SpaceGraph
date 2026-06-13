@@ -386,6 +386,18 @@ pub fn ui_panel(
 
             ui.separator();
             ui.vertical(|ui| {
+                section_header(ui, "Post-FX (Standard)");
+                ui.checkbox(&mut st.cfg.postfx.enabled, "Enabled");
+                ui.add(egui::Slider::new(&mut st.cfg.postfx.scanline, 0.0..=0.5).text("scanline"));
+                ui.add(egui::Slider::new(&mut st.cfg.postfx.vignette, 0.0..=1.0).text("vignette"));
+                ui.add(
+                    egui::Slider::new(&mut st.cfg.postfx.aberration, 0.0..=2.0).text("aberration"),
+                );
+                ui.add(egui::Slider::new(&mut st.cfg.postfx.grain, 0.0..=0.3).text("grain"));
+            });
+
+            ui.separator();
+            ui.vertical(|ui| {
                 section_header(ui, "Audio");
                 ui.checkbox(&mut st.cfg.audio_enabled, "Enabled");
                 ui.add(egui::Slider::new(&mut st.cfg.audio_volume, 0.0..=1.0).text("volume"));
