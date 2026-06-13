@@ -660,3 +660,24 @@ Branch: `feat/alert-ingestion`.
   by mutating `cfg` in `sync_visual_theme`, to preserve the user's saved setting.
 * No post-fx hotkey (optional; no clearly-free key) — panel toggle only.
 * Unordered Update system tuple split in two (Bevy 20-tuple arity).
+
+---
+
+# v0.4.1 — Detailed Interactive Nodes (Track A, viewer-local)
+
+Two-level model: Level-1 node-face icons on all nodes (one shared atlas + fixed
+quad-mesh set, billboarded, O(visible), no per-node alloc); Level-2 rich preview
+on the focused node only (+ ≤ cap pinned), lazy, off-thread decode, LRU, capped
+(O(focused)). Capability-scaled (Pi→Low). No new dependency.
+
+## Phase 0 — Baseline
+
+* Session-start `fd8a327` (v0.4.0 closeout); `origin/main` synced; `v0.4.0` tagged.
+* Tracked the previously-untracked `docs/spec_v0.5.0.md` (reference for the v0.4.1
+  forward-compat seams; v0.5.0 not started here).
+* Baseline gates: `fmt --check` / `clippy -D warnings` / `test --workspace` green
+  — **123 tests**.
+* Note: the viewer's Bevy build enables **no image-format feature** (no png/jpeg);
+  per MP §1.4 the icon atlas loads as raw RGBA (`include_bytes!` + `Image::new`,
+  no runtime rasterization) and thumbnail decode falls back to a type card when
+  `Image::from_buffer` can't decode the format — no new dependency/feature added.
