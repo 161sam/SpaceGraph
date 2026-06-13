@@ -484,6 +484,17 @@ pub struct CfgState {
     /// Fog-of-war: when on, only revealed (explored) nodes render; placement and
     /// layout still run on the full projection so nodes can be revealed.
     pub fog_of_war: bool,
+
+    // ---- Gameplay / exploration ----
+    /// Fog-of-war reveal radius around the camera.
+    pub reveal_radius: f32,
+    /// Scan-pulse expansion speed (units/sec) and maximum radius.
+    pub scan_speed: f32,
+    pub scan_max: f32,
+    /// Free-fly move speed (units/sec), Shift boost multiplier, mouse-look gain.
+    pub fly_speed: f32,
+    pub fly_boost: f32,
+    pub fly_sensitivity: f32,
 }
 
 impl CfgState {
@@ -636,6 +647,12 @@ impl Default for GraphState {
                 agent_default_mode: AgentMode::User,
                 visual_theme: VisualTheme::Standard,
                 fog_of_war: false,
+                reveal_radius: 55.0,
+                scan_speed: 70.0,
+                scan_max: 500.0,
+                fly_speed: 24.0,
+                fly_boost: 4.0,
+                fly_sensitivity: 0.0025,
             },
             needs_redraw: AtomicBool::new(true),
             explain_cache: None,
@@ -1561,8 +1578,17 @@ impl GraphState {
         self.cfg.agent_default_mode = cfg.default_agent_mode;
         self.cfg.visual_theme = cfg.visual_theme;
         self.cfg.fog_of_war = cfg.fog_of_war;
+        self.cfg.reveal_radius = cfg.reveal_radius.max(1.0);
+        self.cfg.scan_speed = cfg.scan_speed.max(1.0);
+        self.cfg.scan_max = cfg.scan_max.max(1.0);
+        self.cfg.fly_speed = cfg.fly_speed.max(0.1);
+        self.cfg.fly_boost = cfg.fly_boost.max(1.0);
+        self.cfg.fly_sensitivity = cfg.fly_sensitivity.max(0.0001);
         self.sync_agent_endpoints(cfg.agents.clone());
 
+        // New layout params must take effect even on a frozen (settled) layout.
+        self.spatial.layout_settled = false;
+        self.spatial.settle_streak = 0;
         self.needs_redraw.store(true, Ordering::Relaxed);
     }
 
@@ -1598,6 +1624,12 @@ impl GraphState {
             default_agent_mode: self.cfg.agent_default_mode,
             visual_theme: self.cfg.visual_theme,
             fog_of_war: self.cfg.fog_of_war,
+            reveal_radius: self.cfg.reveal_radius,
+            scan_speed: self.cfg.scan_speed,
+            scan_max: self.cfg.scan_max,
+            fly_speed: self.cfg.fly_speed,
+            fly_boost: self.cfg.fly_boost,
+            fly_sensitivity: self.cfg.fly_sensitivity,
             agents: self.net.endpoints.clone(),
         }
     }
@@ -1744,6 +1776,28 @@ mod tests {
             },
         );
         assert!(st.is_visible_rendered(&a));
+    }
+
+    #[test]
+    fn gameplay_params_roundtrip_through_viewer_config() {
+        let mut st = GraphState::default();
+        st.cfg.reveal_radius = 80.0;
+        st.cfg.scan_speed = 120.0;
+        st.cfg.scan_max = 900.0;
+        st.cfg.fly_speed = 50.0;
+        st.cfg.fly_boost = 8.0;
+        st.cfg.fly_sensitivity = 0.005;
+
+        let cfg = st.viewer_config();
+        let mut other = GraphState::default();
+        other.apply_viewer_config(&cfg);
+
+        assert_eq!(other.cfg.reveal_radius, 80.0);
+        assert_eq!(other.cfg.scan_speed, 120.0);
+        assert_eq!(other.cfg.scan_max, 900.0);
+        assert_eq!(other.cfg.fly_speed, 50.0);
+        assert_eq!(other.cfg.fly_boost, 8.0);
+        assert_eq!(other.cfg.fly_sensitivity, 0.005);
     }
 
     #[test]

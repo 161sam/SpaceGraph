@@ -324,11 +324,29 @@ pub fn ui_panel(
             ui.separator();
             ui.vertical(|ui| {
                 section_header(ui, "Layout (Spatial)");
-                ui.checkbox(&mut st.cfg.layout_force, "Force layout");
-                ui.add(egui::Slider::new(&mut st.cfg.link_distance, 1.0..=20.0).text("link dist"));
-                ui.add(egui::Slider::new(&mut st.cfg.repulsion, 0.0..=120.0).text("repulsion"));
-                ui.add(egui::Slider::new(&mut st.cfg.damping, 0.80..=0.999).text("damping"));
-                ui.add(egui::Slider::new(&mut st.cfg.max_step, 0.05..=2.0).text("max step"));
+                // A settled force layout freezes; if any parameter changes it must
+                // be woken so the new value actually takes effect.
+                let mut changed = false;
+                changed |= ui
+                    .checkbox(&mut st.cfg.layout_force, "Force layout")
+                    .changed();
+                changed |= ui
+                    .add(egui::Slider::new(&mut st.cfg.link_distance, 1.0..=20.0).text("link dist"))
+                    .changed();
+                changed |= ui
+                    .add(egui::Slider::new(&mut st.cfg.repulsion, 0.0..=120.0).text("repulsion"))
+                    .changed();
+                changed |= ui
+                    .add(egui::Slider::new(&mut st.cfg.damping, 0.80..=0.999).text("damping"))
+                    .changed();
+                changed |= ui
+                    .add(egui::Slider::new(&mut st.cfg.max_step, 0.05..=2.0).text("max step"))
+                    .changed();
+                if changed {
+                    st.spatial.layout_settled = false;
+                    st.spatial.settle_streak = 0;
+                    st.needs_redraw.store(true, Ordering::Relaxed);
+                }
             });
 
             ui.separator();
@@ -337,6 +355,23 @@ pub fn ui_panel(
                 let mut ms = st.cfg.glow_duration.as_millis() as i32;
                 ui.add(egui::Slider::new(&mut ms, 100..=3000).text("glow ms"));
                 st.cfg.glow_duration = std::time::Duration::from_millis(ms as u64);
+            });
+
+            ui.separator();
+            ui.vertical(|ui| {
+                section_header(ui, "Gameplay");
+                ui.checkbox(&mut st.cfg.fog_of_war, "Fog of war (O)");
+                ui.add(
+                    egui::Slider::new(&mut st.cfg.reveal_radius, 10.0..=200.0)
+                        .text("reveal radius"),
+                );
+                ui.add(egui::Slider::new(&mut st.cfg.scan_speed, 10.0..=300.0).text("scan speed"));
+                ui.add(egui::Slider::new(&mut st.cfg.scan_max, 50.0..=1500.0).text("scan range"));
+                ui.add(egui::Slider::new(&mut st.cfg.fly_speed, 2.0..=120.0).text("fly speed"));
+                ui.add(egui::Slider::new(&mut st.cfg.fly_boost, 1.0..=12.0).text("fly boost"));
+                ui.add(
+                    egui::Slider::new(&mut st.cfg.fly_sensitivity, 0.0005..=0.01).text("look sens"),
+                );
             });
 
             ui.separator();

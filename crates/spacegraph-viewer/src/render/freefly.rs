@@ -11,6 +11,8 @@ use bevy::window::{CursorGrabMode, PrimaryWindow};
 use bevy_egui::EguiContexts;
 use bevy_panorbit_camera::PanOrbitCamera;
 
+use crate::graph::GraphState;
+
 /// Free-fly state (inactive by default → orbit camera is in control).
 #[derive(Resource, Default)]
 pub struct FlyCam {
@@ -19,10 +21,7 @@ pub struct FlyCam {
     pub pitch: f32,
 }
 
-const LOOK_SENSITIVITY: f32 = 0.0025;
-const MOVE_SPEED: f32 = 24.0;
-const BOOST: f32 = 4.0;
-
+#[allow(clippy::too_many_arguments)]
 pub fn fly_camera(
     mut fly: ResMut<FlyCam>,
     keys: Res<ButtonInput<KeyCode>>,
@@ -31,6 +30,7 @@ pub fn fly_camera(
     mut contexts: EguiContexts,
     mut windows: Query<&mut Window, With<PrimaryWindow>>,
     mut cam_q: Query<(&mut Transform, &mut PanOrbitCamera), With<Camera>>,
+    st: Res<GraphState>,
 ) {
     let egui_keyboard = contexts.ctx_mut().wants_keyboard_input();
     let Ok((mut tf, mut pan)) = cam_q.get_single_mut() else {
@@ -78,8 +78,8 @@ pub fn fly_camera(
         for ev in motion.read() {
             delta += ev.delta;
         }
-        fly.yaw -= delta.x * LOOK_SENSITIVITY;
-        fly.pitch = (fly.pitch - delta.y * LOOK_SENSITIVITY).clamp(
+        fly.yaw -= delta.x * st.cfg.fly_sensitivity;
+        fly.pitch = (fly.pitch - delta.y * st.cfg.fly_sensitivity).clamp(
             -std::f32::consts::FRAC_PI_2 + 0.01,
             std::f32::consts::FRAC_PI_2 - 0.01,
         );
@@ -90,11 +90,11 @@ pub fn fly_camera(
     let dir = fly_move_dir(&keys, &tf);
     if dir != Vec3::ZERO {
         let boost = if keys.pressed(KeyCode::ShiftLeft) || keys.pressed(KeyCode::ShiftRight) {
-            BOOST
+            st.cfg.fly_boost
         } else {
             1.0
         };
-        tf.translation += dir.normalize() * MOVE_SPEED * boost * time.delta_seconds();
+        tf.translation += dir.normalize() * st.cfg.fly_speed * boost * time.delta_seconds();
     }
 }
 

@@ -187,6 +187,14 @@ Settings-Panel bzw. in `viewer.toml` änderbar:
 | `link_distance` | 6 | Ziel-Kantenlänge (Spring-Ruhelänge) |
 | `lod_enabled` / `layout_force` | an / an | LOD bzw. Force-Layout aktiv |
 | `visual_theme` | `standard` | `standard` = Neon/HDR+Bloom („Ghost in the Shell"), `minimal` = flach (Accessibility/Perf) |
+| `fog_of_war` | aus | Fog-of-war: nur erkundete Nodes rendern (`O`) |
+| `reveal_radius` | 55 | Reveal-Radius um die Kamera (Fog-of-war) |
+| `scan_speed` / `scan_max` | 70 / 500 | Scan-Puls (`G`): Ausbreitungsgeschwindigkeit und Reichweite |
+| `fly_speed` / `fly_boost` | 24 / 4 | Free-Fly (`V`): Geschwindigkeit und Shift-Boost-Faktor |
+| `fly_sensitivity` | 0.0025 | Free-Fly Maus-Look-Empfindlichkeit |
+
+Die Gameplay-Parameter (Fog/Scan/Free-Fly) sind live im Settings-Panel unter
+**„Gameplay"** regelbar und werden mit „Save Settings" in `viewer.toml` persistiert.
 
 Die Farb-/Design-Sprache ist in `docs/DESIGN_LANGUAGE.md` festgelegt
 (Quelle der Wahrheit für Farben: `render/theme.rs`).
