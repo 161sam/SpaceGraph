@@ -1,3 +1,7 @@
+> **ARCHIVED / SUPERSEDED (2026-06-13).** This v0.1.8→v0.2.0 roadmap is historical
+> and no longer binding. The current roadmap is **[`docs/ROADMAP.md`](../../ROADMAP.md)**
+> (v0.3.x → v0.9.0 + ESN-fabric). Kept for provenance only.
+
 # SpaceGraph – Roadmap bis v0.2.0
 
 Diese Roadmap definiert die verbindliche Entwicklung von **v0.1.8 bis v0.2.0**.

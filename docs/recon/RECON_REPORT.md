@@ -67,3 +67,42 @@ the two critical categories). Headline flags:
   selector; F2 ROADMAP §1 stale post-v0.4.0 (roadmap edits out of scope); F3
   ACCEPTANCE lacks lane-timeline/Tree-view criteria; F4 Blueprint v0.2.0 plan
   shapes diverge (vision doc).
+
+---
+
+## Phase 3 — Reconciliation (docs↔code only)
+
+Applied the in-scope reconciliations from the drift matrix (doc edits +
+populate-empty + archive-superseded). **No code, no dependency, no external repo,
+no behaviour change** — git diff is docs-only.
+
+- **README:** "Container" → real node kinds; bare cross-refs → `docs/…`; audio
+  path → `crates/spacegraph-viewer/assets/audio/`; roadmap section repointed to
+  `docs/ROADMAP.md` (multi-node marked delivered).
+- **AGENTS.md:** role version-pins dropped; frozen v0.1.8→v0.2.0 sequence → pointer
+  to `docs/ROADMAP.md`; module-boundary cells reworded to the enforced reality
+  (GraphModel-no-UI; graph may use bevy math/ECS types; ui via GraphState API);
+  `ROADMAP_v0.2.0.md` ref → `docs/ROADMAP.md`.
+- **ARCH_VIEWER.md:** completed render/ui/graph/util/net module lists; added the
+  Tree view mode; baseline marker → v0.4.0.
+- **ACCEPTANCE.md:** `force_step` numbers → 2.20/8.28 (v0.4.0); reconciliation
+  Stand/Tag → 2026-06-13 / v0.4.0.
+- **DESIGN_LANGUAGE.md:** rewrote the stale "edges are gizmos, mesh deferred"
+  status (edges are a batched HDR mesh now) + retitled to v0.4.0; added Socket
+  node colour + the network/alert edge-colour rows; theme "via viewer.toml".
+- **RUNLOG.md:** appended a forward note that the deferred mesh-polyline edges
+  shipped (historical Phase-5 entry left intact).
+- **ARCHITECTURE.md / GRAPH_SCHEMA.md:** populated the two 1-byte placeholder docs
+  from the inventory/core types.
+- **Archived** superseded `docs/ROADMAP_v0.2.0.md` →
+  `docs/archive/2026-06-13-superseded-by-roadmap/` (banner added; refs repointed).
+
+**Re-verify:** all reconciled drift categories now show zero drift (grep sweep
+clean). **Gate 3:** `fmt --check` ✓, `test --workspace` ✓ — **123 tests
+(delta 0:** no dead system needed wiring — the only dead-code class,
+inspector/legend, was already fixed in v0.4.0**)**. Scope guard: diff touches only
+`*.md` (no `.rs`, no `Cargo.*`, no other repo).
+
+**Not reconciled (carried as findings, by design):** ROADMAP §1 staleness
+(roadmap edits out of scope), ACCEPTANCE lane-timeline/Tree-view criteria,
+`visual_theme` in-app selector, Blueprint v0.2.0 plan-shape divergence.
