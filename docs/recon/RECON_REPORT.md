@@ -20,3 +20,27 @@ routed by the operator via the spec loop.
 
 Companion artifacts produced by this run: `docs/recon/CODE_INVENTORY.md`
 (Phase 1), `docs/recon/DRIFT_MATRIX.md` (Phase 2).
+
+---
+
+## Phase 1 — Ground-truth code inventory
+
+`docs/recon/CODE_INVENTORY.md` covers all seven categories, derived mechanically
+from the tree (7-way parallel extraction + deterministic cross-verification of
+the two critical categories). Headline flags:
+
+- **Unregistered/dead systems (§2): FLAG LIST EMPTY.** All 38 system-shaped
+  `pub fn`s are registered in a Bevy schedule or called by a registered system
+  (`search_overlay`←`ui_panel`; `draw_spatial`/`draw_timeline`←`draw_scene`).
+  **Anti-regression PASS:** `inspector_overlay` + `legend_overlay` are registered
+  (`app/mod.rs:81-82`).
+- **Config plumbing (§3): 4 panel-only gaps** — `max_visible_alerts`,
+  `repulsion_radius`, `layout_budget_ms`, `visual_theme` are applied + serialized
+  + toml-editable but have **no settings-panel control**. The first three are
+  internal tuning (toml-only defensible); **`visual_theme` is user-facing** (the
+  Standard/Minimal switch) → carried as a FINDING for Phase 2/3.
+- **UI keybindings (§6):** all keybindings are documented in help; no orphaned
+  overlay. Minor info gaps (context-menu actions, hover tooltips not enumerated).
+- Core: `PROTOCOL_VERSION=3`, 6 `Node` / 7 `EdgeKind` variants. Agent: 4
+  `EventSource`s (fs/proc/net/suricata_eve). Tests: **123** (core 2 / agent 26 /
+  viewer 95).
