@@ -5,6 +5,7 @@ pub mod inspector;
 pub mod layout;
 pub mod legend;
 pub mod minimap;
+pub mod node_preview;
 pub mod panel;
 pub mod reticle;
 pub mod search;
@@ -24,6 +25,9 @@ pub use inspector::inspector_overlay;
 pub use layout::UiLayout;
 pub use legend::legend_overlay;
 pub use minimap::minimap;
+pub use node_preview::{
+    node_preview_overlay, poll_preview_decodes, update_preview_requests, PreviewState,
+};
 pub use panel::ui_panel;
 pub use reticle::reticle_overlay;
 pub use shortcuts::handle_shortcuts;
