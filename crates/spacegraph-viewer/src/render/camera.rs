@@ -50,6 +50,8 @@ pub fn sync_visual_theme(
     st: Res<GraphState>,
     mut clear: ResMut<ClearColor>,
     mut bloom_q: Query<&mut BloomSettings>,
+    mut rebuild: ResMut<crate::render::RebuildNodeEntities>,
+    mut last_theme: Local<Option<VisualTheme>>,
 ) {
     let (bg, bloom) = match st.cfg.visual_theme {
         VisualTheme::Standard => (theme::CLEAR_STANDARD, 0.25_f32),
@@ -62,6 +64,14 @@ pub fn sync_visual_theme(
         if (settings.intensity - bloom).abs() > f32::EPSILON {
             settings.intensity = bloom;
         }
+    }
+    // On an actual theme change (not first run), trigger one node-entity rebuild
+    // so cores/shells switch between per-kind geometry and the flat sphere.
+    if *last_theme != Some(st.cfg.visual_theme) {
+        if last_theme.is_some() {
+            rebuild.0 = true;
+        }
+        *last_theme = Some(st.cfg.visual_theme);
     }
 }
 

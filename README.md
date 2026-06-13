@@ -60,6 +60,10 @@ Ziel ist **Verständnis**, nicht nur Monitoring.
 - **Edges als Mesh-Polylines** (ein gebatchter `LineList` mit Per-Vertex-HDR-
   Farben) → volle Bloom-Teilnahme im Standard/Neon-Theme; LOD-Edge-Modus
   (Off/Focus/All) bleibt wirksam
+- **Typ-spezifische Node-Geometrie** (Standard-Theme): jede Knotenart hat eine
+  eigene Silhouette (Prozess=Oktaeder, Datei=Hex-Platte, User=Kegel,
+  Socket=Torus, RemoteHost=Kugel+Diamant-Wireframe, Alert=Kugel+Stachel-Stern).
+  Minimal-Theme bleibt flache Kugel.
 
 ### Timeline / Feynman Mode
 - Zeitachse (Vergangenheit → Jetzt)
