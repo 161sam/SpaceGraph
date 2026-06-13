@@ -44,3 +44,26 @@ the two critical categories). Headline flags:
 - Core: `PROTOCOL_VERSION=3`, 6 `Node` / 7 `EdgeKind` variants. Agent: 4
   `EventSource`s (fs/proc/net/suricata_eve). Tests: **123** (core 2 / agent 26 /
   viewer 95).
+
+---
+
+## Phase 2 — Doc drift matrix
+
+`docs/recon/DRIFT_MATRIX.md` cross-checks 9 doc targets against the inventory
+(9-way parallel audit + deterministic re-verification of high-impact rows).
+**107 rows: CONSISTENT 62 · STALE 23 · UNDOCUMENTED 13 · OVERCLAIM 7 · NAMING 2.**
+
+- **Anti-regression (CONSISTENT):** every v0.4.0 deliverable verified present
+  **and registered/reachable**; `inspector_overlay`/`legend_overlay` registered.
+- **In-scope reconciliations (Phase 3):** README (Container→real kinds, `docs/`
+  cross-ref paths, audio path, roadmap repoint), AGENTS.md (phase-order/role pins
+  → roadmap pointer; module-boundary cells reworded to enforced reality),
+  ARCH_VIEWER.md (complete module lists + Tree mode + baseline), ACCEPTANCE.md
+  (bench numbers + Stand/Tag), DESIGN_LANGUAGE.md (mesh-edges rewrite + retitle +
+  Socket/network-edge colour rows + theme-via-toml), RUNLOG (mesh-edges note),
+  populate empty `ARCHITECTURE.md`/`GRAPH_SCHEMA.md`, archive superseded
+  `ROADMAP_v0.2.0.md`.
+- **Findings (NOT edited — carried to Part A/B):** F1 `visual_theme` has no in-app
+  selector; F2 ROADMAP §1 stale post-v0.4.0 (roadmap edits out of scope); F3
+  ACCEPTANCE lacks lane-timeline/Tree-view criteria; F4 Blueprint v0.2.0 plan
+  shapes diverge (vision doc).
