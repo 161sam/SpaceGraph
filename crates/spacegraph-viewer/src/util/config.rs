@@ -108,6 +108,37 @@ impl Default for PostFxConfig {
     }
 }
 
+/// Node-detail (v0.4.1) config block. Drives the two-level node detail: Level-1
+/// face icons (all nodes) and Level-2 focused-node previews. Clamped at runtime
+/// to the detected `DetailCapability` (`render::capability::resolve_detail`).
+/// `level` overrides auto-detection ("low" / "mid" / "high"; `None` = auto).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct NodeDetailConfig {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub level: Option<String>,
+    pub max_preview_panels: usize,
+    pub thumbnail_px: u32,
+    pub max_image_bytes: usize,
+    pub max_text_bytes: usize,
+    pub enable_image: bool,
+    pub enable_video_card: bool,
+}
+
+impl Default for NodeDetailConfig {
+    fn default() -> Self {
+        Self {
+            level: None,
+            max_preview_panels: 3,
+            thumbnail_px: 256,
+            max_image_bytes: 2 * 1024 * 1024,
+            max_text_bytes: 256 * 1024,
+            enable_image: true,
+            enable_video_card: true,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct ViewerConfig {
@@ -171,6 +202,9 @@ pub struct ViewerConfig {
     pub edge_pick_threshold: f32,
     #[serde(default)]
     pub postfx: PostFxConfig,
+    // ---- Node detail (v0.4.1): face icons + focused-node previews ----
+    #[serde(default)]
+    pub node_detail: NodeDetailConfig,
     // ---- Audio (effective only in builds with the `audio` feature) ----
     #[serde(default = "default_audio_enabled")]
     pub audio_enabled: bool,
@@ -230,6 +264,7 @@ impl Default for ViewerConfig {
             ring_min_degree: default_ring_min_degree(),
             edge_pick_threshold: default_edge_pick_threshold(),
             postfx: PostFxConfig::default(),
+            node_detail: NodeDetailConfig::default(),
             audio_enabled: default_audio_enabled(),
             audio_volume: default_audio_volume(),
             agents: vec![AgentEndpoint::default()],
@@ -380,6 +415,26 @@ mod tests {
         let loaded = load_or_default_from_path(&path);
 
         assert_eq!(cfg, loaded);
+    }
+
+    #[test]
+    fn node_detail_config_roundtrip() {
+        // Default (level = None) round-trips, and an explicit override survives.
+        let cfg = NodeDetailConfig::default();
+        let encoded = toml::to_string(&cfg).expect("serialize node_detail");
+        let decoded: NodeDetailConfig = toml::from_str(&encoded).expect("deserialize node_detail");
+        assert_eq!(cfg, decoded);
+        assert!(decoded.level.is_none());
+
+        let overridden = NodeDetailConfig {
+            level: Some("low".to_string()),
+            max_preview_panels: 1,
+            ..NodeDetailConfig::default()
+        };
+        let enc = toml::to_string(&overridden).expect("serialize override");
+        let dec: NodeDetailConfig = toml::from_str(&enc).expect("deserialize override");
+        assert_eq!(overridden, dec);
+        assert_eq!(dec.level.as_deref(), Some("low"));
     }
 
     #[test]

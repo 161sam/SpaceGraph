@@ -48,7 +48,10 @@ impl Plugin for SpaceGraphViewerPlugin {
             .insert_resource(crate::render::DragSelect::default())
             .insert_resource(crate::render::ScanPulse::default())
             .insert_resource(crate::render::Mission::default())
-            .insert_resource(crate::render::FramePacing::default());
+            .insert_resource(crate::render::FramePacing::default())
+            // Default detail capability; `finish` refines it from the real GPU
+            // adapter once the renderer is initialized.
+            .insert_resource(crate::render::DetailCapability::Mid);
 
         match self.demo_load {
             Some(n) => {
@@ -127,6 +130,43 @@ impl Plugin for SpaceGraphViewerPlugin {
             app.add_systems(Startup, crate::render::setup_audio);
             app.add_systems(Update, crate::render::audio_triggers);
         }
+    }
+
+    /// Resolve the node-detail capability from the real GPU adapter once the
+    /// renderer has initialized (the `[node_detail] level` config overrides it).
+    /// `RenderAdapterInfo` lives in the `RenderApp`; we read it here and store the
+    /// resolved `DetailCapability` in the main world. (v0.5.0 `QualityTier` seam.)
+    fn finish(&self, app: &mut App) {
+        let override_cap = {
+            let st = app.world().resource::<GraphState>();
+            crate::render::capability::parse_override(&st.cfg.node_detail.level)
+        };
+        let cap = override_cap
+            .or_else(|| {
+                app.get_sub_app(bevy::render::RenderApp)
+                    .and_then(|render_app| {
+                        render_app
+                            .world()
+                            .get_resource::<bevy::render::renderer::RenderAdapterInfo>()
+                            .map(|info| {
+                                let kind = crate::render::capability::adapter_kind_from_debug(
+                                    &format!("{:?}", info.device_type),
+                                );
+                                crate::render::capability::detect_capability(&info.name, kind)
+                            })
+                    })
+            })
+            .unwrap_or(crate::render::DetailCapability::Mid);
+        info!(
+            "node detail capability: {:?}{}",
+            cap,
+            if override_cap.is_some() {
+                " (config override)"
+            } else {
+                " (auto-detected)"
+            }
+        );
+        app.insert_resource(cap);
     }
 }
 
