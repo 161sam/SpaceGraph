@@ -681,3 +681,25 @@ on the focused node only (+ ≤ cap pinned), lazy, off-thread decode, LRU, cappe
   per MP §1.4 the icon atlas loads as raw RGBA (`include_bytes!` + `Image::new`,
   no runtime rasterization) and thumbnail decode falls back to a type card when
   `Image::from_buffer` can't decode the format — no new dependency/feature added.
+
+## Phase 1 — Capability gate + `[node_detail]` config
+
+* `render/capability.rs`: `DetailCapability {Low, Mid, High}` (Resource) + pure
+  `detect_capability(name, AdapterKind)` (Pi `V3D`/`VideoCore`/`llvmpipe`/`gles`/
+  `mali`/`adreno`/software names → Low; Discrete → High; Integrated/Other → Mid;
+  Cpu → Low). `adapter_kind_from_debug` maps the wgpu `DeviceType` `Debug` string
+  (no direct wgpu dep — it is not re-exported). `resolve_detail(cfg, cap)` is the
+  single clamp point (Low → image decode off, panels ≤ 1, text-only) — the v0.5.0
+  `QualityTier` (`detect_tier`) seam (`docs/spec_v0.5.0.md` §2.4).
+* `[node_detail]` config block (`util/config.rs`): `level` override (low/mid/high,
+  `None` = auto), `max_preview_panels` (3), `thumbnail_px` (256), `max_image_bytes`
+  (2 MiB), `max_text_bytes` (256 KiB), `enable_image`, `enable_video_card`. Plumbed
+  `config.rs ↔ viewer.toml ↔ CfgState (apply/viewer_config)`.
+* Wiring: default `DetailCapability::Mid` in `build`; `Plugin::finish` reads
+  `RenderAdapterInfo` from the `RenderApp` and stores the resolved capability
+  (config `level` override wins). Adapter classification is local-capture (no GPU
+  in CI); the classifier itself is unit-tested.
+* **Gate 1 PASS** — fmt / clippy -D / test green. New tests (+6): `pi_and_software_
+  are_low`, `discrete_high_integrated_mid`, `adapter_kind_maps_debug_strings`,
+  `override_parses`, `low_disables_image_and_caps_panels`, `node_detail_config_
+  roundtrip`. **129 tests** total.

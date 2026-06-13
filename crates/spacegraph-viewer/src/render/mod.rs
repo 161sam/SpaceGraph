@@ -1,6 +1,7 @@
 #[cfg(feature = "audio")]
 pub mod audio;
 pub mod camera;
+pub mod capability;
 pub mod edges;
 pub mod freefly;
 pub mod gameplay;
@@ -20,6 +21,7 @@ use crate::ui::UiLayout;
 #[cfg(feature = "audio")]
 pub use audio::{audio_triggers, setup_audio, AudioAssets};
 pub use camera::{apply_jump_to, setup_scene, sync_visual_theme, update_tree_zoom};
+pub use capability::{detect_capability, resolve_detail, DetailCapability, EffectiveDetail};
 pub use edges::{setup_edge_mesh, update_edge_mesh, EdgeMesh};
 pub use freefly::{fly_camera, FlyCam};
 pub use gameplay::{mission_tick, reveal_tick, scan_pulse, Mission, ScanPulse};
