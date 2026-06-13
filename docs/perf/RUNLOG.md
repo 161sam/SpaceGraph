@@ -535,3 +535,31 @@ Branch: `feat/alert-ingestion`.
 * `cargo run -p spacegraph-viewer -- --demo-load 2000`; hover/select nodes →
   reticle brackets + readout (Standard); switch to Minimal → bubbles return.
   Capture `docs/media/reticle.png`.
+
+### Phase 3 — Orbital rings + rotation (`feat/node-orbital-rings`)
+
+* `GraphModel::degree(id)` — O(1) incident-edge count from the prebuilt adjacency.
+* `NodeRenderResources` gains a shared `ring_mesh` (torus) + per-kind unlit
+  emissive `ring_mat`. `RingMarker { speed }` child + `NodeRings` index map.
+* `sync_node_rings` (after `sync_node_entities` in the render chain): a visible
+  node qualifies when `degree >= ring_min_degree` or kind == Alert; spawns/
+  despawns ring children to match, bounded by the live node-entity set, no
+  steady-state churn. `rotate_node_rings` spins them (alerts faster), visual-only.
+* Config sweep: `node_rings` (default on), `ring_min_degree` (default 6).
+
+### Gate 3 results
+
+* `cargo fmt --check`, `cargo clippy --workspace --all-targets -- -D warnings`,
+  `cargo test --workspace`: green (82 viewer-lib tests). New:
+  `node_qualifies_for_ring_by_degree_or_alert`,
+  `hub_and_alert_get_one_ring_low_gets_none`, `rings_have_no_steady_state_churn`,
+  `minimal_theme_has_no_rings`, `rotate_node_rings_runs_without_panic`.
+* Deviation: the unordered Update tuple exceeded Bevy's 20-system arity once the
+  Phase-2 overlays + `rotate_node_rings` were added; split into two `add_systems`
+  calls (no behaviour change).
+
+### Local capture
+
+* `cargo run -p spacegraph-viewer -- --demo-load 2000`; confirm rotating rings on
+  high-degree hubs + every alert, none on leaf nodes; Minimal → no rings. Capture
+  `docs/media/rings.png`.

@@ -374,6 +374,10 @@ pub fn ui_panel(
                 );
                 ui.checkbox(&mut st.cfg.micro_tags, "Micro-tags (Standard)");
                 ui.add(egui::Slider::new(&mut st.cfg.micro_tag_max, 0..=128).text("micro-tag max"));
+                ui.checkbox(&mut st.cfg.node_rings, "Orbital rings (Standard)");
+                ui.add(
+                    egui::Slider::new(&mut st.cfg.ring_min_degree, 1..=20).text("ring min degree"),
+                );
             });
 
             ui.separator();

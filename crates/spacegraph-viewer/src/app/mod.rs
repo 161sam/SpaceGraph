@@ -41,6 +41,7 @@ impl Plugin for SpaceGraphViewerPlugin {
             .insert_resource(st)
             .insert_resource(UiLayout::default())
             .insert_resource(crate::render::NodeEntities::default())
+            .insert_resource(crate::render::NodeRings::default())
             .insert_resource(crate::render::RebuildNodeEntities::default())
             .insert_resource(crate::render::FlyCam::default())
             .insert_resource(crate::render::DragSelect::default())
@@ -79,6 +80,12 @@ impl Plugin for SpaceGraphViewerPlugin {
                 crate::ui::inspector_overlay,
                 crate::ui::legend_overlay,
                 crate::ui::reticle_overlay,
+                crate::ui::minimap,
+            ),
+        )
+        .add_systems(
+            Update,
+            (
                 crate::render::hover_detection_spatial,
                 crate::render::picking_focus,
                 crate::render::apply_picked_focus,
@@ -88,7 +95,7 @@ impl Plugin for SpaceGraphViewerPlugin {
                 crate::render::scan_pulse,
                 crate::render::mission_tick,
                 crate::render::reveal_tick,
-                crate::ui::minimap,
+                crate::render::rotate_node_rings,
             ),
         )
         // Render pipeline runs in order: layout publishes the visible set, the
@@ -98,6 +105,7 @@ impl Plugin for SpaceGraphViewerPlugin {
             (
                 crate::graph::update_layout_or_timeline,
                 crate::render::sync_node_entities,
+                crate::render::sync_node_rings,
                 crate::render::update_edge_mesh,
                 crate::render::draw_scene,
                 crate::render::draw_node_labels,
