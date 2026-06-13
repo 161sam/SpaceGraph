@@ -35,7 +35,7 @@ ohne Architekturbrüche oder unbeabsichtigte Verhaltensänderungen.
 
 ## 2. Agenten-Rollen
 
-### 2.1 Refactor-Agent (v0.1.8)
+### 2.1 Refactor-Agent
 **Erlaubt:**
 - Dateien verschieben
 - Module anlegen
@@ -52,14 +52,14 @@ Struktur ändern, Verhalten identisch lassen.
 
 ---
 
-### 2.2 Feature-Agent (v0.1.9+)
+### 2.2 Feature-Agent
 **Erlaubt:**
 - Neue Module gemäß Roadmap implementieren
 - Tests hinzufügen
 - Performance-Verbesserungen innerhalb definierter Grenzen
 
 **Verpflichtend:**
-- Vorher prüfen: Abhängigkeiten in `ROADMAP_v0.2.0.md`
+- Vorher prüfen: Abhängigkeiten/Phasenreihenfolge in `docs/ROADMAP.md`
 - Architektur-Regeln einhalten
 - Tests ergänzen oder erweitern
 
@@ -81,17 +81,14 @@ Struktur ändern, Verhalten identisch lassen.
 ## 3. Arbeitsregeln für Agenten
 
 ### 3.1 Reihenfolge einhalten
-Agenten **müssen** die Roadmap-Reihenfolge einhalten:
-
-```
-
-v0.1.8 → v0.1.9 → v0.1.10 → v0.1.11 → v0.2.0
-
-````
+Agenten **müssen** die in `docs/ROADMAP.md` festgelegte chronologische
+Versions-Leiter einhalten (aktuell: v0.3.x → v0.4.0 *(ausgeliefert)* → v0.5.0 →
+v0.6.0 → … → v0.9.0; §4 dort). Phasen werden nicht übersprungen oder
+vorgezogen; Reihenfolge-Änderungen erfordern eine Begründung in `docs/adr/`.
 
 Ein Agent darf **nicht**:
-- v0.1.10-Features implementieren, wenn v0.1.8 nicht abgeschlossen ist
-- Multi-Node-Code vor v0.2.0 einbauen
+- Features einer späteren Phase einbauen, bevor die laufende Phase abgeschlossen ist
+- eine ESN-Fabric-Phase (v0.6.0+) ohne ihren Reality-Check-Gate beginnen
 
 ---
 
@@ -111,11 +108,12 @@ Alle Architekturänderungen müssen explizit angefordert werden.
 | Modul     | Darf nicht wissen von |
 |----------|------------------------|
 | `render/` | `net/`, Raw Events |
-| `ui/`     | Graph-Interna |
-| `graph/`  | Bevy, UI |
+| `ui/`     | `GraphModel`-Interna (Zugriff nur über die `GraphState`-API) |
+| `graph/`  | UI-/Render-States — `GraphModel` kennt kein Bevy/UI; `graph/` darf bevy-math/ECS-Resource-Typen (`Vec3`, `Res`/`ResMut`, `Time`) nutzen |
 | `net/`    | Graph-Struktur |
 
-Verstöße gelten als **Fehler**, nicht als Optimierung.
+Verstöße gelten als **Fehler**, nicht als Optimierung. (Die maßgebliche
+Formulierung der Grenzen steht in `docs/ARCH_VIEWER.md`.)
 
 ---
 

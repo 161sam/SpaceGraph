@@ -25,7 +25,7 @@ Ziel ist **Verständnis**, nicht nur Monitoring.
 
 - **Graph statt Baum**  
   Kein klassischer Prozessbaum, sondern ein gerichteter Multi-Graph:
-  - Nodes: Dateien, Prozesse, User, Hosts, Container
+  - Nodes: Dateien, Prozesse, User, Sockets, Remote-Hosts, Alerts
   - Edges: `opens`, `execs`, `runs_as`, …
 
 - **Zeit als Dimension**  
@@ -111,7 +111,8 @@ Ziel ist **Verständnis**, nicht nur Monitoring.
 - **Audio** (Cargo-Feature `audio`): One-Shot-Cues — Sweep beim Scan-Puls (`G`),
   Klaxon bei neuem Alert, Chime bei gelöstem Incident, Blip bei Node-Auswahl.
   Toggle + Lautstärke im Settings-Panel („Audio"), persistiert in `viewer.toml`.
-  Assets: `assets/audio/*.wav` (reproduzierbar via `gen_sounds.py`). Start mit
+  Assets: `crates/spacegraph-viewer/assets/audio/*.wav` (reproduzierbar via
+  `gen_sounds.py`). Start mit
   `cargo run -p spacegraph-viewer --features audio` (Linux: ALSA-Dev-Libs nötig).
 
 ### UX & Analyse
@@ -156,7 +157,7 @@ UI (Panel, HUD, Search, Tooltips)
   - Render
   - UI
 
-Details: siehe `ARCH_VIEWER.md`.
+Details: siehe `docs/ARCH_VIEWER.md`.
 
 ---
 
@@ -274,12 +275,12 @@ cargo test
   - erklärbarer Graph
   - Performance & UX Hardening
 
-- **v0.2.0**
-  - Multi-Node Viewer
-  - mehrere Agenten gleichzeitig
+- **v0.2.0 (ausgeliefert)**
+  - Multi-Node Viewer, mehrere Agenten gleichzeitig, per-Stream-Namespacing
   - Cluster-/Cloud-ready (ohne Hub)
 
-Details: siehe `ROADMAP_v0.2.0.md`.
+Aktuelle, verbindliche Roadmap (v0.3.x → v0.9.0 + ESN-Fabric): siehe
+`docs/ROADMAP.md`.
 
 ---
 
@@ -297,7 +298,7 @@ SpaceGraph folgt klaren Qualitäts-Gates:
   Gemessen: Leerlauf-CPU fällt von ~90 % auf ~20 % eines Kerns (Debug-Build,
   iGPU); im Release entsprechend tiefer.
 
-Details: siehe `ACCEPTANCE.md`.
+Details: siehe `docs/ACCEPTANCE.md`.
 
 ---
 
@@ -333,8 +334,8 @@ Wenn du interessiert bist an:
 - Rust / Bevy / Low-Level Events
 
 … dann schau in:
-- `ARCH_VIEWER.md`
-- `ROADMAP_v0.2.0.md`
+- `docs/ARCH_VIEWER.md`
+- `docs/ROADMAP.md`
 - `AGENTS.md`
 
 und öffne gern ein Issue oder eine Diskussion.
