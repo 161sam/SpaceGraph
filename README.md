@@ -92,7 +92,11 @@ Ziel ist **Verständnis**, nicht nur Monitoring.
 - **Fog-of-war** (`O`): Layout/Placement laufen auf der vollen Projektion, aber
   nur erkundete Nodes werden gerendert. Reveal durch Annähern der Kamera,
   Scan-Puls oder Fly-to; Alarme bleiben immer sichtbar. Default: aus.
-- _Geplant:_ Audio (Hum/Blip/Klaxon — `audio`-Feature vorhanden, braucht Assets)
+- **Audio** (Cargo-Feature `audio`): One-Shot-Cues — Sweep beim Scan-Puls (`G`),
+  Klaxon bei neuem Alert, Chime bei gelöstem Incident, Blip bei Node-Auswahl.
+  Toggle + Lautstärke im Settings-Panel („Audio"), persistiert in `viewer.toml`.
+  Assets: `assets/audio/*.wav` (reproduzierbar via `gen_sounds.py`). Start mit
+  `cargo run -p spacegraph-viewer --features audio` (Linux: ALSA-Dev-Libs nötig).
 
 ### UX & Analyse
 - Ctrl+P Search & Jump

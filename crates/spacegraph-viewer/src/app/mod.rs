@@ -104,6 +104,14 @@ impl Plugin for SpaceGraphViewerPlugin {
         // Runs after every Update system so it sees all redraw requests made
         // this frame before deciding whether the next frame can be skipped.
         .add_systems(Last, crate::render::update_frame_pacing);
+
+        // Opt-in UI sound effects (DefaultPlugins includes AudioPlugin when the
+        // `audio` feature enables bevy_audio).
+        #[cfg(feature = "audio")]
+        {
+            app.add_systems(Startup, crate::render::setup_audio);
+            app.add_systems(Update, crate::render::audio_triggers);
+        }
     }
 }
 

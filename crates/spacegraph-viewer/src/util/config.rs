@@ -133,6 +133,11 @@ pub struct ViewerConfig {
     pub fly_boost: f32,
     #[serde(default = "default_fly_sensitivity")]
     pub fly_sensitivity: f32,
+    // ---- Audio (effective only in builds with the `audio` feature) ----
+    #[serde(default = "default_audio_enabled")]
+    pub audio_enabled: bool,
+    #[serde(default = "default_audio_volume")]
+    pub audio_volume: f32,
     #[serde(default = "default_agents")]
     pub agents: Vec<AgentEndpoint>,
 }
@@ -181,6 +186,8 @@ impl Default for ViewerConfig {
             fly_speed: default_fly_speed(),
             fly_boost: default_fly_boost(),
             fly_sensitivity: default_fly_sensitivity(),
+            audio_enabled: default_audio_enabled(),
+            audio_volume: default_audio_volume(),
             agents: vec![AgentEndpoint::default()],
         }
     }
@@ -203,6 +210,12 @@ fn default_fly_boost() -> f32 {
 }
 fn default_fly_sensitivity() -> f32 {
     0.0025
+}
+fn default_audio_enabled() -> bool {
+    true
+}
+fn default_audio_volume() -> f32 {
+    0.6
 }
 
 fn default_uds_path() -> String {
