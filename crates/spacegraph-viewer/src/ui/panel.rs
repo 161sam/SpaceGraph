@@ -372,6 +372,8 @@ pub fn ui_panel(
                 ui.add(
                     egui::Slider::new(&mut st.cfg.fly_sensitivity, 0.0005..=0.01).text("look sens"),
                 );
+                ui.checkbox(&mut st.cfg.micro_tags, "Micro-tags (Standard)");
+                ui.add(egui::Slider::new(&mut st.cfg.micro_tag_max, 0..=128).text("micro-tag max"));
             });
 
             ui.separator();

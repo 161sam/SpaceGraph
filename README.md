@@ -64,6 +64,9 @@ Ziel ist **Verständnis**, nicht nur Monitoring.
   eigene Silhouette (Prozess=Oktaeder, Datei=Hex-Platte, User=Kegel,
   Socket=Torus, RemoteHost=Kugel+Diamant-Wireframe, Alert=Kugel+Stachel-Stern).
   Minimal-Theme bleibt flache Kugel.
+- **Lock-on-Reticle** (Standard): animierte Eck-Klammern um Hover/Auswahl/Focus
+  + Leader-Line-Readout für die Auswahl; Minimal behält die Gizmo-Bubbles.
+  Optionale distanz-gefadete **Micro-Tags** auf den nächsten Knoten (gecappt).
 
 ### Timeline / Feynman Mode
 - Zeitachse (Vergangenheit → Jetzt)

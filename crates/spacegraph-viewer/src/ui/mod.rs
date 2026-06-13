@@ -5,6 +5,7 @@ pub mod layout;
 pub mod legend;
 pub mod minimap;
 pub mod panel;
+pub mod reticle;
 pub mod search;
 pub mod settings_agents;
 pub mod settings_paths;
@@ -22,6 +23,7 @@ pub use layout::UiLayout;
 pub use legend::legend_overlay;
 pub use minimap::minimap;
 pub use panel::ui_panel;
+pub use reticle::reticle_overlay;
 pub use shortcuts::handle_shortcuts;
 
 /// Convert a Bevy `Color` to an egui `Color32` (sRGB, opaque) for UI swatches.

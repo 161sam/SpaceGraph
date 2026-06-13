@@ -508,6 +508,22 @@ pub fn apply_picked_focus(mut st: ResMut<GraphState>, mut ev: EventReader<Picked
     }
 }
 
+/// How single-node selection/hover/focus is shown. Standard uses the in-world
+/// egui reticle (`ui::reticle`) and suppresses gizmo bubbles; Minimal keeps the
+/// gizmo bubbles for pre-visual-pass parity. Multi-select bubbles show in both.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HighlightStyle {
+    Bubbles,
+    Reticle,
+}
+
+pub fn highlight_style(theme: VisualTheme) -> HighlightStyle {
+    match theme {
+        VisualTheme::Standard => HighlightStyle::Reticle,
+        VisualTheme::Minimal => HighlightStyle::Bubbles,
+    }
+}
+
 pub fn draw_spatial(mut st: ResMut<GraphState>, mut gizmos: Gizmos, mut contexts: EguiContexts) {
     // Node entities are managed by `sync_node_entities`; this system only draws
     // immediate-mode overlays (tooltips, edge/LOD/tree gizmos) over the visible
@@ -524,21 +540,23 @@ pub fn draw_spatial(mut st: ResMut<GraphState>, mut gizmos: Gizmos, mut contexts
         draw_floor_grid(&mut gizmos);
     }
 
-    // Selection / hover highlight bubbles (lock-on feedback). Drawn in any LOD
-    // state; only the few picked nodes, so cost is negligible.
-    let highlights = [
-        (st.ui.hovered.clone(), Color::srgb(0.90, 0.95, 1.0), 0.50),
-        (st.ui.selected.clone(), Color::srgb(0.25, 0.95, 1.0), 0.62),
-        (st.ui.focus.clone(), Color::srgb(0.20, 1.0, 0.85), 0.72),
-    ];
-    for (maybe_id, color, radius) in highlights {
-        if let Some(id) = maybe_id {
-            if let Some(pos) = st.spatial.position_of(&id) {
-                gizmos.sphere(pos, Quat::IDENTITY, radius, color);
+    // Single-node lock-on feedback. Standard draws an in-world egui reticle
+    // (`ui::reticle`) and suppresses these gizmo bubbles; Minimal keeps them.
+    if highlight_style(st.cfg.visual_theme) == HighlightStyle::Bubbles {
+        let highlights = [
+            (st.ui.hovered.clone(), theme::RETICLE_HOVER, 0.50),
+            (st.ui.selected.clone(), theme::RETICLE_SELECT, 0.62),
+            (st.ui.focus.clone(), theme::RETICLE_FOCUS, 0.72),
+        ];
+        for (maybe_id, color, radius) in highlights {
+            if let Some(id) = maybe_id {
+                if let Some(pos) = st.spatial.position_of(&id) {
+                    gizmos.sphere(pos, Quat::IDENTITY, radius, color);
+                }
             }
         }
     }
-    // Box-selected nodes.
+    // Box-selected nodes (both themes).
     for id in st.ui.multi_selected.iter() {
         if let Some(pos) = st.spatial.position_of(id) {
             gizmos.sphere(pos, Quat::IDENTITY, 0.55, Color::srgb(0.30, 0.90, 1.0));
