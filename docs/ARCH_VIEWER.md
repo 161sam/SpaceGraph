@@ -1,7 +1,7 @@
 # SpaceGraph Viewer – Architektur
 
 Dieses Dokument beschreibt die **verbindliche Architektur**
-des SpaceGraph Viewers ab v0.1.8.
+des SpaceGraph Viewers (seit v0.1.8; aktueller Stand v0.4.0).
 
 ---
 
@@ -15,9 +15,9 @@ Net Layer
 ↓ Incoming (stream-tagged)
 Graph Core
 ↓ Projection (capped)
-Render (Spatial / Timeline)
+Render (Spatial / Tree / Timeline)
 ↓
-UI (Panel, HUD, Search, Tooltips)
+UI (Panel, HUD, Search, Tooltips, Inspector, Reticle, Context-Menu, …)
 
 ```
 
@@ -37,9 +37,9 @@ UI (Panel, HUD, Search, Tooltips)
 ### net/
 **Verantwortung:** Datenaufnahme
 
-- UDS / später TCP
-- Stream-Verwaltung
-- Protokoll-Normalisierung
+- `uds.rs`: UDS-Client-Reader (`spawn_reader`, framed, version-geprüft) + `ReaderHandle`
+- `protocol.rs`: `Incoming` / `IncomingKind` (Connected/Disconnected/Identity/Snapshot/Event/Error)
+- (später TCP); Stream-Verwaltung; Protokoll-Normalisierung
 
 Keine Graph-Logik.
 
@@ -79,33 +79,52 @@ Keine Graph-Logik.
 - Orphan Removal
 - TTL-Logik
 
+#### Weitere graph/-Module
+- `interner.rs`: `NodeId` → dichter `NodeIndex` (Slot-Reuse) für Hot-Paths
+- `grid.rs`: Uniform-Grid für Neighbour-Repulsion (kein O(N²))
+- `metrics.rs`: Per-Frame-Housekeeping (`tick_housekeeping`/`tick_metrics`)
+- `tree.rs`: Dateisystem-Hierarchie-Layout (`ViewMode::Tree`)
+- `namespace.rs`: Multi-Stream-Namespacing (Prefix pro Stream)
+- `synthetic.rs`: deterministischer Demo-Graph (`--demo-load`)
+
 ---
 
 ### render/
 **Verantwortung:** Darstellung, keine Logik
 
-- spatial.rs: Nodes, Edges, Picking
-- timeline.rs: Worldlines, Events, Hover
-- camera.rs: Jump / Focus
+- `spatial.rs`: Nodes, Picking, Selektion, Orbital-Ringe
+- `node_mesh.rs`: per-Typ-Geometrie (Core + Wireframe-Shell)
+- `edges.rs`: aggregierte Edges als gebatchtes HDR-`LineList`-Mesh
+- `theme.rs`: Farb-Source-of-Truth
+- `camera.rs`: Setup (HDR+Bloom), Jump/Focus, `update_tree_zoom`, Theme-Sync
+- `freefly.rs`: Free-Fly-Pilotmodus (`V`)
+- `gameplay.rs`: Scan-Puls + Incident-Hunt-Mission
+- `pacing.rs`: reaktives Frame-Pacing (`Last`)
+- `postfx.rs`: Cyberspace-Post-FX (Render-Graph-Node, Standard)
+- `timeline.rs`: Timeline-View-Rendering
+- `audio.rs`: UI-Soundeffekte (Feature `audio`)
 
 ---
 
 ### ui/
 **Verantwortung:** Interaktion
 
-- panel.rs: Sidebar
-- hud.rs: FPS, Counters
-- search.rs: Ctrl+P
-- tooltips.rs: Shared Tooltip Rendering
-- help.rs: Shortcut Overlay
+- `panel.rs`: Sidebar · `hud.rs`: FPS/Counters · `search.rs`: Ctrl+P
+- `tooltips.rs`: Shared Tooltip · `help.rs`: Shortcut-Overlay
+- `inspector.rs` (`I`) · `legend.rs` (`L`) · `minimap.rs`
+- `context_menu.rs`: Radial-Rechtsklick-Menü · `reticle.rs`: Lock-on-Reticle
+- `shortcuts.rs`: globale Tastatur-Shortcuts
+- `settings_agents.rs` / `settings_paths.rs`: Agent-/Pfad-Editor-Fenster
+- `layout.rs`: `UiLayout` (Panel-/Content-Rects)
 
 ---
 
 ### util/
 **Verantwortung:** Infrastruktur
 
-- config.rs: viewer.toml
-- ids.rs: Labels, Stable Hashes
+- `config.rs`: `viewer.toml` (`ViewerConfig`/`PostFxConfig`/`VisualTheme`/`AgentEndpoint`)
+- `ids.rs`: Labels, Display-Pfade
+- `agent_command.rs`: Agent-CLI-Kommando-String-Builder
 
 ---
 

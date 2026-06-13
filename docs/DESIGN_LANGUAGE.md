@@ -8,7 +8,8 @@ data-dense but legible. Original design, no copied assets.
 
 ## Themes
 
-Selectable via `cfg.visual_theme` (`viewer.toml` / settings panel):
+Selectable via `cfg.visual_theme` in `viewer.toml` (no in-app theme selector yet
+— see the recon report finding F1):
 
 - **Standard** — the neon look: HDR camera + bloom, per-type emissive
   materials, dark-space background, floor grid, recent-activity pulses.
@@ -25,8 +26,12 @@ Node types (emissive base colour; HDR emissive channels exceed 1.0 to bloom):
 | Process | cyan | `theme::PROCESS` |
 | File | green | `theme::FILE` |
 | User | amber | `theme::USER` |
-| Host / Container | violet | `theme::HOST` (Phase 7) |
-| Alert / threat | red | `theme::ALERT` (Phase 8) |
+| Socket | blue | `theme::SOCKET` |
+| RemoteHost | violet | `theme::HOST` |
+| Alert / threat | red | `theme::ALERT` (severity ramp: `ALERT_LOW`/`MEDIUM`/`HIGH`) |
+
+Selection/interaction feedback colours: `RETICLE_HOVER`/`RETICLE_SELECT`/
+`RETICLE_FOCUS`, marked nodes `MARKED`, pinned `PINNED`, hovered edge `EDGE_HOVER`.
 
 Edge classes:
 
@@ -35,6 +40,10 @@ Edge classes:
 | `opens` | green | `theme::EDGE_OPENS` |
 | `execs` | cyan | `theme::EDGE_EXECS` |
 | `runs_as` | amber | `theme::EDGE_RUNS_AS` |
+| `owns_socket` | blue | `theme::EDGE_OWNS_SOCKET` |
+| `connects_to` | bright blue | `theme::EDGE_CONNECTS_TO` |
+| `listens_on` | teal | `theme::EDGE_LISTENS_ON` |
+| `alerts_on` | red | `theme::ALERT` |
 
 Scene: near-black space (`CLEAR_STANDARD`), faint grid lines (`GRID_LINE`).
 Timeline event markers reuse the palette (`TL_*`): node upsert green, node
@@ -144,15 +153,19 @@ bounded by count, never all nodes (`nearest_micro_tags`).
 4. Labels and pulses are bounded (capped counts) — never O(N) text or O(E)
    per-frame allocation.
 
-## Implementation status (Phase 5)
+## Implementation status (v0.4.0)
 
 Implemented: themes + `theme.rs` palette, HDR + bloom camera, per-type emissive
-node ramps with decay, dark-space background + floor grid, recent-activity edge
-pulse, capped billboard labels, timeline palette.
+node ramps with decay, **per-type node geometry** (cores + wireframe shells),
+**orbital rings** on hubs/alerts, dark-space background + floor grid,
+recent-activity edge pulse, capped billboard labels, **lock-on reticle + readout
++ micro-tags**, **cyberspace post-FX** (scanlines/vignette/aberration/grain),
+timeline palette.
 
-Deviation (see `docs/perf/RUNLOG.md`): edges are drawn as **HDR gizmos coloured
-by class**, not yet mesh polylines. Gizmo lines render reliably; the
-mesh-polyline upgrade (full bloom participation, alpha/animation) is the planned
-next visual iteration and is deferred because it cannot be validated in this
-headless build. Screenshots for the Phase 5 gate are produced locally with
+**Edges** now render as a single **batched HDR `LineList` mesh** (`render::edges`,
+`setup_edge_mesh`/`update_edge_mesh`) with per-vertex HDR colours — full bloom
+participation. The raw-edge fallback and the recent-activity pulse remain gizmos.
+(The earlier "edges as gizmos, mesh deferred" deviation is resolved.)
+
+Screenshots / GPU capture remain a local step (the build env is headless):
 `cargo run -p spacegraph-viewer -- --demo-load 2000`.
