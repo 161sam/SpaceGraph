@@ -633,3 +633,24 @@ Branch: `feat/alert-ingestion`.
 * `cargo run -p spacegraph-viewer -- --demo-load 2000`; confirm scanlines /
   vignette / aberration / grain in Standard, toggle off + switch to Minimal (no
   effect). Capture `docs/media/postfx.png`.
+
+### Phase 6 — Docs reconcile + tag (`chore/v0.4.0-closeout`)
+
+* Reconciled `DESIGN_LANGUAGE.md` (geometry, reticle, rings, interaction,
+  post-fx), `README.md` (features + controls), `ACCEPTANCE.md` (v0.4.0 structural
+  gates; FPS/visual marked locally-verified), help overlay (I/L/O + grab/edge/
+  menu), `ARCH_VIEWER.md` (pin-state ownership).
+* **Benchmark gate re-checked** after Phase 4's pin-clamp in the `force_step`
+  integrate loop: `force_step` **2.20 ms @2000** (gate < 4) / **8.28 ms @5000**
+  (gate < 12) — within budget, no regression (`visible_set_capped` unchanged).
+* Final workspace: `fmt`/`clippy -D warnings`/`test` green (123 tests across the
+  workspace; 92 viewer-lib). Tagged `v0.4.0`.
+
+### v0.4.0 deviations (summary, each justified above)
+
+* Inspector/legend overlays were never registered in `app/mod.rs` before this run
+  (dead since the v0.3.x UX work) — found and fixed in Phase 2.
+* Minimal forces post-fx off by removing the per-camera component (Phase 5), not
+  by mutating `cfg` in `sync_visual_theme`, to preserve the user's saved setting.
+* No post-fx hotkey (optional; no clearly-free key) — panel toggle only.
+* Unordered Update system tuple split in two (Bevy 20-tuple arity).

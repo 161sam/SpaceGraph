@@ -131,6 +131,34 @@ Abgleich der Gates mit dem tatsächlichen Stand nach der Perf-/Hardening-Arbeit
 Die `force_step`-Baseline-/Verlaufszahlen stehen in `docs/perf/BASELINE.md`
 und `docs/perf/RUNLOG.md`.
 
+### v0.4.0 — Node Detail & In-World Interaction
+
+Strukturelle Gates (headless via `cargo test`/`naga`/`clippy` automatisch
+verifiziert; FPS/Pixel-Optik **lokal/GPU** per Capture-Anleitung in
+`docs/perf/RUNLOG.md`, da Umgebung headless):
+
+- **Per-Typ-Geometrie** — ✓ jede `NodeKind` spawnt mit ihrem `core_mesh`
+  (Handle-Gleichheit getestet); Shell-Child nur für RemoteHost/Alert (Standard);
+  Theme-Switch = genau **ein** Entity-Rebuild; Steady State ohne Entity-Churn;
+  Minimal nutzt die flache Kugel.
+- **Lock-on-Reticle** — ✓ `highlight_style(theme)` pure-fn (Standard=Reticle,
+  Minimal=Bubbles); Micro-Tags gecappt (`nearest_micro_tags`).
+- **Orbital-Ringe** — ✓ Qualifikation per `degree ≥ ring_min_degree || Alert`
+  (O(1)-Adjazenz); je ein `RingMarker`-Child, kein Steady-State-Churn; Minimal
+  ohne Ringe.
+- **Interaktion** — ✓ Pin-State ist reine Graph-Wahrheit (kein Bevy-ECS-Typ);
+  `force_step` hält Pins fest **und deterministisch** (zwei Läufe identisch);
+  Slot-Reuse löscht den Pin; `ray_segment_dist` Hit/Miss; Kontextmenü-Mapping
+  getestet.
+- **Post-FX** — ✓ WGSL validiert via `naga` (`wgsl_postfx_validates`);
+  `PostFxPlugin` baut headless ohne Panic; Minimal erzwingt aus
+  (`postfx_active`); Config-Roundtrip. Render-Graph-Pfad zusätzlich live auf
+  Vulkan ohne wgpu-Validation-Error verifiziert.
+- **Modulgrenzen** — ✓ neuer Visual-/Interaktionsstate in `render/`/`ui/`,
+  Pin-State als Plain-Data in `graph/` (siehe `ARCH_VIEWER.md`).
+- **Layout-Benchmarks** — `force_step` weiterhin innerhalb der Gates trotz
+  Pin-Clamp im Integrate-Loop (Zahlen in `RUNLOG.md`, Phase-6-Eintrag).
+
 ---
 
 ## Definition „Release-fähig“
