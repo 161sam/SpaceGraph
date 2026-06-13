@@ -40,6 +40,14 @@ pub fn alert_severity_color(severity: &str) -> Color {
 /// Recent-activity flash colour; decays back to the node's type colour.
 pub const RECENT_GLOW: Color = Color::srgb(1.0, 1.0, 1.0);
 
+// ---- Lock-on reticle / selection feedback ----
+/// Hovered node reticle / bubble (light cyan-white).
+pub const RETICLE_HOVER: Color = Color::srgb(0.90, 0.95, 1.0);
+/// Selected node reticle / bubble (cyan).
+pub const RETICLE_SELECT: Color = Color::srgb(0.25, 0.95, 1.0);
+/// Focused node reticle / bubble (teal).
+pub const RETICLE_FOCUS: Color = Color::srgb(0.20, 1.0, 0.85);
+
 // ---- Edge class colours ----
 pub const EDGE_OPENS: Color = Color::srgb(0.25, 0.95, 0.45); // green
 pub const EDGE_EXECS: Color = Color::srgb(0.20, 0.85, 0.95); // cyan

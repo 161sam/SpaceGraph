@@ -85,6 +85,21 @@ mutates `Transform`/material/mesh handles only — no entity churn.
 - HUD and tooltips: egui default proportional font; tooltips show name + ID and
   the "why connected?" path.
 
+## Lock-on reticle & in-world readout (v0.4.0)
+
+In the **Standard** theme, single-node selection/hover/focus is shown with an
+in-world **reticle** (`ui::reticle`) instead of gizmo bubbles: animated corner
+brackets framing the projected node (`theme::RETICLE_*` colours; the sweep
+animates off the egui clock, visual-only), and for the selection a leader-lined
+monospace **readout** box (`node_label_long` + recency). The **Minimal** theme
+keeps the gizmo bubbles for parity — chosen by the pure function
+`render::spatial::highlight_style(theme)`. Multi-select (box-select) bubbles show
+in both themes.
+
+**Micro-tags** (Standard, `cfg.micro_tags`, default on) label the `micro_tag_max`
+(default 24) nearest nodes within a radius with a distance-faded compact id —
+bounded by count, never all nodes (`nearest_micro_tags`).
+
 ## Rules (binding)
 
 1. New visual elements add a constant to `theme.rs` — no ad-hoc `Color::srgb`

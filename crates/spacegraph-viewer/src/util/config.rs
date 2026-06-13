@@ -133,6 +133,11 @@ pub struct ViewerConfig {
     pub fly_boost: f32,
     #[serde(default = "default_fly_sensitivity")]
     pub fly_sensitivity: f32,
+    // ---- In-world labels (Standard theme) ----
+    #[serde(default = "default_micro_tags")]
+    pub micro_tags: bool,
+    #[serde(default = "default_micro_tag_max")]
+    pub micro_tag_max: usize,
     // ---- Audio (effective only in builds with the `audio` feature) ----
     #[serde(default = "default_audio_enabled")]
     pub audio_enabled: bool,
@@ -186,6 +191,8 @@ impl Default for ViewerConfig {
             fly_speed: default_fly_speed(),
             fly_boost: default_fly_boost(),
             fly_sensitivity: default_fly_sensitivity(),
+            micro_tags: default_micro_tags(),
+            micro_tag_max: default_micro_tag_max(),
             audio_enabled: default_audio_enabled(),
             audio_volume: default_audio_volume(),
             agents: vec![AgentEndpoint::default()],
@@ -210,6 +217,12 @@ fn default_fly_boost() -> f32 {
 }
 fn default_fly_sensitivity() -> f32 {
     0.0025
+}
+fn default_micro_tags() -> bool {
+    true
+}
+fn default_micro_tag_max() -> usize {
+    24
 }
 fn default_audio_enabled() -> bool {
     true

@@ -503,3 +503,35 @@ Branch: `feat/alert-ingestion`.
 * `cargo run -p spacegraph-viewer -- --demo-load 2000`; in Standard confirm six
   distinct silhouettes, then toggle theme to Minimal (flat spheres) and back (one
   rebuild, no steady-state flicker). Capture `docs/media/geometry.png`.
+
+### Phase 2 — Lock-on reticle + in-world readout (`feat/lockon-reticle`)
+
+* New `ui/reticle.rs`: projects hovered/focus/selected to screen, draws animated
+  corner brackets (`theme::RETICLE_*`) + a leader-lined monospace readout for the
+  selection; distance-faded micro-tags on the nearest nodes (`nearest_micro_tags`,
+  capped by `micro_tag_max`).
+* `render::spatial::highlight_style(theme)` gates single-node feedback: Standard →
+  reticle (gizmo bubbles suppressed in `draw_spatial`); Minimal → bubbles.
+  Multi-select bubbles unchanged. Reticle colours moved to `theme.rs`.
+* Config sweep: `micro_tags` (default on), `micro_tag_max` (default 24) across
+  `ViewerConfig`/`CfgState`/apply/`viewer.toml`/panel.
+* **Found + fixed regression:** `inspector_overlay` and `legend_overlay` (added in
+  the v0.3.x UX work) were never registered in `app/mod.rs` — they had been dead
+  code. Registered them alongside `reticle_overlay` so I/L and the inspector now
+  actually run. (Verified earlier "no panic" did not imply the systems executed.)
+
+### Gate 2 results
+
+* `cargo fmt --check`, `cargo clippy --workspace --all-targets -- -D warnings`,
+  `cargo test --workspace`: green (77 viewer-lib tests). New: `highlight_style`
+  theme mapping, `micro_tag_cap_and_radius_respected`, `reticle_overlay` headless
+  param-fetch + early-return without panic.
+* Deviation: the reticle's egui-drawing path can't run fully headless
+  (`EguiContexts` needs `EguiUserTextures` + a window context); the no-camera
+  early-return is tested, the drawing path is verified by local capture.
+
+### Local capture
+
+* `cargo run -p spacegraph-viewer -- --demo-load 2000`; hover/select nodes →
+  reticle brackets + readout (Standard); switch to Minimal → bubbles return.
+  Capture `docs/media/reticle.png`.
