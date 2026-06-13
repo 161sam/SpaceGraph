@@ -235,6 +235,10 @@ pub struct UiState {
     pub show_3d: bool,
     pub show_edges: bool,
     pub help_open: bool,
+    /// Node detail panel for the current selection (toggle `I`).
+    pub inspector_open: bool,
+    /// Colour/type legend overlay (toggle `L`).
+    pub legend_open: bool,
     pub show_path_editor: bool,
     pub path_editor: PathEditorDraft,
     pub show_agent_manager: bool,
@@ -251,6 +255,8 @@ pub struct UiState {
     pub selected_b: Option<NodeId>,
     /// Multi-selection from box-select (drag rectangle).
     pub multi_selected: HashSet<NodeId>,
+    /// Anchor node for the inspector's "why connected" path (toggle via Pin).
+    pub compare_pin: Option<NodeId>,
 
     pub search_open: bool,
     pub search_query: String,
@@ -554,6 +560,8 @@ impl Default for GraphState {
                 show_3d: true,
                 show_edges: true,
                 help_open: false,
+                inspector_open: true,
+                legend_open: false,
                 show_path_editor: false,
                 path_editor: PathEditorDraft::default(),
                 show_agent_manager: false,
@@ -567,6 +575,7 @@ impl Default for GraphState {
                 selected_a: None,
                 selected_b: None,
                 multi_selected: HashSet::new(),
+                compare_pin: None,
                 search_open: false,
                 search_query: String::new(),
                 search_hits: Vec::new(),

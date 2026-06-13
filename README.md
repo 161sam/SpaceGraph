@@ -99,6 +99,11 @@ Ziel ist **Verständnis**, nicht nur Monitoring.
 - HUD (FPS, Eventrate, Visible Nodes)
 - Filter (Substring)
 - Konfigurierbare Caps & Performance-Grenzen
+- **Node-Inspector** (`I`): Detail-Panel der Auswahl — Typ/Felder, Origin,
+  Fog-Status, farbcodierte Verbindungen (klickbar → navigieren), „Fly-to" und
+  Pin/„why connected" (kürzester Pfad zwischen zwei Knoten)
+- **Legende** (`L`): Farb-Mapping für Knotentypen, Kantenklassen und
+  Alert-Severity
 
 ### Agent Event-Sources (Erweiterungspunkt)
 Collectors implementieren das `EventSource`-Trait (`agent/src/sources/`):

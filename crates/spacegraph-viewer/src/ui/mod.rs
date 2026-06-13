@@ -1,6 +1,8 @@
 pub mod help;
 pub mod hud;
+pub mod inspector;
 pub mod layout;
+pub mod legend;
 pub mod minimap;
 pub mod panel;
 pub mod search;
@@ -15,7 +17,19 @@ pub const HUD_FALLBACK_Y_OFFSET: f32 = 220.0;
 
 pub use help::help_overlay;
 pub use hud::hud_overlay;
+pub use inspector::inspector_overlay;
 pub use layout::UiLayout;
+pub use legend::legend_overlay;
 pub use minimap::minimap;
 pub use panel::ui_panel;
 pub use shortcuts::handle_shortcuts;
+
+/// Convert a Bevy `Color` to an egui `Color32` (sRGB, opaque) for UI swatches.
+pub fn egui_color(c: bevy::prelude::Color) -> bevy_egui::egui::Color32 {
+    let s = c.to_srgba();
+    bevy_egui::egui::Color32::from_rgb(
+        (s.red * 255.0).round() as u8,
+        (s.green * 255.0).round() as u8,
+        (s.blue * 255.0).round() as u8,
+    )
+}
