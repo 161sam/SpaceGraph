@@ -41,6 +41,9 @@ pub struct NodeRenderResources {
     pub shell_mesh: [Option<Handle<Mesh>>; theme::NodeKind::ALL.len()],
     /// Per-kind unlit emissive material for the shell.
     pub shell_mat: [Handle<StandardMaterial>; theme::NodeKind::ALL.len()],
+    /// Orbital ring mesh (torus) shared by all kinds; per-kind unlit material.
+    pub ring_mesh: Handle<Mesh>,
+    pub ring_mat: [Handle<StandardMaterial>; theme::NodeKind::ALL.len()],
     /// Flat sphere used by the Minimal theme (the pre-geometry look).
     pub minimal_mesh: Handle<Mesh>,
     pub standard: Vec<[Handle<StandardMaterial>; GLOW_LEVELS]>,
@@ -51,6 +54,18 @@ pub struct NodeRenderResources {
 /// Marker on the wireframe-shell child entity of a node (Standard theme).
 #[derive(Component)]
 pub struct ShellMarker;
+
+/// Marker on the orbital-ring child entity; carries its rotation speed (rad/s).
+#[derive(Component)]
+pub struct RingMarker {
+    pub speed: f32,
+}
+
+/// Persistent `NodeIndex → ring child Entity` map (Standard theme rings).
+#[derive(Resource, Default)]
+pub struct NodeRings {
+    pub map: HashMap<NodeIndex, Entity>,
+}
 
 /// Set when the visual theme changes; drains and respawns all node entities once
 /// so cores/shells match the new theme. Steady state never sets this.
@@ -118,6 +133,19 @@ pub fn setup_node_render_resources(
             })
         });
 
+    // Orbital ring: a thin torus encircling the node, per-kind unlit emissive.
+    let ring_mesh = meshes.add(Mesh::from(bevy::math::primitives::Torus::new(0.40, 0.46)));
+    let ring_mat: [Handle<StandardMaterial>; theme::NodeKind::ALL.len()] =
+        std::array::from_fn(|i| {
+            let c = theme::NodeKind::ALL[i].base_color().to_linear();
+            mats.add(StandardMaterial {
+                base_color: theme::NodeKind::ALL[i].base_color(),
+                emissive: LinearRgba::rgb(c.red * 2.2, c.green * 2.2, c.blue * 2.2),
+                unlit: true,
+                ..default()
+            })
+        });
+
     let standard: Vec<[Handle<StandardMaterial>; GLOW_LEVELS]> = theme::NodeKind::ALL
         .iter()
         .map(|kind| {
@@ -153,11 +181,99 @@ pub fn setup_node_render_resources(
         core_mesh,
         shell_mesh,
         shell_mat,
+        ring_mesh,
+        ring_mat,
         minimal_mesh,
         standard,
         minimal_normal,
         minimal_glow,
     });
+}
+
+/// A visible node qualifies for an orbital ring if it is a hub (degree at least
+/// `ring_min_degree`) or an Alert. Degree uses the prebuilt adjacency (O(1)).
+fn node_qualifies_for_ring(st: &GraphState, id: &spacegraph_core::NodeId) -> bool {
+    node_kind(st, id) == theme::NodeKind::Alert || st.model.degree(id) >= st.cfg.ring_min_degree
+}
+
+/// Spawn/despawn orbital ring child entities to match qualification. Standard
+/// theme only; bounded by the live node-entity set. Runs after
+/// `sync_node_entities` so the ring's parent exists.
+pub fn sync_node_rings(
+    mut commands: Commands,
+    st: Res<GraphState>,
+    res: Res<NodeRenderResources>,
+    entities: Res<NodeEntities>,
+    mut rings: ResMut<NodeRings>,
+) {
+    let enabled = st.cfg.node_rings && st.cfg.visual_theme == VisualTheme::Standard;
+
+    // Drop rings whose parent node entity is gone (despawned with it), and
+    // despawn rings on nodes that no longer qualify or when disabled.
+    rings.map.retain(|idx, &mut ring| {
+        if !entities.map.contains_key(idx) {
+            return false; // despawned together with the parent node
+        }
+        let keep = enabled
+            && st
+                .spatial
+                .interner
+                .resolve(*idx)
+                .map(|id| node_qualifies_for_ring(&st, id))
+                .unwrap_or(false);
+        if !keep {
+            if let Some(ec) = commands.get_entity(ring) {
+                ec.despawn_recursive();
+            }
+        }
+        keep
+    });
+
+    if !enabled {
+        return;
+    }
+
+    for (&idx, &node_entity) in entities.map.iter() {
+        if rings.map.contains_key(&idx) {
+            continue;
+        }
+        let Some(id) = st.spatial.interner.resolve(idx) else {
+            continue;
+        };
+        if !node_qualifies_for_ring(&st, id) {
+            continue;
+        }
+        let kind = node_kind(&st, id);
+        // Alerts spin faster; tilt the ring so its rotation reads in-world.
+        let speed = if kind == theme::NodeKind::Alert {
+            1.6
+        } else {
+            0.7
+        };
+        let ring = commands
+            .spawn((
+                PbrBundle {
+                    mesh: res.ring_mesh.clone(),
+                    material: res.ring_mat[kind.index()].clone(),
+                    transform: Transform::from_rotation(Quat::from_rotation_x(0.5)),
+                    ..default()
+                },
+                RingMarker { speed },
+            ))
+            .id();
+        commands.entity(node_entity).add_child(ring);
+        rings.map.insert(idx, ring);
+    }
+}
+
+/// Rotate orbital rings (visual-only, determinism-exempt).
+pub fn rotate_node_rings(time: Res<Time>, mut q: Query<(&mut Transform, &RingMarker)>) {
+    let dt = time.delta_seconds();
+    for (mut tf, ring) in q.iter_mut() {
+        // Spin about a non-symmetry axis so the tilted ring's motion is visible
+        // (rotating a torus about its own axis would look static).
+        tf.rotate_local_z(ring.speed * dt);
+    }
 }
 
 /// Core mesh plus an optional (shell mesh, shell material) for a node.
@@ -829,6 +945,8 @@ mod tests {
                 .then(|| Handle::weak_from_u128(2000 + i as u128))
             }),
             shell_mat: std::array::from_fn(|i| Handle::weak_from_u128(3000 + i as u128)),
+            ring_mesh: Handle::weak_from_u128(98),
+            ring_mat: std::array::from_fn(|i| Handle::weak_from_u128(4000 + i as u128)),
             minimal_mesh: Handle::weak_from_u128(99),
             standard: (0..theme::NodeKind::ALL.len())
                 .map(|_| ramp.clone())
@@ -952,6 +1070,8 @@ mod tests {
             core_mesh: std::array::from_fn(|_| Handle::default()),
             shell_mesh: std::array::from_fn(|_| None),
             shell_mat: std::array::from_fn(|_| Handle::default()),
+            ring_mesh: Handle::default(),
+            ring_mat: std::array::from_fn(|_| Handle::default()),
             minimal_mesh: Handle::default(),
             standard: (0..theme::NodeKind::ALL.len())
                 .map(|_| ramp.clone())
@@ -1112,5 +1232,166 @@ mod tests {
         let steady = node_entities(&mut app);
         app.update();
         assert_eq!(steady, node_entities(&mut app), "no churn after rebuild");
+    }
+
+    // ---- Phase 3: orbital rings ----
+
+    /// A graph with a hub (degree 6), a low-degree node (degree 1), and an alert
+    /// (degree 0) — all placed and visible.
+    fn ring_graph_state() -> (GraphState, spacegraph_core::NodeId) {
+        use spacegraph_core::{Edge, EdgeKind, FileKind, Node, NodeId};
+        let mut gs = GraphState::default();
+        gs.cfg.max_visible_nodes = 100;
+        gs.cfg.progressive_nodes_per_frame = 100;
+        gs.cfg.ring_min_degree = 6;
+        let now = Instant::now();
+        let hub = NodeId("hub".to_string());
+        gs.model.nodes.insert(hub.clone(), process_node());
+        for i in 0..6 {
+            let f = NodeId(format!("f{i}"));
+            gs.model.nodes.insert(
+                f.clone(),
+                Node::File {
+                    path: format!("/f{i}"),
+                    inode: i,
+                    kind: FileKind::Regular,
+                },
+            );
+            gs.model.upsert_edge(
+                Edge {
+                    from: hub.clone(),
+                    to: f.clone(),
+                    kind: EdgeKind::Execs,
+                },
+                now,
+            );
+        }
+        let low = NodeId("low".to_string());
+        gs.model.nodes.insert(low.clone(), process_node());
+        gs.model.upsert_edge(
+            Edge {
+                from: low.clone(),
+                to: NodeId("f0".to_string()),
+                kind: EdgeKind::Execs,
+            },
+            now,
+        );
+        gs.model.nodes.insert(
+            NodeId("alert".to_string()),
+            Node::Alert {
+                source: "s".to_string(),
+                signature: "x".to_string(),
+                severity: "high".to_string(),
+                ts: "t".to_string(),
+            },
+        );
+        let vis = gs.visible_set_capped();
+        gs.progressive_prepare(&vis);
+        gs.spatial.vis_cache = vis;
+        (gs, hub)
+    }
+
+    fn run_rings(gs: GraphState) -> App {
+        let mut app = App::new();
+        app.insert_resource(gs)
+            .insert_resource(NodeEntities::default())
+            .insert_resource(NodeRings::default())
+            .insert_resource(RebuildNodeEntities::default())
+            .insert_resource(dummy_render_resources())
+            .add_systems(Update, (sync_node_entities, sync_node_rings).chain());
+        app.update();
+        app
+    }
+
+    fn ring_count_for(app: &mut App, id: &spacegraph_core::NodeId) -> usize {
+        let world = app.world_mut();
+        let idx = match world.resource::<GraphState>().spatial.index_of(id) {
+            Some(i) => i,
+            None => return 0,
+        };
+        let Some(&node_entity) = world.resource::<NodeEntities>().map.get(&idx) else {
+            return 0;
+        };
+        let children: Vec<Entity> = world
+            .get::<Children>(node_entity)
+            .map(|c| c.iter().copied().collect())
+            .unwrap_or_default();
+        children
+            .iter()
+            .filter(|&&e| world.get::<RingMarker>(e).is_some())
+            .count()
+    }
+
+    fn ring_entities(app: &mut App) -> HashSet<Entity> {
+        let mut q = app.world_mut().query_filtered::<Entity, With<RingMarker>>();
+        q.iter(app.world()).collect()
+    }
+
+    #[test]
+    fn node_qualifies_for_ring_by_degree_or_alert() {
+        use spacegraph_core::NodeId;
+        let (gs, hub) = ring_graph_state();
+        assert!(
+            node_qualifies_for_ring(&gs, &hub),
+            "hub (degree 6) qualifies"
+        );
+        assert!(
+            node_qualifies_for_ring(&gs, &NodeId("alert".to_string())),
+            "alert qualifies regardless of degree"
+        );
+        assert!(
+            !node_qualifies_for_ring(&gs, &NodeId("low".to_string())),
+            "low degree non-alert does not qualify"
+        );
+    }
+
+    #[test]
+    fn hub_and_alert_get_one_ring_low_gets_none() {
+        use spacegraph_core::NodeId;
+        let (gs, hub) = ring_graph_state();
+        let mut app = run_rings(gs);
+        assert_eq!(
+            ring_count_for(&mut app, &hub),
+            1,
+            "hub gets exactly one ring"
+        );
+        assert_eq!(
+            ring_count_for(&mut app, &NodeId("alert".to_string())),
+            1,
+            "alert gets exactly one ring"
+        );
+        assert_eq!(
+            ring_count_for(&mut app, &NodeId("low".to_string())),
+            0,
+            "low-degree node gets no ring"
+        );
+    }
+
+    #[test]
+    fn rings_have_no_steady_state_churn() {
+        let (gs, _) = ring_graph_state();
+        let mut app = run_rings(gs);
+        let frame1 = ring_entities(&mut app);
+        assert!(!frame1.is_empty());
+        app.update();
+        assert_eq!(frame1, ring_entities(&mut app), "rings must not churn");
+    }
+
+    #[test]
+    fn minimal_theme_has_no_rings() {
+        let (mut gs, _) = ring_graph_state();
+        gs.cfg.visual_theme = VisualTheme::Minimal;
+        let mut app = run_rings(gs);
+        assert!(ring_entities(&mut app).is_empty(), "Minimal draws no rings");
+    }
+
+    #[test]
+    fn rotate_node_rings_runs_without_panic() {
+        let mut app = App::new();
+        app.init_resource::<Time>();
+        app.world_mut()
+            .spawn((Transform::default(), RingMarker { speed: 1.0 }));
+        app.add_systems(Update, rotate_node_rings);
+        app.update();
     }
 }

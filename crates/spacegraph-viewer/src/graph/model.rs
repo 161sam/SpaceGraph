@@ -175,6 +175,11 @@ impl GraphModel {
             })
     }
 
+    /// Incident-edge count from the prebuilt adjacency — O(1), no per-frame scan.
+    pub fn degree(&self, id: &NodeId) -> usize {
+        self.adj.get(id).map_or(0, |edges| edges.len())
+    }
+
     pub fn neighbors<'a>(&'a self, id: &'a NodeId) -> impl Iterator<Item = NodeId> + 'a {
         self.edges_for_node(id).map(move |edge| {
             if &edge.from == id {

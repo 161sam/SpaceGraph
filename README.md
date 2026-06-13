@@ -67,6 +67,8 @@ Ziel ist **Verständnis**, nicht nur Monitoring.
 - **Lock-on-Reticle** (Standard): animierte Eck-Klammern um Hover/Auswahl/Focus
   + Leader-Line-Readout für die Auswahl; Minimal behält die Gizmo-Bubbles.
   Optionale distanz-gefadete **Micro-Tags** auf den nächsten Knoten (gecappt).
+- **Orbital-Ringe** (Standard): rotierende Torus-Ringe auf Hubs (Grad ≥
+  `ring_min_degree`) und Alerts (immer, schneller). Konfigurierbar im Panel.
 
 ### Timeline / Feynman Mode
 - Zeitachse (Vergangenheit → Jetzt)

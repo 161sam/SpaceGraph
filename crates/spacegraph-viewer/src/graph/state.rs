@@ -500,6 +500,10 @@ pub struct CfgState {
     pub micro_tags: bool,
     pub micro_tag_max: usize,
 
+    /// Orbital rings on hubs/alerts (Standard theme); qualify by degree or kind.
+    pub node_rings: bool,
+    pub ring_min_degree: usize,
+
     /// UI sound effects (effective only in builds with the `audio` feature).
     pub audio_enabled: bool,
     pub audio_volume: f32,
@@ -663,6 +667,8 @@ impl Default for GraphState {
                 fly_sensitivity: 0.0025,
                 micro_tags: true,
                 micro_tag_max: 24,
+                node_rings: true,
+                ring_min_degree: 6,
                 audio_enabled: true,
                 audio_volume: 0.6,
             },
@@ -1598,6 +1604,8 @@ impl GraphState {
         self.cfg.fly_sensitivity = cfg.fly_sensitivity.max(0.0001);
         self.cfg.micro_tags = cfg.micro_tags;
         self.cfg.micro_tag_max = cfg.micro_tag_max.min(256);
+        self.cfg.node_rings = cfg.node_rings;
+        self.cfg.ring_min_degree = cfg.ring_min_degree.max(1);
         self.cfg.audio_enabled = cfg.audio_enabled;
         self.cfg.audio_volume = cfg.audio_volume.clamp(0.0, 1.0);
         self.sync_agent_endpoints(cfg.agents.clone());
@@ -1648,6 +1656,8 @@ impl GraphState {
             fly_sensitivity: self.cfg.fly_sensitivity,
             micro_tags: self.cfg.micro_tags,
             micro_tag_max: self.cfg.micro_tag_max,
+            node_rings: self.cfg.node_rings,
+            ring_min_degree: self.cfg.ring_min_degree,
             audio_enabled: self.cfg.audio_enabled,
             audio_volume: self.cfg.audio_volume,
             agents: self.net.endpoints.clone(),

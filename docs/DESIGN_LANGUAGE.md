@@ -65,6 +65,17 @@ behaviourally identical to the pre-geometry viewer
 one entity rebuild (`theme_switch_triggers_exactly_one_rebuild`); steady state
 mutates `Transform`/material/mesh handles only — no entity churn.
 
+### Orbital rings (v0.4.0)
+
+Hubs and threats get a rotating emissive **orbital ring** (a torus child entity,
+per-kind unlit material). A visible node qualifies when its degree is at least
+`cfg.ring_min_degree` (default 6, from the prebuilt adjacency — no per-frame edge
+scan) **or** it is an Alert (alerts always, and spin faster). `sync_node_rings`
+spawns/despawns ring children to match qualification (bounded by the live node
+set, no steady-state churn); `rotate_node_rings` animates them (visual-only,
+determinism-exempt). Standard-only (`cfg.node_rings`, default on); Minimal draws
+no rings.
+
 ## Motion & recency
 
 - **Recent activity glow:** on upsert/touch a node flashes toward white

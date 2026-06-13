@@ -25,8 +25,8 @@ pub use gameplay::{mission_tick, reveal_tick, scan_pulse, Mission, ScanPulse};
 pub use pacing::{update_frame_pacing, FramePacing};
 pub use spatial::{
     apply_picked_focus, draw_node_labels, draw_spatial, highlight_style, hover_detection_spatial,
-    picking_focus, setup_node_render_resources, sync_node_entities, DragSelect, HighlightStyle,
-    NodeEntities, RebuildNodeEntities,
+    picking_focus, rotate_node_rings, setup_node_render_resources, sync_node_entities,
+    sync_node_rings, DragSelect, HighlightStyle, NodeEntities, NodeRings, RebuildNodeEntities,
 };
 pub use timeline::draw_timeline;
 
