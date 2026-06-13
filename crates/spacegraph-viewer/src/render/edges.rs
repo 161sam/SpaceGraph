@@ -2,13 +2,20 @@
 //!
 //! Aggregated edges are drawn as a single batched `LineList` mesh with an unlit
 //! material and **per-vertex HDR colours**, so the lines write bright values to
-//! the HDR target and participate in bloom (unlike gizmo lines). The mesh is
-//! rebuilt each frame from the rendered edge set (node positions move every
-//! frame). Raw edges + the activity pulse stay as gizmos in `spatial.rs`.
+//! the HDR target and participate in bloom (unlike gizmo lines). Raw edges + the
+//! activity pulse stay as gizmos in `spatial.rs`.
+//!
+//! Two cost controls: the vertex buffers are **reused** across frames (no
+//! per-frame allocation), and a **fingerprint** of everything that affects edge
+//! geometry/colour (besides moving node positions) lets the rebuild be skipped
+//! entirely when nothing changed. The mesh is world-space, so pure camera moves,
+//! hover, free-fly and the scan pulse — which redraw the frame but don't move
+//! edges — cost nothing here once the layout has settled.
 
 use bevy::prelude::*;
-use bevy::render::mesh::PrimitiveTopology;
+use bevy::render::mesh::{PrimitiveTopology, VertexAttributeValues};
 use bevy::render::render_asset::RenderAssetUsages;
+use spacegraph_core::NodeId;
 use std::collections::HashSet;
 
 use crate::graph::model::{AggEdgeKey, EdgeKindClass};
@@ -16,10 +23,34 @@ use crate::graph::{GraphState, ViewMode};
 use crate::render::theme;
 use crate::util::config::{LodEdgesMode, VisualTheme};
 
-/// Handle to the shared edge line mesh (mutated in place each frame).
+/// Everything (besides moving node positions) that changes the edge mesh. When
+/// the layout is settled and this is unchanged, the rebuild is skipped.
+#[derive(PartialEq)]
+struct EdgeFingerprint {
+    spatial: bool,
+    show: bool,
+    standard_theme: bool,
+    lod_active: bool,
+    lod_mode: LodEdgesMode,
+    fog: bool,
+    revealed_len: usize,
+    vis_len: usize,
+    focus: Option<NodeId>,
+    selected: Option<NodeId>,
+    sel_a: Option<NodeId>,
+    sel_b: Option<NodeId>,
+    // Only affects rendering (via `is_visible_rendered`) while fog is on.
+    hovered: Option<NodeId>,
+}
+
+/// Handle to the shared edge line mesh plus reusable scratch buffers and the
+/// last-built fingerprint.
 #[derive(Resource)]
 pub struct EdgeMesh {
     pub handle: Handle<Mesh>,
+    positions: Vec<[f32; 3]>,
+    colors: Vec<[f32; 4]>,
+    last: Option<EdgeFingerprint>,
 }
 
 #[derive(Component)]
@@ -49,43 +80,66 @@ pub fn setup_edge_mesh(
         },
         EdgeMeshTag,
     ));
-    commands.insert_resource(EdgeMesh { handle });
+    commands.insert_resource(EdgeMesh {
+        handle,
+        positions: Vec::new(),
+        colors: Vec::new(),
+        last: None,
+    });
 }
 
-/// Rebuild the edge line mesh from the currently rendered aggregated edges.
+/// Rebuild the edge line mesh from the currently rendered aggregated edges —
+/// only when node positions may have moved or an input changed.
 pub fn update_edge_mesh(
     st: Res<GraphState>,
-    edge_mesh: Res<EdgeMesh>,
+    mut edge_mesh: ResMut<EdgeMesh>,
     mut meshes: ResMut<Assets<Mesh>>,
 ) {
-    let Some(mesh) = meshes.get_mut(&edge_mesh.handle) else {
-        return;
+    let vis = &st.spatial.vis_cache;
+    let lod_active = st.cfg.lod_active(vis.len());
+    let fp = EdgeFingerprint {
+        spatial: st.ui.view_mode == ViewMode::Spatial,
+        show: st.ui.show_edges && st.cfg.show_agg_edges,
+        standard_theme: st.cfg.visual_theme == VisualTheme::Standard,
+        lod_active,
+        lod_mode: st.cfg.lod_edges_mode,
+        fog: st.cfg.fog_of_war,
+        revealed_len: st.revealed.len(),
+        vis_len: vis.len(),
+        focus: st.ui.focus.clone(),
+        selected: st.ui.selected.clone(),
+        sel_a: st.ui.selected_a.clone(),
+        sel_b: st.ui.selected_b.clone(),
+        hovered: st.cfg.fog_of_war.then(|| st.ui.hovered.clone()).flatten(),
     };
 
-    let mut positions: Vec<[f32; 3]> = Vec::new();
-    let mut colors: Vec<[f32; 4]> = Vec::new();
+    // While the force layout is moving, node positions change every frame and the
+    // mesh must follow; otherwise only an input change warrants a rebuild.
+    let layout_moving = fp.spatial && st.cfg.layout_force && !st.spatial.layout_settled;
+    if !layout_moving && edge_mesh.last.as_ref() == Some(&fp) {
+        return;
+    }
 
-    let vis = &st.spatial.vis_cache;
-    let show = st.ui.view_mode == ViewMode::Spatial && st.ui.show_edges && st.cfg.show_agg_edges;
-    // Honour the same LOD edge policy the gizmo path used: on large graphs the
-    // configured mode (Off / focus-only / all) applies; otherwise draw all.
-    let edges_mode = if st.cfg.lod_active(vis.len()) {
+    let edges_mode = if lod_active {
         st.cfg.lod_edges_mode
     } else {
         LodEdgesMode::All
     };
-    if show && edges_mode != LodEdgesMode::Off {
-        // Standard theme pushes colours into HDR (>1.0) so the lines bloom.
-        let mul = if st.cfg.visual_theme == VisualTheme::Standard {
-            2.5_f32
-        } else {
-            1.0
-        };
+    let mul = if fp.standard_theme { 2.5_f32 } else { 1.0 };
 
-        // In focus-only mode, restrict to edges incident to the focused /
-        // selected / compare nodes; otherwise sweep the whole visible set.
-        let mut sources: Vec<&spacegraph_core::NodeId> = Vec::new();
-        if edges_mode == LodEdgesMode::FocusOnly {
+    // Build into the reused scratch buffers.
+    let EdgeMesh {
+        positions, colors, ..
+    } = &mut *edge_mesh;
+    positions.clear();
+    colors.clear();
+
+    if fp.spatial && fp.show && edges_mode != LodEdgesMode::Off {
+        // Focus-only restricts to edges incident to the focus/selection; a full
+        // sweep walks the whole visible set.
+        let mut sources: Vec<&NodeId> = Vec::new();
+        let focus_only = edges_mode == LodEdgesMode::FocusOnly;
+        if focus_only {
             for id in [
                 &st.ui.focus,
                 &st.ui.selected,
@@ -103,12 +157,9 @@ pub fn update_edge_mesh(
             sources.extend(vis.iter().filter(|id| st.is_visible_rendered(id)));
         }
 
-        let focus_only = edges_mode == LodEdgesMode::FocusOnly;
         let mut seen: HashSet<AggEdgeKey> = HashSet::new();
         for id in sources {
             for edge in st.model.edges_for_node(id) {
-                // For a full sweep we only want each undirected edge once, keyed
-                // by `from`; in focus-only we accept edges from either endpoint.
                 if !focus_only && &edge.from != id {
                     continue;
                 }
@@ -138,6 +189,22 @@ pub fn update_edge_mesh(
         }
     }
 
-    mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, positions);
-    mesh.insert_attribute(Mesh::ATTRIBUTE_COLOR, colors);
+    // Blit the scratch into the mesh's own buffers in place (reused capacity);
+    // `get_mut` marks the asset changed so it re-uploads to the GPU.
+    let handle = edge_mesh.handle.clone();
+    if let Some(mesh) = meshes.get_mut(&handle) {
+        if let Some(VertexAttributeValues::Float32x3(p)) =
+            mesh.attribute_mut(Mesh::ATTRIBUTE_POSITION)
+        {
+            p.clear();
+            p.extend_from_slice(&edge_mesh.positions);
+        }
+        if let Some(VertexAttributeValues::Float32x4(c)) = mesh.attribute_mut(Mesh::ATTRIBUTE_COLOR)
+        {
+            c.clear();
+            c.extend_from_slice(&edge_mesh.colors);
+        }
+    }
+
+    edge_mesh.last = Some(fp);
 }
