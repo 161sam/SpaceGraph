@@ -748,3 +748,57 @@ cargo run --release -p spacegraph-viewer -- --demo-load 1200
 * **Integrated** (Mid) and **Discrete** (High): textured glyphs; expect no
   measurable FPS regression vs v0.4.0 at 1200 nodes (icons are O(visible),
   instanced, opaque). Record the three numbers here when captured on hardware.
+
+## Phase 3 — Level-2 focused-node rich preview (bounded)
+
+* `ui/node_preview.rs`: type-dispatched preview for the focused node + ≤
+  `max_preview_panels` pinned (`preview_set`, capped). Dispatch: image → capped
+  downscaled thumbnail; text/code/json/log → monospace head; process →
+  terminal-styled **read-only** readout; video/audio/archive/binary → card;
+  user/socket/host/alert → type card. Standard + non-Timeline only.
+* O(focused), off-thread, cached:
+  - Three systems: `update_preview_requests` (build set + spawn decode tasks on
+    cache miss — **never reads content inline**), `poll_preview_decodes` (drain
+    finished tasks → upload images to `Assets<Image>` on the main thread → LRU
+    insert/evict), `node_preview_overlay` (egui render only).
+  - Decode/read run on `AsyncComputeTaskPool`; results LRU-cached
+    (`PreviewCache`, cap 16) keyed by path (+ mtime staleness), evicting oldest
+    (drops the `Handle<Image>` → frees the asset).
+  - Path policy (`preview_path_allowed`, agent-spirit: exclude wins / empty
+    includes allow / else require include) + size caps: oversize image → stat-only
+    skip (no content read); oversize text → truncated head; denied path → no read.
+  - Image decode via Bevy `Image::from_buffer` only; undecodable format → card
+    fallback (never a panic). Decoded images nearest-downscaled to `thumbnail_px`
+    to bound resident memory regardless of source resolution.
+* **Required enablement (documented per §3):** Bevy's task pools fall back to a
+  *single-threaded* executor unless the `multi_threaded` feature is on — there
+  `spawn` runs the future **inline** and returns a result-less `FakeTask`, which
+  both breaks §1.1 ("never on the main schedule") and is unpollable. Added
+  `bevy/multi_threaded` (a feature flag on the existing `bevy` dep — **not** a new
+  Cargo dependency, mirroring the `audio` MP's `bevy_audio`) to make the
+  pre-approved §1.4 `AsyncComputeTaskPool` background decode actually background.
+  Determinism gate re-checked green afterward (`force_step_is_deterministic`,
+  `force_step_keeps_pinned_fixed_and_deterministic`,
+  `capped_visible_set_is_deterministic`): state mutations are serialized by
+  exclusive `ResMut` access, so parallel scheduling does not affect layout truth.
+* Image thumbnails are still card-fallback in the shipped build (no png/jpeg
+  feature enabled — Phase 0 note); the full decode/cache path is implemented and
+  activates if an image-format feature is later enabled (one-line opt-in).
+* **Gate 3 PASS** — fmt / clippy -D / test green. New tests (+8):
+  `path_policy_allows_and_denies`, `plan_dispatch_respects_capability_and_policy`
+  (Low → image becomes card; denied → card/no-read), `text_head_truncates_oversize`,
+  `image_oversize_is_skipped_without_decoding`, `thumbnail_downscales_rgba8`,
+  `lru_evicts_oldest_and_bumps_on_use`, `requests_spawn_a_task_not_inline_decode`
+  (structural: pending task, cache empty same frame), `stable_focus_has_no_redecode_churn`.
+  **144 tests** total.
+
+### Local-capture procedure (perf — required)
+
+```
+cargo run --release -p spacegraph-viewer -- --demo-load 1200
+# focus a file node (image/text); confirm preview decodes off-thread (no hitch)
+```
+* Cost must scale with the **focused/pinned set** (≤ `max_preview_panels`), not
+  the visible set: focus a node, then orbit at 1200 nodes — frame-time must match
+  the no-preview baseline (decode happens once, off-thread, then cached). Record
+  Pi / integrated / discrete here when captured.

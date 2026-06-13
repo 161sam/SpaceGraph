@@ -31,6 +31,10 @@ bevy = { version = "0.14", default-features = false, features = [
     "bevy_winit",
     "x11",
     "tonemapping_luts",
+    # Real background task pools (AsyncComputeTaskPool) for off-thread preview
+    # decode (v0.4.1); also parallelizes the ECS schedule. Without this, task
+    # pools fall back to single-threaded and run "spawned" work inline.
+    "multi_threaded",
 ] }
 bevy_egui = "0.28"
 # Pinned exactly: 0.19.2 is the last bevy_panorbit_camera that targets

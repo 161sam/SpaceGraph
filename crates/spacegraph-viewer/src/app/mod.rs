@@ -50,6 +50,7 @@ impl Plugin for SpaceGraphViewerPlugin {
             .insert_resource(crate::render::Mission::default())
             .insert_resource(crate::render::FramePacing::default())
             .insert_resource(crate::render::NodeIcons::default())
+            .insert_resource(crate::ui::PreviewState::default())
             // Default detail capability; `finish` refines it from the real GPU
             // adapter once the renderer is initialized.
             .insert_resource(crate::render::DetailCapability::Mid);
@@ -87,6 +88,7 @@ impl Plugin for SpaceGraphViewerPlugin {
                 crate::ui::legend_overlay,
                 crate::ui::reticle_overlay,
                 crate::ui::context_menu_overlay,
+                crate::ui::node_preview_overlay,
                 crate::ui::minimap,
             ),
         )
@@ -104,6 +106,8 @@ impl Plugin for SpaceGraphViewerPlugin {
                 crate::render::reveal_tick,
                 crate::render::rotate_node_rings,
                 crate::render::sync_postfx,
+                crate::ui::update_preview_requests,
+                crate::ui::poll_preview_decodes,
             ),
         )
         // Render pipeline runs in order: layout publishes the visible set, the
