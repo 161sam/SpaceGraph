@@ -4005,6 +4005,7 @@ dependencies = [
  "crossbeam-channel",
  "directories",
  "futures-util",
+ "naga",
  "serde",
  "serde_json",
  "smallvec",

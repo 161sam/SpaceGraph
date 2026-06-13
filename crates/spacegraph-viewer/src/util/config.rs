@@ -84,6 +84,30 @@ pub struct PathPolicyConfig {
     pub excludes: Vec<String>,
 }
 
+/// Cyberspace post-process intensities (Standard theme). Effective only when the
+/// theme is Standard and `enabled` (see `render::postfx::postfx_active`).
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct PostFxConfig {
+    pub enabled: bool,
+    pub scanline: f32,
+    pub vignette: f32,
+    pub aberration: f32,
+    pub grain: f32,
+}
+
+impl Default for PostFxConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            scanline: 0.12,
+            vignette: 0.35,
+            aberration: 0.4,
+            grain: 0.06,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct ViewerConfig {
@@ -145,6 +169,8 @@ pub struct ViewerConfig {
     /// Edge-pick hit threshold in world units (ray-vs-segment distance).
     #[serde(default = "default_edge_pick_threshold")]
     pub edge_pick_threshold: f32,
+    #[serde(default)]
+    pub postfx: PostFxConfig,
     // ---- Audio (effective only in builds with the `audio` feature) ----
     #[serde(default = "default_audio_enabled")]
     pub audio_enabled: bool,
@@ -203,6 +229,7 @@ impl Default for ViewerConfig {
             node_rings: default_node_rings(),
             ring_min_degree: default_ring_min_degree(),
             edge_pick_threshold: default_edge_pick_threshold(),
+            postfx: PostFxConfig::default(),
             audio_enabled: default_audio_enabled(),
             audio_volume: default_audio_volume(),
             agents: vec![AgentEndpoint::default()],

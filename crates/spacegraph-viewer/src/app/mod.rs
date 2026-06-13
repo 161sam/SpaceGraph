@@ -28,6 +28,7 @@ impl Plugin for SpaceGraphViewerPlugin {
         let mut st = GraphState::default();
         st.apply_viewer_config(&cfg);
         app.add_plugins(bevy_panorbit_camera::PanOrbitCameraPlugin)
+            .add_plugins(crate::render::PostFxPlugin)
             .add_event::<Picked>()
             // Reactive rendering: idle low-power, full speed only while animating
             // (see `render::pacing`). Continuous to start so the initial layout
@@ -97,6 +98,7 @@ impl Plugin for SpaceGraphViewerPlugin {
                 crate::render::mission_tick,
                 crate::render::reveal_tick,
                 crate::render::rotate_node_rings,
+                crate::render::sync_postfx,
             ),
         )
         // Render pipeline runs in order: layout publishes the visible set, the
