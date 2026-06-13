@@ -295,9 +295,10 @@ impl Default for PreviewState {
 // Systems
 // ---------------------------------------------------------------------------
 
-/// Focused node (+ pinned), capped to `cap`. Visual-only; iteration order over
-/// the visible set is not determinism-relevant.
-fn preview_set(st: &GraphState, cap: usize) -> Vec<NodeId> {
+/// Decode targets: focused node (+ pinned), capped to `cap`. These are the only
+/// nodes whose content we read/decode. Visual-only; iteration order over the
+/// visible set is not determinism-relevant.
+fn decode_set(st: &GraphState, cap: usize) -> Vec<NodeId> {
     let mut out: Vec<NodeId> = Vec::new();
     if let Some(f) = st.ui.selected.clone().or_else(|| st.ui.focus.clone()) {
         out.push(f);
@@ -311,6 +312,20 @@ fn preview_set(st: &GraphState, cap: usize) -> Vec<NodeId> {
         }
     }
     out.truncate(cap);
+    out
+}
+
+/// Display targets: the decode set plus the hovered node (a peek). Hover never
+/// triggers a file read — it shows a card, or cached content if already decoded.
+fn display_set(st: &GraphState, cap: usize) -> Vec<NodeId> {
+    let mut out = decode_set(st, cap);
+    if out.len() < cap {
+        if let Some(h) = &st.ui.hovered {
+            if !out.contains(h) {
+                out.push(h.clone());
+            }
+        }
+    }
     out
 }
 
@@ -334,7 +349,7 @@ pub fn update_preview_requests(
     }
 
     let pool = AsyncComputeTaskPool::get();
-    for id in preview_set(&st, eff.max_preview_panels) {
+    for id in decode_set(&st, eff.max_preview_panels) {
         let Some(node) = st.model.nodes.get(&id) else {
             continue;
         };
@@ -416,12 +431,13 @@ pub fn node_preview_overlay(
     st: Res<GraphState>,
     cap: Res<DetailCapability>,
     preview: Res<PreviewState>,
+    expand: Res<crate::render::PreviewExpand>,
 ) {
     let eff = resolve_detail(&st.cfg.node_detail, *cap);
     if !preview_enabled(&st) || eff.max_preview_panels == 0 {
         return;
     }
-    let set = preview_set(&st, eff.max_preview_panels);
+    let set = display_set(&st, eff.max_preview_panels);
     if set.is_empty() {
         return;
     }
@@ -444,8 +460,18 @@ pub fn node_preview_overlay(
         })
         .collect();
 
+    // GitS framed panel: dark fill + thin neon stroke (the "screen frame").
+    let frame = egui::Frame::none()
+        .fill(egui::Color32::from_rgba_unmultiplied(8, 14, 22, 235))
+        .stroke(egui::Stroke::new(
+            1.0,
+            egui::Color32::from_rgb(60, 180, 200),
+        ))
+        .inner_margin(egui::Margin::same(8.0))
+        .rounding(2.0);
     let ctx = contexts.ctx_mut();
     egui::Window::new("◈ PREVIEW")
+        .frame(frame)
         .anchor(egui::Align2::RIGHT_BOTTOM, [-12.0, -12.0])
         .resizable(false)
         .show(ctx, |ui| {
@@ -461,8 +487,15 @@ pub fn node_preview_overlay(
                     );
                     match view {
                         PreviewView::Image(tid, w, h) => {
-                            let disp = eff.thumbnail_px as f32;
-                            let scale = (disp / w.max(h)).min(1.0);
+                            // Double-click expands the focused preview (larger).
+                            let disp =
+                                eff.thumbnail_px as f32 * if expand.expanded { 2.0 } else { 1.0 };
+                            let scale = disp / w.max(h);
+                            let scale = if expand.expanded {
+                                scale
+                            } else {
+                                scale.min(1.0)
+                            };
                             ui.add(egui::Image::new(egui::load::SizedTexture::new(
                                 tid,
                                 egui::vec2(w * scale, h * scale),
@@ -791,5 +824,52 @@ mod tests {
             "stable focus must not re-decode (no churn)"
         );
         assert!(p.cache.peek(&path).is_some(), "cached entry stays resident");
+    }
+
+    #[test]
+    fn preview_opens_on_focus_and_closes_when_cleared() {
+        let mut gs = GraphState::default();
+        let id = NodeId("n".into());
+        gs.model.nodes.insert(
+            id.clone(),
+            Node::User {
+                uid: 0,
+                name: "u".into(),
+            },
+        );
+        assert!(decode_set(&gs, 3).is_empty(), "no focus → closed");
+        gs.ui.selected = Some(id.clone());
+        assert_eq!(decode_set(&gs, 3), vec![id.clone()], "focus → open");
+        gs.ui.selected = None;
+        assert!(decode_set(&gs, 3).is_empty(), "unfocus → closed");
+    }
+
+    #[test]
+    fn hover_is_display_only_never_a_decode_target() {
+        let mut gs = GraphState::default();
+        let id = NodeId("h".into());
+        gs.ui.hovered = Some(id.clone());
+        assert!(decode_set(&gs, 3).is_empty(), "hover is not decoded");
+        assert_eq!(display_set(&gs, 3), vec![id], "hover opens a display peek");
+    }
+
+    #[test]
+    fn decode_set_respects_panel_cap() {
+        let mut gs = GraphState::default();
+        gs.cfg.max_visible_nodes = 64;
+        gs.cfg.progressive_nodes_per_frame = 64;
+        gs.load_synthetic_graph(20);
+        let vis = gs.visible_set_capped();
+        gs.progressive_prepare(&vis);
+        gs.spatial.vis_cache = vis;
+        let ids: Vec<NodeId> = gs.spatial.vis_cache.iter().cloned().collect();
+        gs.ui.selected = Some(ids[0].clone());
+        for id in ids.iter().take(6) {
+            if let Some(idx) = gs.spatial.index_of(id) {
+                gs.spatial.pinned[idx.slot()] = Some(Vec3::ZERO);
+            }
+        }
+        assert!(decode_set(&gs, 2).len() <= 2, "panel cap enforced");
+        assert!(decode_set(&gs, 5).len() <= 5);
     }
 }

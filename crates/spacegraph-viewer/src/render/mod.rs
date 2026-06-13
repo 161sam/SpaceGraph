@@ -5,6 +5,7 @@ pub mod capability;
 pub mod edges;
 pub mod freefly;
 pub mod gameplay;
+pub mod interaction;
 pub mod node_icon;
 pub mod node_mesh;
 pub mod pacing;
@@ -26,6 +27,10 @@ pub use capability::{detect_capability, resolve_detail, DetailCapability, Effect
 pub use edges::{setup_edge_mesh, update_edge_mesh, EdgeMesh};
 pub use freefly::{fly_camera, FlyCam};
 pub use gameplay::{mission_tick, reveal_tick, scan_pulse, Mission, ScanPulse};
+pub use interaction::{
+    detect_preview_expand, setup_ripple_resources, trigger_focus_ripple, update_focus_ripples,
+    PreviewExpand, RippleTracker,
+};
 pub use node_icon::{
     file_subtype, icon_for, setup_node_icon_resources, sync_node_icons, IconId, NodeIconMarker,
     NodeIconResources, NodeIcons,

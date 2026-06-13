@@ -802,3 +802,42 @@ cargo run --release -p spacegraph-viewer -- --demo-load 1200
   the visible set: focus a node, then orbit at 1200 nodes — frame-time must match
   the no-preview baseline (decode happens once, off-thread, then cached). Record
   Pi / integrated / discrete here when captured.
+
+## Phase 4 — Node interactivity & focused-node effects (cheap)
+
+* `render/interaction.rs`:
+  - **Focus ripple** — a decaying ring (`FocusRipple`) spawned only when the
+    focused node *changes* (`RippleTracker`), expanding + fading, despawned at end
+    of life (frees its per-ripple material). Capped at `MAX_RIPPLES` concurrent;
+    Standard-theme only; one shared ring mesh (`RippleResources`). Keeps the
+    reactive renderer awake (`needs_redraw`) while alive so it animates in idle.
+  - **Preview expand** — `PreviewExpand` toggled by a node double-click
+    (`detect_preview_expand`, reads `Picked` within `DOUBLE_CLICK_SECS`), collapsed
+    when focus clears. `node_preview` renders the focused image larger when set.
+* `ui/node_preview.rs`:
+  - **Open on hover** — split the preview set into `decode_set` (focus + pinned,
+    the only *decode* targets) and `display_set` (decode set + hovered). Hover is a
+    display-only **peek** (card or already-cached content) — never triggers a file
+    read, so mouse sweeps cause no decode storms.
+  - **Framed panel** — GitS-styled egui frame (dark fill + thin neon stroke) on
+    the preview window (the "screen frame").
+* All effects are focused-only / tier-independent-cheap — nothing scales with the
+  visible set beyond Level-1 icons.
+* **Gate 4 PASS** — fmt / clippy -D / test green. New tests (+7):
+  `ripple_spawns_once_per_focus_change` (spawn on change, none on stable focus),
+  `ripple_decays_and_despawns` (lifecycle), `no_ripple_in_minimal_theme`,
+  `double_click_toggles_expand_and_focus_clear_collapses`,
+  `preview_opens_on_focus_and_closes_when_cleared`,
+  `hover_is_display_only_never_a_decode_target`, `decode_set_respects_panel_cap`.
+  **151 tests** total.
+
+### Local-capture procedure (perf)
+
+```
+cargo run --release -p spacegraph-viewer -- --demo-load 1200
+# click nodes: a focus ripple should fire per focus change and fade; double-click
+# an image/text node to expand the preview; hover to peek.
+```
+* Structural: ripples are bounded to `MAX_RIPPLES` and spawn only on focus change
+  (no per-visible-node entities); confirm frame-time at 1200 nodes is unchanged
+  whether or not a ripple is mid-flight. Record Pi / integrated / discrete.
