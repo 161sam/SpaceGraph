@@ -51,6 +51,8 @@ impl Plugin for SpaceGraphViewerPlugin {
             .insert_resource(crate::render::FramePacing::default())
             .insert_resource(crate::render::NodeIcons::default())
             .insert_resource(crate::ui::PreviewState::default())
+            .insert_resource(crate::render::RippleTracker::default())
+            .insert_resource(crate::render::PreviewExpand::default())
             // Default detail capability; `finish` refines it from the real GPU
             // adapter once the renderer is initialized.
             .insert_resource(crate::render::DetailCapability::Mid);
@@ -71,6 +73,7 @@ impl Plugin for SpaceGraphViewerPlugin {
                 crate::render::setup_scene,
                 crate::render::setup_node_render_resources,
                 crate::render::setup_node_icon_resources,
+                crate::render::setup_ripple_resources,
                 crate::render::setup_edge_mesh,
             ),
         )
@@ -108,6 +111,9 @@ impl Plugin for SpaceGraphViewerPlugin {
                 crate::render::sync_postfx,
                 crate::ui::update_preview_requests,
                 crate::ui::poll_preview_decodes,
+                crate::render::trigger_focus_ripple,
+                crate::render::update_focus_ripples,
+                crate::render::detect_preview_expand,
             ),
         )
         // Render pipeline runs in order: layout publishes the visible set, the
