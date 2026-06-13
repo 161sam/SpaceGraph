@@ -28,12 +28,14 @@ pub fn handle_shortcuts(mut contexts: EguiContexts, mut st: ResMut<GraphState>) 
             || st.ui.selected_b.is_some()
             || st.ui.hovered.is_some()
             || !st.ui.multi_selected.is_empty()
+            || st.ui.compare_pin.is_some()
         {
             st.ui.selected = None;
             st.ui.selected_a = None;
             st.ui.selected_b = None;
             st.ui.hovered = None;
             st.ui.multi_selected.clear();
+            st.ui.compare_pin = None;
             changed = true;
         }
         if changed {
@@ -64,6 +66,14 @@ pub fn handle_shortcuts(mut contexts: EguiContexts, mut st: ResMut<GraphState>) 
     }
     if ctx.input(|i| i.key_pressed(egui::Key::O)) {
         st.cfg.fog_of_war = !st.cfg.fog_of_war;
+        st.needs_redraw.store(true, Ordering::Relaxed);
+    }
+    if ctx.input(|i| i.key_pressed(egui::Key::I)) {
+        st.ui.inspector_open = !st.ui.inspector_open;
+        st.needs_redraw.store(true, Ordering::Relaxed);
+    }
+    if ctx.input(|i| i.key_pressed(egui::Key::L)) {
+        st.ui.legend_open = !st.ui.legend_open;
         st.needs_redraw.store(true, Ordering::Relaxed);
     }
     if ctx.input(|i| i.key_pressed(egui::Key::T)) {

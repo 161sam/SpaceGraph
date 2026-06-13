@@ -27,6 +27,8 @@ pub fn help_overlay(mut contexts: EguiContexts, st: ResMut<GraphState>) {
             ui.label("O — Toggle fog-of-war (explore to reveal)");
             ui.separator();
             ui.label(egui::RichText::new("Shortcuts").strong());
+            ui.label("I — Toggle node inspector");
+            ui.label("L — Toggle colour legend");
             ui.label("Ctrl+P — Search");
             ui.label("Esc — Clear selection/focus, close overlays");
             ui.label("Space — Pause timeline");
