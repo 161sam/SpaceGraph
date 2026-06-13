@@ -49,6 +49,7 @@ impl Plugin for SpaceGraphViewerPlugin {
             .insert_resource(crate::render::ScanPulse::default())
             .insert_resource(crate::render::Mission::default())
             .insert_resource(crate::render::FramePacing::default())
+            .insert_resource(crate::render::NodeIcons::default())
             // Default detail capability; `finish` refines it from the real GPU
             // adapter once the renderer is initialized.
             .insert_resource(crate::render::DetailCapability::Mid);
@@ -68,6 +69,7 @@ impl Plugin for SpaceGraphViewerPlugin {
             (
                 crate::render::setup_scene,
                 crate::render::setup_node_render_resources,
+                crate::render::setup_node_icon_resources,
                 crate::render::setup_edge_mesh,
             ),
         )
@@ -112,6 +114,7 @@ impl Plugin for SpaceGraphViewerPlugin {
                 crate::graph::update_layout_or_timeline,
                 crate::render::sync_node_entities,
                 crate::render::sync_node_rings,
+                crate::render::sync_node_icons,
                 crate::render::update_edge_mesh,
                 crate::render::draw_scene,
                 crate::render::draw_node_labels,

@@ -5,6 +5,7 @@ pub mod capability;
 pub mod edges;
 pub mod freefly;
 pub mod gameplay;
+pub mod node_icon;
 pub mod node_mesh;
 pub mod pacing;
 pub mod postfx;
@@ -25,6 +26,10 @@ pub use capability::{detect_capability, resolve_detail, DetailCapability, Effect
 pub use edges::{setup_edge_mesh, update_edge_mesh, EdgeMesh};
 pub use freefly::{fly_camera, FlyCam};
 pub use gameplay::{mission_tick, reveal_tick, scan_pulse, Mission, ScanPulse};
+pub use node_icon::{
+    file_subtype, icon_for, setup_node_icon_resources, sync_node_icons, IconId, NodeIconMarker,
+    NodeIconResources, NodeIcons,
+};
 pub use pacing::{update_frame_pacing, FramePacing};
 pub use postfx::{sync_postfx, PostFxPlugin};
 pub use spatial::{

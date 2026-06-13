@@ -703,3 +703,48 @@ on the focused node only (+ ≤ cap pinned), lazy, off-thread decode, LRU, cappe
   are_low`, `discrete_high_integrated_mid`, `adapter_kind_maps_debug_strings`,
   `override_parses`, `low_disables_image_and_caps_panels`, `node_detail_config_
   roundtrip`. **129 tests** total.
+
+## Phase 2 — Level-1 node-face icons (atlas billboard)
+
+* Committed atlas `assets/icons/atlas.rgba` (256×256 RGBA8, 4×4 grid of 64px
+  monochrome glyphs) + dep-free generator `gen_atlas.py` (stdlib only; also emits
+  `atlas.png` for review). 15 glyphs: process/user/socket/host/alert +
+  file{generic,image,video,text,code,json,log,audio,archive,binary}.
+* `render/node_icon.rs`: `IconId` (+ `cell`), pure `file_subtype(path)` /
+  `icon_for(node)`; `NodeIconResources` = **one** atlas `Handle<Image>` + a fixed
+  quad-mesh set (per-cell baked UVs) + per-kind materials (textured `glyph_mat`,
+  flat `flat_mat`). `sync_node_icons` mirrors `sync_node_entities` (spawn on add /
+  despawn on remove / mutate otherwise) and screen-aligns each icon to the camera
+  (copy camera rotation; offset `ICON_OFFSET` toward the camera). Standard +
+  spatial + non-LOD only; Minimal draws none.
+* Perf spine: single atlas (per-instance glyph lives in the **mesh** UVs, not the
+  material, so all nodes of a kind share one material+atlas → Bevy GPU-instances
+  them). Alpha is `Mask(0.5)` → icons stay in the **opaque pass** (no per-frame
+  transparency sort / overdraw across thousands of nodes). No per-node alloc.
+* **Deviation (documented per §3):** Level-1 icons are **tier-independent** (always
+  on) rather than dropped on Low — this matches the v0.5.0 gate-glyph split
+  (`spec_v0.5.0.md` §2.3: gate-glyphs are always-on/cheap). Low still differs:
+  it uses the untextured flat-colour variant (`flat_mat`, "colour icon"). The
+  capability gate's real work (image decode off, preview caps) lands in Phase 3.
+* **Gate 2 PASS** — fmt / clippy -D / test green. New tests (+7):
+  `file_subtype_maps_extensions`, `icon_for_dispatches_node_kinds`,
+  `icon_cells_are_unique_and_in_range`, `icons_share_one_atlas_and_quad_set`
+  (structural: every glyph material references the single atlas handle),
+  `spawns_one_icon_per_visible_node_in_standard`, `minimal_theme_has_no_icons`,
+  `icons_have_no_steady_state_churn`. **136 tests** total.
+
+### Local-capture procedure (perf — required, no GPU/Pi in CI)
+
+Run on each class and record avg FPS + frame-time at 1200 nodes, icons on vs a
+v0.4.0 build (icons absent), camera static then orbiting:
+
+```
+cargo run --release -p spacegraph-viewer -- --demo-load 1200
+# toggle Minimal (no icons) vs Standard (icons) to isolate icon cost
+```
+
+* **Pi / GLES / llvmpipe** (DetailCapability::Low): flat-colour icons; expect
+  ≤ a few % frame-time delta (opaque-pass quads, instanced).
+* **Integrated** (Mid) and **Discrete** (High): textured glyphs; expect no
+  measurable FPS regression vs v0.4.0 at 1200 nodes (icons are O(visible),
+  instanced, opaque). Record the three numbers here when captured on hardware.
