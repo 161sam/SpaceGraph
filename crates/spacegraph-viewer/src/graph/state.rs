@@ -495,6 +495,10 @@ pub struct CfgState {
     pub fly_speed: f32,
     pub fly_boost: f32,
     pub fly_sensitivity: f32,
+
+    /// UI sound effects (effective only in builds with the `audio` feature).
+    pub audio_enabled: bool,
+    pub audio_volume: f32,
 }
 
 impl CfgState {
@@ -653,6 +657,8 @@ impl Default for GraphState {
                 fly_speed: 24.0,
                 fly_boost: 4.0,
                 fly_sensitivity: 0.0025,
+                audio_enabled: true,
+                audio_volume: 0.6,
             },
             needs_redraw: AtomicBool::new(true),
             explain_cache: None,
@@ -1584,6 +1590,8 @@ impl GraphState {
         self.cfg.fly_speed = cfg.fly_speed.max(0.1);
         self.cfg.fly_boost = cfg.fly_boost.max(1.0);
         self.cfg.fly_sensitivity = cfg.fly_sensitivity.max(0.0001);
+        self.cfg.audio_enabled = cfg.audio_enabled;
+        self.cfg.audio_volume = cfg.audio_volume.clamp(0.0, 1.0);
         self.sync_agent_endpoints(cfg.agents.clone());
 
         // New layout params must take effect even on a frozen (settled) layout.
@@ -1630,6 +1638,8 @@ impl GraphState {
             fly_speed: self.cfg.fly_speed,
             fly_boost: self.cfg.fly_boost,
             fly_sensitivity: self.cfg.fly_sensitivity,
+            audio_enabled: self.cfg.audio_enabled,
+            audio_volume: self.cfg.audio_volume,
             agents: self.net.endpoints.clone(),
         }
     }

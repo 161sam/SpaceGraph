@@ -376,6 +376,16 @@ pub fn ui_panel(
 
             ui.separator();
             ui.vertical(|ui| {
+                section_header(ui, "Audio");
+                ui.checkbox(&mut st.cfg.audio_enabled, "Enabled");
+                ui.add(egui::Slider::new(&mut st.cfg.audio_volume, 0.0..=1.0).text("volume"));
+                if cfg!(not(feature = "audio")) {
+                    ui.label(egui::RichText::new("(build with --features audio)").weak());
+                }
+            });
+
+            ui.separator();
+            ui.vertical(|ui| {
                 section_header(ui, "GC");
                 ui.checkbox(&mut st.cfg.gc_enabled, "enabled");
                 let mut ttl = st.cfg.gc_ttl.as_secs() as i32;

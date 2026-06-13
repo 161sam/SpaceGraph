@@ -1,3 +1,5 @@
+#[cfg(feature = "audio")]
+pub mod audio;
 pub mod camera;
 pub mod edges;
 pub mod freefly;
@@ -13,6 +15,8 @@ use bevy_egui::EguiContexts;
 use crate::graph::{GraphState, ViewMode};
 use crate::ui::UiLayout;
 
+#[cfg(feature = "audio")]
+pub use audio::{audio_triggers, setup_audio, AudioAssets};
 pub use camera::{apply_jump_to, setup_scene, sync_visual_theme, update_tree_zoom};
 pub use edges::{setup_edge_mesh, update_edge_mesh, EdgeMesh};
 pub use freefly::{fly_camera, FlyCam};

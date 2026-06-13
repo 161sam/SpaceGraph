@@ -39,7 +39,9 @@ bevy_egui = "0.28"
 bevy_panorbit_camera = { version = "=0.19.2", features = ["bevy_egui"] }
 
 [features]
-audio = ["bevy/bevy_audio"]
+# Opt-in UI sound effects (scan/alert/mission/pick). Pulls bevy_audio + the WAV
+# decoder; on Linux this needs the ALSA dev libs at build time.
+audio = ["bevy/bevy_audio", "bevy/wav"]
 
 [dev-dependencies]
 tempfile = "3"
