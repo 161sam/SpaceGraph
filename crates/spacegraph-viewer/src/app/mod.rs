@@ -41,6 +41,7 @@ impl Plugin for SpaceGraphViewerPlugin {
             .insert_resource(st)
             .insert_resource(UiLayout::default())
             .insert_resource(crate::render::NodeEntities::default())
+            .insert_resource(crate::render::RebuildNodeEntities::default())
             .insert_resource(crate::render::FlyCam::default())
             .insert_resource(crate::render::DragSelect::default())
             .insert_resource(crate::render::ScanPulse::default())

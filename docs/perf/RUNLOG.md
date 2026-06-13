@@ -472,3 +472,34 @@ Branch: `feat/alert-ingestion`.
   address); socket-level attachment can be added once the local side is
   resolvable. This matches the blueprint's "uncorrelated alerts attach to a
   RemoteHost from the external address" and correlates to live remotes via id.
+
+## v0.4.0 — Node Detail & In-World Interaction
+
+### Phase 1 — Per-type node geometry (`feat/node-geometry`)
+
+* New `render/node_mesh.rs`: `node_core(kind)` (solid flat-shaded cores from Bevy
+  primitives + a custom octahedron) and `node_shell(kind)` (unlit `LineList`
+  wireframes via the `render::edges` constructor pattern — octahedron for
+  RemoteHost, spiked star for Alert). No new dependency.
+* `NodeRenderResources`: `mesh` → per-kind `core_mesh[6]` + `shell_mesh[6]` +
+  unlit emissive `shell_mat[6]`; kept `minimal_mesh` (the old `Sphere(0.28)`).
+* `sync_node_entities`: spawns the per-kind core (+ shell child in Standard for
+  shelled kinds); mesh reconciled in the mutate-if-differs path beside the
+  material — never respawns for a mesh change. Theme switch sets
+  `RebuildNodeEntities` (in `sync_visual_theme`) → exactly one drain+respawn.
+* `PICK_RADIUS` 0.45 → 0.5 (bounds the largest core; bounding-sphere approx).
+
+### Gate 1 results
+
+* `cargo fmt --check`, `cargo clippy --workspace --all-targets -- -D warnings`,
+  `cargo test --workspace`: green (74 viewer-lib tests). New: per-kind core-mesh
+  handle equality, shell child present only for RemoteHost/Alert in Standard,
+  Minimal uses the sphere + no shell, theme switch = one rebuild,
+  `steady_state_has_no_entity_churn` still green, `node_mesh` core/shell tests.
+* Deviations: none.
+
+### Local capture (substitute for GPU validation — not a stop)
+
+* `cargo run -p spacegraph-viewer -- --demo-load 2000`; in Standard confirm six
+  distinct silhouettes, then toggle theme to Minimal (flat spheres) and back (one
+  rebuild, no steady-state flicker). Capture `docs/media/geometry.png`.

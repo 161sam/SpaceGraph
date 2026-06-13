@@ -40,6 +40,31 @@ Scene: near-black space (`CLEAR_STANDARD`), faint grid lines (`GRID_LINE`).
 Timeline event markers reuse the palette (`TL_*`): node upsert green, node
 remove red, edge upsert cyan, edge remove amber, batch neutral.
 
+## Node geometry (v0.4.0)
+
+In the **Standard** theme each node kind has a distinct silhouette — type is
+readable from shape, not only colour. Each is a solid emissive **core** (lit,
+recency glow stays on the core) plus, for some kinds, a holographic **wireframe
+shell** (`LineList`, unlit HDR emissive so it blooms). Built in
+`render::node_mesh` from Bevy primitives + `Mesh::new` wireframes (no new deps).
+Cores stay within a ~0.30 envelope (Alert slightly larger) so the
+bounding-sphere pick (`PICK_RADIUS = 0.5`) still covers them.
+
+| Kind | Core | Shell | Reads as |
+|---|---|---|---|
+| Process | octahedron | — | active compute core |
+| File | thin hexagonal prism | — | passive data plate |
+| User | upward cone | — | identity / authority |
+| Socket | small torus | — | port aperture |
+| RemoteHost | small sphere | octahedron wire | distant station |
+| Alert | sphere | spiked star wire | threat (blooms hardest) |
+
+The **Minimal** theme keeps the flat sphere for every kind and draws no shell —
+behaviourally identical to the pre-geometry viewer
+(`minimal_theme_uses_sphere_mesh_and_no_shell`). A theme switch triggers exactly
+one entity rebuild (`theme_switch_triggers_exactly_one_rebuild`); steady state
+mutates `Transform`/material/mesh handles only — no entity churn.
+
 ## Motion & recency
 
 - **Recent activity glow:** on upsert/touch a node flashes toward white

@@ -9,6 +9,7 @@ use crate::graph::interner::NodeIndex;
 use crate::graph::model::{edge_class_name, EdgeKindClass};
 use crate::graph::{GraphState, ViewMode};
 use crate::render::freefly::FlyCam;
+use crate::render::node_mesh;
 use crate::render::theme;
 use crate::ui::tooltips::render_tooltip;
 use crate::util::config::VisualTheme;
@@ -34,11 +35,27 @@ pub const GLOW_LEVELS: usize = 6;
 /// pre-visual-pass look.
 #[derive(Resource)]
 pub struct NodeRenderResources {
-    pub mesh: Handle<Mesh>,
+    /// Per-kind solid core mesh (Standard theme), indexed by `NodeKind::index()`.
+    pub core_mesh: [Handle<Mesh>; theme::NodeKind::ALL.len()],
+    /// Optional per-kind wireframe shell mesh (Standard theme).
+    pub shell_mesh: [Option<Handle<Mesh>>; theme::NodeKind::ALL.len()],
+    /// Per-kind unlit emissive material for the shell.
+    pub shell_mat: [Handle<StandardMaterial>; theme::NodeKind::ALL.len()],
+    /// Flat sphere used by the Minimal theme (the pre-geometry look).
+    pub minimal_mesh: Handle<Mesh>,
     pub standard: Vec<[Handle<StandardMaterial>; GLOW_LEVELS]>,
     pub minimal_normal: Handle<StandardMaterial>,
     pub minimal_glow: Handle<StandardMaterial>,
 }
+
+/// Marker on the wireframe-shell child entity of a node (Standard theme).
+#[derive(Component)]
+pub struct ShellMarker;
+
+/// Set when the visual theme changes; drains and respawns all node entities once
+/// so cores/shells match the new theme. Steady state never sets this.
+#[derive(Resource, Default)]
+pub struct RebuildNodeEntities(pub bool);
 
 /// Persistent `NodeIndex → Entity` map for spatial node entities. Lets the
 /// renderer spawn on node-add, despawn on remove, and otherwise only mutate
@@ -54,8 +71,9 @@ pub struct DragSelect {
     pub start: Option<Vec2>,
 }
 
-/// Pick radius for ray-sphere selection (a touch larger than the node mesh).
-const PICK_RADIUS: f32 = 0.45;
+/// Pick radius for ray-sphere selection (bounds the largest core envelope; a
+/// bounding-sphere approximation over the per-kind geometry).
+const PICK_RADIUS: f32 = 0.5;
 
 /// Nearest positive ray-sphere intersection distance, or `None` if the ray
 /// misses. Depth-correct (unlike screen-space distance).
@@ -81,7 +99,24 @@ pub fn setup_node_render_resources(
     mut meshes: ResMut<Assets<Mesh>>,
     mut mats: ResMut<Assets<StandardMaterial>>,
 ) {
-    let mesh = meshes.add(Sphere::new(0.28));
+    let minimal_mesh = meshes.add(Sphere::new(0.28));
+
+    let core_mesh: [Handle<Mesh>; theme::NodeKind::ALL.len()] =
+        std::array::from_fn(|i| meshes.add(node_mesh::node_core(theme::NodeKind::ALL[i])));
+    let shell_mesh: [Option<Handle<Mesh>>; theme::NodeKind::ALL.len()] = std::array::from_fn(|i| {
+        node_mesh::node_shell(theme::NodeKind::ALL[i]).map(|m| meshes.add(m))
+    });
+    let shell_mat: [Handle<StandardMaterial>; theme::NodeKind::ALL.len()] =
+        std::array::from_fn(|i| {
+            let c = theme::NodeKind::ALL[i].base_color().to_linear();
+            // Unlit + HDR emissive (> 1.0) so the holographic shell blooms.
+            mats.add(StandardMaterial {
+                base_color: theme::NodeKind::ALL[i].base_color(),
+                emissive: LinearRgba::rgb(c.red * 3.0, c.green * 3.0, c.blue * 3.0),
+                unlit: true,
+                ..default()
+            })
+        });
 
     let standard: Vec<[Handle<StandardMaterial>; GLOW_LEVELS]> = theme::NodeKind::ALL
         .iter()
@@ -115,11 +150,47 @@ pub fn setup_node_render_resources(
     });
 
     commands.insert_resource(NodeRenderResources {
-        mesh,
+        core_mesh,
+        shell_mesh,
+        shell_mat,
+        minimal_mesh,
         standard,
         minimal_normal,
         minimal_glow,
     });
+}
+
+/// Core mesh plus an optional (shell mesh, shell material) for a node.
+type NodeMeshSet = (
+    Handle<Mesh>,
+    Option<(Handle<Mesh>, Handle<StandardMaterial>)>,
+);
+
+/// The mesh + optional shell for a node given the active theme.
+fn node_meshes(
+    res: &NodeRenderResources,
+    theme: crate::util::config::VisualTheme,
+    kind: theme::NodeKind,
+) -> NodeMeshSet {
+    match theme {
+        crate::util::config::VisualTheme::Minimal => (res.minimal_mesh.clone(), None),
+        crate::util::config::VisualTheme::Standard => {
+            let i = kind.index();
+            let shell = res.shell_mesh[i]
+                .clone()
+                .map(|m| (m, res.shell_mat[i].clone()));
+            (res.core_mesh[i].clone(), shell)
+        }
+    }
+}
+
+/// Resolve a node's kind (defaulting to File for an unknown id).
+fn node_kind(st: &GraphState, id: &spacegraph_core::NodeId) -> theme::NodeKind {
+    st.model
+        .nodes
+        .get(id)
+        .map(theme::NodeKind::of)
+        .unwrap_or(theme::NodeKind::File)
 }
 
 /// Pick the material handle for a node given the active theme and its glow
@@ -166,12 +237,21 @@ fn node_material(
 /// nodes, despawn departed ones, and for everything else mutate only the
 /// `Transform` and material handle. In LOD / tree / timeline modes (gizmo or
 /// no entity rendering) all node entities are despawned.
+#[allow(clippy::type_complexity)]
 pub fn sync_node_entities(
     mut commands: Commands,
     st: Res<GraphState>,
     res: Res<NodeRenderResources>,
     mut entities: ResMut<NodeEntities>,
-    mut q: Query<(&mut Transform, &mut Handle<StandardMaterial>), With<NodeMarker>>,
+    mut rebuild: ResMut<RebuildNodeEntities>,
+    mut q: Query<
+        (
+            &mut Transform,
+            &mut Handle<StandardMaterial>,
+            &mut Handle<Mesh>,
+        ),
+        With<NodeMarker>,
+    >,
 ) {
     let vis = &st.spatial.vis_cache;
     let entity_mode = st.ui.view_mode == ViewMode::Spatial && !st.cfg.lod_active(vis.len());
@@ -182,7 +262,17 @@ pub fn sync_node_entities(
                 commands.entity(entity).despawn_recursive();
             }
         }
+        rebuild.0 = false;
         return;
+    }
+
+    // Theme switch → drain once so cores/shells match the new theme; the spawn
+    // loop below repopulates this same frame. Steady state never sets this flag.
+    if rebuild.0 {
+        for (_, entity) in entities.map.drain() {
+            commands.entity(entity).despawn_recursive();
+        }
+        rebuild.0 = false;
     }
 
     // Despawn entities whose node left the visible set or is fogged.
@@ -212,19 +302,24 @@ pub fn sync_node_entities(
         }
         let pos = st.spatial.positions[idx.slot()];
         let material = node_material(&res, &st, idx, id, now, glow_secs);
+        let kind = node_kind(&st, id);
+        let (mesh, shell) = node_meshes(&res, st.cfg.visual_theme, kind);
 
         if let Some(&entity) = entities.map.get(&idx) {
-            if let Ok((mut tf, mut handle)) = q.get_mut(entity) {
+            if let Ok((mut tf, mut handle, mut mesh_h)) = q.get_mut(entity) {
                 tf.translation = pos;
                 if *handle != material {
                     *handle = material;
+                }
+                if *mesh_h != mesh {
+                    *mesh_h = mesh;
                 }
             }
         } else {
             let entity = commands
                 .spawn((
                     PbrBundle {
-                        mesh: res.mesh.clone(),
+                        mesh: mesh.clone(),
                         material,
                         transform: Transform::from_translation(pos),
                         ..default()
@@ -233,6 +328,18 @@ pub fn sync_node_entities(
                     NodeRef(idx),
                 ))
                 .id();
+            if let Some((shell_mesh, shell_mat)) = shell {
+                commands.entity(entity).with_children(|p| {
+                    p.spawn((
+                        PbrBundle {
+                            mesh: shell_mesh,
+                            material: shell_mat,
+                            ..default()
+                        },
+                        ShellMarker,
+                    ));
+                });
+            }
             entities.map.insert(idx, entity);
         }
     }
@@ -695,10 +802,76 @@ mod tests {
         let ramp: [Handle<StandardMaterial>; GLOW_LEVELS] =
             std::array::from_fn(|_| Handle::default());
         NodeRenderResources {
-            mesh: Handle::default(),
-            standard: vec![ramp.clone(), ramp.clone(), ramp],
+            core_mesh: std::array::from_fn(|i| Handle::weak_from_u128(1000 + i as u128)),
+            shell_mesh: std::array::from_fn(|i| {
+                matches!(
+                    theme::NodeKind::ALL[i],
+                    theme::NodeKind::RemoteHost | theme::NodeKind::Alert
+                )
+                .then(|| Handle::weak_from_u128(2000 + i as u128))
+            }),
+            shell_mat: std::array::from_fn(|i| Handle::weak_from_u128(3000 + i as u128)),
+            minimal_mesh: Handle::weak_from_u128(99),
+            standard: (0..theme::NodeKind::ALL.len())
+                .map(|_| ramp.clone())
+                .collect(),
             minimal_normal: Handle::default(),
             minimal_glow: Handle::default(),
+        }
+    }
+
+    /// A graph state with a single placed, visible node of the given kind.
+    fn one_node_state(node: spacegraph_core::Node, theme: VisualTheme) -> GraphState {
+        use spacegraph_core::NodeId;
+        let mut gs = GraphState::default();
+        gs.cfg.visual_theme = theme;
+        gs.cfg.max_visible_nodes = 16;
+        gs.cfg.progressive_nodes_per_frame = 16;
+        let id = NodeId("n".to_string());
+        gs.model.nodes.insert(id, node);
+        let vis = gs.visible_set_capped();
+        gs.progressive_prepare(&vis);
+        gs.spatial.vis_cache = vis;
+        gs
+    }
+
+    /// The single node entity's mesh handle and whether it has a shell child.
+    fn node_mesh_and_shell(app: &mut App) -> (Handle<Mesh>, bool) {
+        let world = app.world_mut();
+        let mut q = world.query_filtered::<(&Handle<Mesh>, Option<&Children>), With<NodeMarker>>();
+        let (mesh, child_entities) = {
+            let (mesh, children) = q.iter(world).next().expect("one node entity");
+            (
+                mesh.clone(),
+                children
+                    .map(|c| c.iter().copied().collect::<Vec<_>>())
+                    .unwrap_or_default(),
+            )
+        };
+        let has_shell = child_entities
+            .iter()
+            .any(|&e| world.get::<ShellMarker>(e).is_some());
+        (mesh, has_shell)
+    }
+
+    fn run_sync(gs: GraphState) -> App {
+        let mut app = App::new();
+        app.insert_resource(gs)
+            .insert_resource(NodeEntities::default())
+            .insert_resource(RebuildNodeEntities::default())
+            .insert_resource(dummy_render_resources())
+            .add_systems(Update, sync_node_entities);
+        app.update();
+        app
+    }
+
+    fn process_node() -> spacegraph_core::Node {
+        spacegraph_core::Node::Process {
+            pid: 1,
+            ppid: 0,
+            exe: "x".to_string(),
+            cmdline: "x".to_string(),
+            uid: 0,
         }
     }
 
@@ -719,6 +892,7 @@ mod tests {
         let mut app = App::new();
         app.insert_resource(graph_state(200))
             .insert_resource(NodeEntities::default())
+            .insert_resource(RebuildNodeEntities::default())
             .insert_resource(dummy_render_resources())
             .add_systems(Update, sync_node_entities);
         app.update();
@@ -733,6 +907,7 @@ mod tests {
         let mut app = App::new();
         app.insert_resource(graph_state(300))
             .insert_resource(NodeEntities::default())
+            .insert_resource(RebuildNodeEntities::default())
             .insert_resource(dummy_render_resources())
             .add_systems(Update, sync_node_entities);
 
@@ -756,8 +931,13 @@ mod tests {
         let ramp: [Handle<StandardMaterial>; GLOW_LEVELS] =
             std::array::from_fn(|_| Handle::default());
         let res = NodeRenderResources {
-            mesh: Handle::default(),
-            standard: vec![ramp.clone(), ramp.clone(), ramp],
+            core_mesh: std::array::from_fn(|_| Handle::default()),
+            shell_mesh: std::array::from_fn(|_| None),
+            shell_mat: std::array::from_fn(|_| Handle::default()),
+            minimal_mesh: Handle::default(),
+            standard: (0..theme::NodeKind::ALL.len())
+                .map(|_| ramp.clone())
+                .collect(),
             minimal_normal: Handle::weak_from_u128(11),
             minimal_glow: Handle::weak_from_u128(22),
         };
@@ -791,9 +971,128 @@ mod tests {
         gs.ui.view_mode = ViewMode::Timeline; // not entity-rendered
         app.insert_resource(gs)
             .insert_resource(NodeEntities::default())
+            .insert_resource(RebuildNodeEntities::default())
             .insert_resource(dummy_render_resources())
             .add_systems(Update, sync_node_entities);
         app.update();
         assert_eq!(node_entities(&mut app).len(), 0);
+    }
+
+    fn all_kind_nodes() -> [(spacegraph_core::Node, theme::NodeKind); 6] {
+        use spacegraph_core::{FileKind, Node};
+        [
+            (process_node(), theme::NodeKind::Process),
+            (
+                Node::File {
+                    path: "/x".to_string(),
+                    inode: 1,
+                    kind: FileKind::Regular,
+                },
+                theme::NodeKind::File,
+            ),
+            (
+                Node::User {
+                    uid: 1,
+                    name: "u".to_string(),
+                },
+                theme::NodeKind::User,
+            ),
+            (
+                Node::Socket {
+                    proto: "tcp".to_string(),
+                    local_addr: "0.0.0.0".to_string(),
+                    local_port: 80,
+                    state: "LISTEN".to_string(),
+                },
+                theme::NodeKind::Socket,
+            ),
+            (
+                Node::RemoteHost {
+                    addr: "1.2.3.4".to_string(),
+                    rdns: None,
+                },
+                theme::NodeKind::RemoteHost,
+            ),
+            (
+                Node::Alert {
+                    source: "s".to_string(),
+                    signature: "sig".to_string(),
+                    severity: "high".to_string(),
+                    ts: "t".to_string(),
+                },
+                theme::NodeKind::Alert,
+            ),
+        ]
+    }
+
+    #[test]
+    fn standard_theme_uses_core_mesh_per_kind() {
+        let res = dummy_render_resources();
+        for (node, kind) in all_kind_nodes() {
+            let mut app = run_sync(one_node_state(node, VisualTheme::Standard));
+            let (mesh, _) = node_mesh_and_shell(&mut app);
+            assert_eq!(
+                mesh,
+                res.core_mesh[kind.index()],
+                "{kind:?} spawns with its per-kind core mesh"
+            );
+        }
+    }
+
+    #[test]
+    fn shell_child_present_only_for_shelled_kinds_in_standard() {
+        for (node, kind) in all_kind_nodes() {
+            let mut app = run_sync(one_node_state(node, VisualTheme::Standard));
+            let (_, has_shell) = node_mesh_and_shell(&mut app);
+            let want = matches!(kind, theme::NodeKind::RemoteHost | theme::NodeKind::Alert);
+            assert_eq!(has_shell, want, "{kind:?} shell child presence (Standard)");
+        }
+    }
+
+    #[test]
+    fn minimal_theme_uses_sphere_mesh_and_no_shell() {
+        let res = dummy_render_resources();
+        for (node, _) in all_kind_nodes() {
+            let mut app = run_sync(one_node_state(node, VisualTheme::Minimal));
+            let (mesh, has_shell) = node_mesh_and_shell(&mut app);
+            assert_eq!(mesh, res.minimal_mesh, "Minimal uses the flat sphere mesh");
+            assert!(!has_shell, "Minimal has no shell child");
+        }
+    }
+
+    #[test]
+    fn theme_switch_triggers_exactly_one_rebuild() {
+        let mut app = App::new();
+        app.insert_resource(graph_state(100))
+            .insert_resource(NodeEntities::default())
+            .insert_resource(RebuildNodeEntities::default())
+            .insert_resource(dummy_render_resources())
+            .add_systems(Update, sync_node_entities);
+        app.update();
+        let before = node_entities(&mut app);
+        assert!(!before.is_empty());
+
+        // Simulate a theme switch: one drain + respawn, flag cleared.
+        app.world_mut().resource_mut::<RebuildNodeEntities>().0 = true;
+        app.update();
+        let after = node_entities(&mut app);
+        assert_eq!(
+            after.len(),
+            before.len(),
+            "node count preserved across rebuild"
+        );
+        assert!(
+            before.is_disjoint(&after),
+            "rebuild respawns entities (new ids)"
+        );
+        assert!(
+            !app.world().resource::<RebuildNodeEntities>().0,
+            "rebuild flag cleared after one rebuild"
+        );
+
+        // No further churn once the flag is clear.
+        let steady = node_entities(&mut app);
+        app.update();
+        assert_eq!(steady, node_entities(&mut app), "no churn after rebuild");
     }
 }
