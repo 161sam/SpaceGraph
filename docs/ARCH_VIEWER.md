@@ -109,6 +109,19 @@ Keine Graph-Logik.
 
 ---
 
+## Interaktions-/Pin-State (v0.4.0)
+
+- **Grab-to-pin** ist *Graph-Wahrheit*, kein Render-State: `SpatialState.pinned:
+  Vec<Option<Vec3>>` (slot-indiziert, **keine Bevy-ECS-Typen**, nur `Vec3`-Math),
+  API `GraphState::set_pin/clear_pin/is_pinned/pinned_pos`. `force_step` klemmt
+  gepinnte Indizes an ihre `Vec3` (überspringt Integration), sie wirken aber
+  weiter als Spring-Endpunkte → Determinismus bleibt (getestet mit Pin).
+  `release()`/Slot-Reuse löscht den Pin-Slot.
+- **UI-Interaktionsstate** (Hover-Edge, Kontextmenü, Marks) lebt in `UiState`
+  (`hovered_edge`, `context_menu`, `marked`). Input/Drawing liegt in `render/`
+  bzw. `ui/`; das Kontextmenü mutiert über ein deferred `CtxAct`-Mapping
+  (`apply_context_action`, unit-getestet).
+
 ## Architekturregeln (verbindlich)
 
 1. **Kein Render-Code greift direkt auf Net oder Raw Events zu**

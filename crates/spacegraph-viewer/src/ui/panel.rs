@@ -378,6 +378,10 @@ pub fn ui_panel(
                 ui.add(
                     egui::Slider::new(&mut st.cfg.ring_min_degree, 1..=20).text("ring min degree"),
                 );
+                ui.add(
+                    egui::Slider::new(&mut st.cfg.edge_pick_threshold, 0.05..=0.6)
+                        .text("edge pick dist"),
+                );
             });
 
             ui.separator();

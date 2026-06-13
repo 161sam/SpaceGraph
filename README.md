@@ -69,6 +69,10 @@ Ziel ist **Verständnis**, nicht nur Monitoring.
   Optionale distanz-gefadete **Micro-Tags** auf den nächsten Knoten (gecappt).
 - **Orbital-Ringe** (Standard): rotierende Torus-Ringe auf Hubs (Grad ≥
   `ring_min_degree`) und Alerts (immer, schneller). Konfigurierbar im Panel.
+- **Interaktion:** Links-Drag auf einen Node = **Grab & Pin** (Layout klemmt ihn
+  fest); **Edge-Picking** (Hover → Highlight+Tooltip, Klick → Trace);
+  **Rechtsklick** auf Node = Radial-Kontextmenü (Fly-to/Isolate/Trace/Pin/Mark/
+  Inspect); **Mark** für persistente Hervorhebung.
 
 ### Timeline / Feynman Mode
 - Zeitachse (Vergangenheit → Jetzt)

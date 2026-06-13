@@ -6,7 +6,7 @@ use std::time::Instant;
 
 use crate::app::events::Picked;
 use crate::graph::interner::NodeIndex;
-use crate::graph::model::{edge_class_name, EdgeKindClass};
+use crate::graph::model::{edge_class_name, AggEdgeKey, EdgeKindClass};
 use crate::graph::{GraphState, ViewMode};
 use crate::render::freefly::FlyCam;
 use crate::render::node_mesh;
@@ -80,10 +80,15 @@ pub struct NodeEntities {
     pub map: HashMap<NodeIndex, Entity>,
 }
 
-/// In-progress box-select drag (LMB press position in viewport coords).
+/// In-progress LMB drag (box-select or grab) + RMB press for the context menu.
 #[derive(Resource, Default)]
 pub struct DragSelect {
+    /// LMB press position (viewport coords).
     pub start: Option<Vec2>,
+    /// Node grabbed on LMB press (drag pins it instead of box-selecting).
+    pub grabbed: Option<spacegraph_core::NodeId>,
+    /// RMB press position — a click (no orbit drag) opens the context menu.
+    pub rmb_start: Option<Vec2>,
 }
 
 /// Pick radius for ray-sphere selection (bounds the largest core envelope; a
@@ -106,6 +111,106 @@ fn ray_sphere_t(origin: Vec3, dir: Vec3, center: Vec3, radius: f32) -> Option<f3
     let t1 = (-b + sq) / (2.0 * a);
     let t = if t0 > 0.0 { t0 } else { t1 };
     (t > 0.0).then_some(t)
+}
+
+/// Nearest visible node under the cursor ray (bounding-sphere pick).
+fn pick_node(
+    st: &GraphState,
+    camera: &Camera,
+    cam_tf: &GlobalTransform,
+    cursor: Vec2,
+) -> Option<spacegraph_core::NodeId> {
+    let ray = camera.viewport_to_world(cam_tf, cursor)?;
+    let dir = *ray.direction;
+    let mut best: Option<(f32, spacegraph_core::NodeId)> = None;
+    for (id, pos) in st.spatial.placed_positions() {
+        if !st.is_visible_rendered(id) {
+            continue;
+        }
+        if let Some(t) = ray_sphere_t(ray.origin, dir, pos, PICK_RADIUS) {
+            if best.as_ref().is_none_or(|(bt, _)| t < *bt) {
+                best = Some((t, id.clone()));
+            }
+        }
+    }
+    best.map(|(_, id)| id)
+}
+
+/// Project the cursor onto the camera-facing plane through `node_pos` so a grab
+/// drags the node at its current view depth.
+fn cursor_on_node_plane(
+    camera: &Camera,
+    cam_tf: &GlobalTransform,
+    cursor: Vec2,
+    node_pos: Vec3,
+) -> Option<Vec3> {
+    let ray = camera.viewport_to_world(cam_tf, cursor)?;
+    let n = *cam_tf.forward();
+    let denom = ray.direction.dot(n);
+    if denom.abs() < 1e-6 {
+        return None;
+    }
+    let t = (node_pos - ray.origin).dot(n) / denom;
+    (t > 0.0).then(|| ray.origin + *ray.direction * t)
+}
+
+/// Closest approach between two segments (Ericson). Returns the segment
+/// parameters `(s, t)` ∈ [0,1] and the two closest points.
+fn closest_seg_seg(p1: Vec3, q1: Vec3, p2: Vec3, q2: Vec3) -> (f32, f32, Vec3, Vec3) {
+    let d1 = q1 - p1;
+    let d2 = q2 - p2;
+    let r = p1 - p2;
+    let a = d1.dot(d1);
+    let e = d2.dot(d2);
+    let f = d2.dot(r);
+    let eps = 1e-8;
+    let (s, t);
+    if a <= eps && e <= eps {
+        s = 0.0;
+        t = 0.0;
+    } else if a <= eps {
+        s = 0.0;
+        t = (f / e).clamp(0.0, 1.0);
+    } else {
+        let c = d1.dot(r);
+        if e <= eps {
+            t = 0.0;
+            s = (-c / a).clamp(0.0, 1.0);
+        } else {
+            let b = d1.dot(d2);
+            let denom = a * e - b * b;
+            let s0 = if denom.abs() > eps {
+                ((b * f - c * e) / denom).clamp(0.0, 1.0)
+            } else {
+                0.0
+            };
+            let t0 = (b * s0 + f) / e;
+            if t0 < 0.0 {
+                t = 0.0;
+                s = (-c / a).clamp(0.0, 1.0);
+            } else if t0 > 1.0 {
+                t = 1.0;
+                s = ((b - c) / a).clamp(0.0, 1.0);
+            } else {
+                t = t0;
+                s = s0;
+            }
+        }
+    }
+    (s, t, p1 + d1 * s, p2 + d2 * t)
+}
+
+/// Distance from a ray (origin + t·dir, t ≥ 0) to segment `[a,b]`, plus the
+/// distance along the ray to the closest approach (for depth ordering vs node
+/// picks). `None` if `dir` is degenerate. Mirrors `ray_sphere_t`'s role.
+fn ray_segment_dist(origin: Vec3, dir: Vec3, a: Vec3, b: Vec3) -> Option<(f32, f32)> {
+    let nd = dir.normalize_or_zero();
+    if nd == Vec3::ZERO {
+        return None;
+    }
+    const FAR: f32 = 1.0e4;
+    let (s, _t, c1, c2) = closest_seg_seg(origin, origin + nd * FAR, a, b);
+    Some((s * FAR, c1.distance(c2)))
 }
 
 /// Create the cached node mesh/material handles (startup, once).
@@ -504,7 +609,49 @@ pub fn hover_detection_spatial(
             }
         }
     }
-    st.ui.hovered = best.map(|(_, id)| id);
+    let node_t = best.as_ref().map(|(t, _)| *t);
+
+    // Edge hover: nearest visible aggregated edge within the pick threshold.
+    let thr = st.cfg.edge_pick_threshold;
+    let mut best_edge: Option<(f32, AggEdgeKey)> = None;
+    let mut seen: HashSet<AggEdgeKey> = HashSet::new();
+    for id in st.spatial.vis_cache.iter() {
+        if !st.is_visible_rendered(id) {
+            continue;
+        }
+        for edge in st.model.edges_for_node(id) {
+            if &edge.from != id || !st.is_visible_rendered(&edge.to) {
+                continue;
+            }
+            let key = AggEdgeKey::new(edge);
+            if !seen.insert(key.clone()) {
+                continue;
+            }
+            let (Some(a), Some(b)) = (
+                st.spatial.position_of(&edge.from),
+                st.spatial.position_of(&edge.to),
+            ) else {
+                continue;
+            };
+            if let Some((rt, dist)) = ray_segment_dist(ray.origin, dir, a, b) {
+                if dist <= thr && best_edge.as_ref().is_none_or(|(brt, _)| rt < *brt) {
+                    best_edge = Some((rt, key));
+                }
+            }
+        }
+    }
+
+    // The edge wins only if it is nearer than the nearest node hit.
+    match best_edge {
+        Some((edge_t, key)) if node_t.is_none_or(|nt| edge_t < nt) => {
+            st.ui.hovered_edge = Some(key);
+            st.ui.hovered = None;
+        }
+        _ => {
+            st.ui.hovered_edge = None;
+            st.ui.hovered = best.map(|(_, id)| id);
+        }
+    }
 }
 
 /// Threshold (viewport px) above which an LMB drag becomes a box-select
@@ -537,32 +684,43 @@ pub fn picking_focus(
         return;
     };
 
+    // ----- LMB: grab-to-pin (on a node) or box-select (empty space) -----
     if buttons.just_pressed(MouseButton::Left) && !egui_pointer {
         drag.start = Some(cursor);
+        drag.grabbed = pick_node(&st, camera, cam_tf, cursor);
     }
 
-    // While dragging far enough, draw the selection rectangle.
     if buttons.pressed(MouseButton::Left) {
         if let Some(start) = drag.start {
             if (cursor - start).length() > DRAG_THRESHOLD {
-                let rect = egui::Rect::from_two_pos(
-                    egui::pos2(start.x, start.y),
-                    egui::pos2(cursor.x, cursor.y),
-                );
-                let painter = contexts.ctx_mut().layer_painter(egui::LayerId::new(
-                    egui::Order::Background,
-                    egui::Id::new("box_select"),
-                ));
-                painter.rect_filled(
-                    rect,
-                    0.0,
-                    egui::Color32::from_rgba_unmultiplied(80, 180, 255, 24),
-                );
-                painter.rect_stroke(
-                    rect,
-                    0.0,
-                    egui::Stroke::new(1.0, egui::Color32::from_rgb(120, 200, 255)),
-                );
+                if let Some(id) = drag.grabbed.clone() {
+                    // Grab-drag: pin the node onto its view-depth plane.
+                    if let Some(pos) = st.spatial.position_of(&id) {
+                        if let Some(world) = cursor_on_node_plane(camera, cam_tf, cursor, pos) {
+                            st.set_pin(&id, world);
+                        }
+                    }
+                } else {
+                    // Box-select rectangle.
+                    let rect = egui::Rect::from_two_pos(
+                        egui::pos2(start.x, start.y),
+                        egui::pos2(cursor.x, cursor.y),
+                    );
+                    let painter = contexts.ctx_mut().layer_painter(egui::LayerId::new(
+                        egui::Order::Background,
+                        egui::Id::new("box_select"),
+                    ));
+                    painter.rect_filled(
+                        rect,
+                        0.0,
+                        egui::Color32::from_rgba_unmultiplied(80, 180, 255, 24),
+                    );
+                    painter.rect_stroke(
+                        rect,
+                        0.0,
+                        egui::Stroke::new(1.0, egui::Color32::from_rgb(120, 200, 255)),
+                    );
+                }
             }
         }
     }
@@ -571,28 +729,20 @@ pub fn picking_focus(
         let Some(start) = drag.start.take() else {
             return;
         };
-        if (cursor - start).length() <= DRAG_THRESHOLD {
-            // Click → single ray-pick (depth-correct, nearest sphere hit).
-            if let Some(ray) = camera.viewport_to_world(cam_tf, cursor) {
-                let dir = *ray.direction;
-                let mut best: Option<(f32, spacegraph_core::NodeId)> = None;
-                for (id, pos) in st.spatial.placed_positions() {
-                    if !st.is_visible_rendered(id) {
-                        continue;
-                    }
-                    if let Some(t) = ray_sphere_t(ray.origin, dir, pos, PICK_RADIUS) {
-                        if best.as_ref().map(|(bt, _)| t < *bt).unwrap_or(true) {
-                            best = Some((t, id.clone()));
-                        }
-                    }
-                }
-                if let Some((_, picked)) = best {
-                    out.send(Picked(picked));
-                }
+        let grabbed = drag.grabbed.take();
+        let is_click = (cursor - start).length() <= DRAG_THRESHOLD;
+        if is_click {
+            if let Some(id) = grabbed {
+                out.send(Picked(id)); // click on a node → select
+            } else if let Some(key) = st.ui.hovered_edge.clone() {
+                // Click on an edge → select its target, anchor compare on source.
+                st.ui.selected = Some(key.to.clone());
+                st.ui.focus = Some(key.to.clone());
+                st.ui.compare_pin = Some(key.from.clone());
+                st.needs_redraw.store(true, Ordering::Relaxed);
             }
-        } else {
-            // Drag → box-select: every placed node whose screen point is in the
-            // rectangle.
+        } else if grabbed.is_none() {
+            // Drag in empty space → box-select.
             let rect = Rect::from_corners(start, cursor);
             let mut selected = HashSet::new();
             for (id, pos) in st.spatial.placed_positions() {
@@ -607,6 +757,22 @@ pub fn picking_focus(
             }
             st.ui.multi_selected = selected;
             st.needs_redraw.store(true, Ordering::Relaxed);
+        }
+        // (grabbed + drag → node stays pinned; nothing more to do)
+    }
+
+    // ----- RMB: a click (not an orbit drag) opens the radial context menu -----
+    if buttons.just_pressed(MouseButton::Right) && !egui_pointer {
+        drag.rmb_start = Some(cursor);
+    }
+    if buttons.just_released(MouseButton::Right) {
+        if let Some(start) = drag.rmb_start.take() {
+            if (cursor - start).length() <= DRAG_THRESHOLD {
+                if let Some(id) = pick_node(&st, camera, cam_tf, cursor) {
+                    st.ui.context_menu = Some((id, cursor));
+                    st.needs_redraw.store(true, Ordering::Relaxed);
+                }
+            }
         }
     }
 }
@@ -676,6 +842,42 @@ pub fn draw_spatial(mut st: ResMut<GraphState>, mut gizmos: Gizmos, mut contexts
     for id in st.ui.multi_selected.iter() {
         if let Some(pos) = st.spatial.position_of(id) {
             gizmos.sphere(pos, Quat::IDENTITY, 0.55, Color::srgb(0.30, 0.90, 1.0));
+        }
+    }
+
+    // Marked nodes (persistent tint) and pinned-node markers (both themes).
+    for id in st.ui.marked.iter() {
+        if let Some(pos) = st.spatial.position_of(id) {
+            gizmos.sphere(pos, Quat::IDENTITY, 0.66, theme::MARKED);
+        }
+    }
+    for id in vis.iter() {
+        if st.is_pinned(id) {
+            if let Some(pos) = st.spatial.position_of(id) {
+                gizmos.sphere(pos, Quat::IDENTITY, 0.40, theme::PINNED);
+            }
+        }
+    }
+
+    // Hovered edge: highlight line + tooltip (class, endpoints, count).
+    if let Some(key) = st.ui.hovered_edge.clone() {
+        if let (Some(a), Some(b)) = (
+            st.spatial.position_of(&key.from),
+            st.spatial.position_of(&key.to),
+        ) {
+            gizmos.line(a, b, theme::EDGE_HOVER);
+            let count = st.model.agg_edge(&key).map(|e| e.stats.count).unwrap_or(0);
+            let lines = vec![
+                format!("edge: {}", edge_class_name(key.class)),
+                st.node_label_with_id(&key.from),
+                format!("→ {}", st.node_label_with_id(&key.to)),
+                format!("count: {count}"),
+            ];
+            let pos = contexts
+                .ctx_mut()
+                .input(|i| i.pointer.hover_pos().unwrap_or(egui::pos2(0.0, 0.0)))
+                + egui::vec2(14.0, 14.0);
+            render_tooltip(contexts.ctx_mut(), "tooltip_edge", pos, lines);
         }
     }
 
@@ -1021,6 +1223,33 @@ mod tests {
         assert!(ray_sphere_t(Vec3::ZERO, Vec3::NEG_Z, Vec3::new(5.0, 0.0, -5.0), 0.5).is_none());
         // Sphere behind the ray → no positive hit.
         assert!(ray_sphere_t(Vec3::ZERO, Vec3::NEG_Z, Vec3::new(0.0, 0.0, 5.0), 0.5).is_none());
+    }
+
+    #[test]
+    fn ray_segment_hits_and_misses() {
+        // Ray from origin along -Z; a segment crossing it at z = -5.
+        let (rt, dist) = ray_segment_dist(
+            Vec3::ZERO,
+            Vec3::NEG_Z,
+            Vec3::new(-1.0, 0.0, -5.0),
+            Vec3::new(1.0, 0.0, -5.0),
+        )
+        .expect("non-degenerate");
+        assert!(dist < 1e-3, "ray passes through the segment: dist={dist}");
+        assert!(
+            (rt - 5.0).abs() < 1e-2,
+            "closest approach ~5 along the ray: {rt}"
+        );
+
+        // A segment off to the side → large distance (a miss vs any sane threshold).
+        let (_, dist2) = ray_segment_dist(
+            Vec3::ZERO,
+            Vec3::NEG_Z,
+            Vec3::new(5.0, 0.0, -5.0),
+            Vec3::new(7.0, 0.0, -5.0),
+        )
+        .expect("non-degenerate");
+        assert!(dist2 > 1.0, "off-axis segment is far: dist={dist2}");
     }
 
     #[test]

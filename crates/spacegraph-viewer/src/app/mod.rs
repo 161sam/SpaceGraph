@@ -80,6 +80,7 @@ impl Plugin for SpaceGraphViewerPlugin {
                 crate::ui::inspector_overlay,
                 crate::ui::legend_overlay,
                 crate::ui::reticle_overlay,
+                crate::ui::context_menu_overlay,
                 crate::ui::minimap,
             ),
         )

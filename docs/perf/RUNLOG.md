@@ -563,3 +563,36 @@ Branch: `feat/alert-ingestion`.
 * `cargo run -p spacegraph-viewer -- --demo-load 2000`; confirm rotating rings on
   high-degree hubs + every alert, none on leaf nodes; Minimal → no rings. Capture
   `docs/media/rings.png`.
+
+### Phase 4 — Interaction depth (`feat/node-interaction`)
+
+* **Pin state in `graph/`** (no Bevy types): `SpatialState.pinned: Vec<Option<
+  Vec3>>` + `GraphState::set_pin/clear_pin/is_pinned/pinned_pos`; `force_step`
+  clamps pinned indices (still spring endpoints); `clear_slot` (release/reuse)
+  clears the pin. `GraphModel::degree` reused; `GraphModel::agg_edge` added.
+* **Grab-to-pin** in `picking_focus`: LMB-press hit-tests a node → grab (drag
+  pins onto the view-depth plane via `cursor_on_node_plane`) vs box-select; a
+  pinned node shows a dimmed marker.
+* **Edge picking**: `ray_segment_dist` (Ericson closest-segment) + `ui.hovered_edge`
+  in `hover_detection_spatial` (edge wins when nearer than the nearest node);
+  highlight + class/endpoint/count tooltip in `draw_spatial`; click → select
+  target + compare-pin source. Config `edge_pick_threshold` (0.15).
+* **Radial context menu** `ui/context_menu.rs`: RMB-click (not orbit drag) opens
+  it; deferred `CtxAct` → `apply_context_action` (Focus/Isolate/Trace/Pin/Mark/
+  Inspect). `ui.marked` set with a persistent tint.
+
+### Gate 4 results
+
+* `cargo fmt --check`, `cargo clippy --workspace --all-targets -- -D warnings`,
+  `cargo test --workspace`: green (89 viewer-lib tests). New: pin set/clear
+  roundtrip, **release clears the pinned slot on reuse**, `force_step` keeps a
+  pinned node fixed **and deterministic** (two runs identical), `ray_segment_dist`
+  hit/miss, context-menu action→mutation mappings.
+* Module boundaries intact: pin state is plain `Vec3` data in `graph/`, no Bevy.
+* Deviation: none.
+
+### Local capture
+
+* `cargo run -p spacegraph-viewer -- --demo-load 2000`; drag a node (pins +
+  marker), hover/click an edge (highlight + trace), right-click a node (menu),
+  mark a node. Capture `docs/media/interaction.png`.

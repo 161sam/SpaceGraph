@@ -573,6 +573,14 @@ impl GraphState {
         let mut max_step2 = 0.0_f32;
         for k2 in 0..self.spatial.active.len() {
             let i = self.spatial.active[k2].slot();
+            // Pinned nodes are clamped to their pin and skip integration, but
+            // their (fixed) position still drove the spring forces above, so
+            // neighbours settle around them. Deterministic.
+            if let Some(pin) = self.spatial.pinned[i] {
+                self.spatial.positions[i] = pin;
+                self.spatial.velocities[i] = Vec3::ZERO;
+                continue;
+            }
             let f = self.spatial.forces[i];
             let v = &mut self.spatial.velocities[i];
             *v = (*v + f * dt) * damping;
@@ -841,6 +849,44 @@ mod tests {
             run(),
             "same seeded graph must produce identical positions after K steps"
         );
+    }
+
+    #[test]
+    fn force_step_keeps_pinned_fixed_and_deterministic() {
+        let pin_pos = Vec3::new(3.0, 0.0, -2.0);
+        fn run(pin_pos: Vec3) -> (Vec3, Vec<(String, Vec3)>) {
+            let mut st = state_with_synthetic(400, 10_000);
+            st.cfg.layout_budget_ms = 0.0;
+            let vis = st.visible_set_capped();
+            st.cfg.progressive_nodes_per_frame = 10_000;
+            st.progressive_prepare(&vis);
+            let mut ids: Vec<NodeId> = vis.iter().cloned().collect();
+            ids.sort_by(|a, b| a.0.cmp(&b.0));
+            let pin_id = ids[0].clone();
+            st.set_pin(&pin_id, pin_pos);
+            for _ in 0..40 {
+                st.force_step(&vis, 0.016);
+            }
+            let pinned_now = st.spatial.position_of(&pin_id).unwrap_or(Vec3::ZERO);
+            let all = ids
+                .into_iter()
+                .map(|id| {
+                    (
+                        id.0.clone(),
+                        st.spatial.position_of(&id).unwrap_or(Vec3::ZERO),
+                    )
+                })
+                .collect();
+            (pinned_now, all)
+        }
+        let (p1, a1) = run(pin_pos);
+        let (p2, a2) = run(pin_pos);
+        assert!(
+            (p1 - pin_pos).length() < 1e-4,
+            "pinned node stays clamped at its pin: {p1:?}"
+        );
+        assert_eq!(p1, p2);
+        assert_eq!(a1, a2, "layout with a pinned node is deterministic");
     }
 
     #[test]
