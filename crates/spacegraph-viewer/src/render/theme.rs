@@ -47,6 +47,12 @@ pub const RETICLE_HOVER: Color = Color::srgb(0.90, 0.95, 1.0);
 pub const RETICLE_SELECT: Color = Color::srgb(0.25, 0.95, 1.0);
 /// Focused node reticle / bubble (teal).
 pub const RETICLE_FOCUS: Color = Color::srgb(0.20, 1.0, 0.85);
+/// Marked node tint (magenta).
+pub const MARKED: Color = Color::srgb(0.95, 0.35, 0.85);
+/// Pinned node marker (dimmed amber).
+pub const PINNED: Color = Color::srgb(0.75, 0.6, 0.25);
+/// Hovered edge highlight (bright white-cyan).
+pub const EDGE_HOVER: Color = Color::srgb(0.8, 1.0, 1.0);
 
 // ---- Edge class colours ----
 pub const EDGE_OPENS: Color = Color::srgb(0.25, 0.95, 0.45); // green

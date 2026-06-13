@@ -19,6 +19,14 @@ pub fn handle_shortcuts(mut contexts: EguiContexts, mut st: ResMut<GraphState>) 
             st.ui.help_open = false;
             changed = true;
         }
+        if st.ui.context_menu.is_some() {
+            st.ui.context_menu = None;
+            changed = true;
+        }
+        if st.ui.hovered_edge.is_some() {
+            st.ui.hovered_edge = None;
+            changed = true;
+        }
         if st.ui.focus.is_some() {
             st.ui.focus = None;
             changed = true;

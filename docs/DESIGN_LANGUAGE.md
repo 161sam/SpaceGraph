@@ -76,6 +76,18 @@ set, no steady-state churn); `rotate_node_rings` animates them (visual-only,
 determinism-exempt). Standard-only (`cfg.node_rings`, default on); Minimal draws
 no rings.
 
+### Interaction feedback (v0.4.0)
+
+- **Grab-to-pin:** left-drag a node to reposition it; it pins (clamped by the
+  layout) and shows a dimmed marker (`theme::PINNED`). Left-drag on empty space
+  still box-selects.
+- **Edge picking:** hovering near an aggregated edge highlights it
+  (`theme::EDGE_HOVER`) with a class/endpoints/count tooltip; clicking it selects
+  the target and anchors the "why connected" compare on the source.
+- **Radial context menu:** right-click a node (a click, not an orbit drag) for
+  Fly-to / Isolate / Trace / Pin / Mark / Inspect.
+- **Marks:** marked nodes carry a persistent magenta tint (`theme::MARKED`).
+
 ## Motion & recency
 
 - **Recent activity glow:** on upsert/touch a node flashes toward white

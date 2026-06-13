@@ -142,6 +142,9 @@ pub struct ViewerConfig {
     pub node_rings: bool,
     #[serde(default = "default_ring_min_degree")]
     pub ring_min_degree: usize,
+    /// Edge-pick hit threshold in world units (ray-vs-segment distance).
+    #[serde(default = "default_edge_pick_threshold")]
+    pub edge_pick_threshold: f32,
     // ---- Audio (effective only in builds with the `audio` feature) ----
     #[serde(default = "default_audio_enabled")]
     pub audio_enabled: bool,
@@ -199,6 +202,7 @@ impl Default for ViewerConfig {
             micro_tag_max: default_micro_tag_max(),
             node_rings: default_node_rings(),
             ring_min_degree: default_ring_min_degree(),
+            edge_pick_threshold: default_edge_pick_threshold(),
             audio_enabled: default_audio_enabled(),
             audio_volume: default_audio_volume(),
             agents: vec![AgentEndpoint::default()],
@@ -235,6 +239,9 @@ fn default_node_rings() -> bool {
 }
 fn default_ring_min_degree() -> usize {
     6
+}
+fn default_edge_pick_threshold() -> f32 {
+    0.15
 }
 fn default_audio_enabled() -> bool {
     true

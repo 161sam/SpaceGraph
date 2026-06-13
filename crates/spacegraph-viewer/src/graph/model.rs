@@ -190,6 +190,11 @@ impl GraphModel {
         })
     }
 
+    /// Look up an aggregated edge by key (for edge-pick tooltips).
+    pub fn agg_edge(&self, key: &AggEdgeKey) -> Option<&AggEdge> {
+        self.agg.get(key)
+    }
+
     pub fn agg_edges(&self) -> impl Iterator<Item = &AggEdge> + '_ {
         self.agg.values()
     }

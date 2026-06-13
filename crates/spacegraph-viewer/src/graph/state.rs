@@ -1,4 +1,4 @@
-use bevy::prelude::{Resource, Vec3};
+use bevy::prelude::{Resource, Vec2, Vec3};
 use spacegraph_core::{
     id_file, id_process, id_user, Delta, Edge, EdgeKind, FileKind, Msg, Node, NodeId,
 };
@@ -9,7 +9,7 @@ use std::time::{Duration, Instant};
 use crate::graph::explain::{self, PathStep};
 use crate::graph::grid::Grid;
 use crate::graph::interner::{NodeIndex, NodeInterner};
-use crate::graph::model::GraphModel;
+use crate::graph::model::{AggEdgeKey, GraphModel};
 use crate::graph::namespace;
 use crate::graph::synthetic;
 use crate::graph::timeline::{BatchSpan, NodeLife, TimelineEvt, TimelineEvtKind};
@@ -30,6 +30,10 @@ pub struct SpatialState {
     pub velocities: Vec<Vec3>,
     pub placed: Vec<bool>,
     pub glow_until: Vec<Option<Instant>>,
+    /// Grab-to-pin: when `Some`, the node is clamped to this position by the
+    /// force layout (it still acts as a spring endpoint for neighbours). Plain
+    /// graph state — no Bevy types. Indexed by `NodeIndex` slot.
+    pub pinned: Vec<Option<Vec3>>,
 
     /// Layout spring list: model edges resolved to index pairs, rebuilt only on
     /// topology change (`springs_dirty`) — never per frame.
@@ -82,6 +86,7 @@ impl SpatialState {
             self.velocities.resize(cap, Vec3::ZERO);
             self.placed.resize(cap, false);
             self.glow_until.resize(cap, None);
+            self.pinned.resize(cap, None);
         }
     }
 
@@ -123,6 +128,9 @@ impl SpatialState {
         self.velocities[i] = Vec3::ZERO;
         self.placed[i] = false;
         self.glow_until[i] = None;
+        if let Some(slot) = self.pinned.get_mut(i) {
+            *slot = None;
+        }
     }
 
     /// Release a node, freeing its slot for reuse and clearing its state.
@@ -257,6 +265,12 @@ pub struct UiState {
     pub multi_selected: HashSet<NodeId>,
     /// Anchor node for the inspector's "why connected" path (toggle via Pin).
     pub compare_pin: Option<NodeId>,
+    /// Aggregated edge currently under the cursor (edge picking).
+    pub hovered_edge: Option<AggEdgeKey>,
+    /// Open radial context menu: (target node, screen position).
+    pub context_menu: Option<(NodeId, Vec2)>,
+    /// Nodes the user has marked (persistent tint).
+    pub marked: HashSet<NodeId>,
 
     pub search_open: bool,
     pub search_query: String,
@@ -504,6 +518,9 @@ pub struct CfgState {
     pub node_rings: bool,
     pub ring_min_degree: usize,
 
+    /// Edge-pick hit threshold (world units) for ray-vs-segment edge picking.
+    pub edge_pick_threshold: f32,
+
     /// UI sound effects (effective only in builds with the `audio` feature).
     pub audio_enabled: bool,
     pub audio_volume: f32,
@@ -599,6 +616,9 @@ impl Default for GraphState {
                 selected_b: None,
                 multi_selected: HashSet::new(),
                 compare_pin: None,
+                hovered_edge: None,
+                context_menu: None,
+                marked: HashSet::new(),
                 search_open: false,
                 search_query: String::new(),
                 search_hits: Vec::new(),
@@ -669,6 +689,7 @@ impl Default for GraphState {
                 micro_tag_max: 24,
                 node_rings: true,
                 ring_min_degree: 6,
+                edge_pick_threshold: 0.15,
                 audio_enabled: true,
                 audio_volume: 0.6,
             },
@@ -1124,6 +1145,42 @@ impl GraphState {
         if self.revealed.insert(id.clone()) {
             self.needs_redraw.store(true, Ordering::Relaxed);
         }
+    }
+
+    // ---- Grab-to-pin (plain graph state; consumed by the force layout) ----
+
+    /// Pin a node to a world position; the layout clamps it there each step.
+    /// Also moves it now and wakes the layout so neighbours follow even if the
+    /// graph had settled (frozen).
+    pub fn set_pin(&mut self, id: &NodeId, pos: Vec3) {
+        let idx = self.spatial.intern(id);
+        self.spatial.pinned[idx.slot()] = Some(pos);
+        self.spatial.set_position(idx, pos);
+        self.spatial.layout_settled = false;
+        self.spatial.settle_streak = 0;
+        self.needs_redraw.store(true, Ordering::Relaxed);
+    }
+
+    /// Release a pin; the node resumes force-directed motion.
+    pub fn clear_pin(&mut self, id: &NodeId) {
+        if let Some(idx) = self.spatial.index_of(id) {
+            if let Some(slot) = self.spatial.pinned.get_mut(idx.slot()) {
+                if slot.take().is_some() {
+                    self.spatial.layout_settled = false;
+                    self.spatial.settle_streak = 0;
+                    self.needs_redraw.store(true, Ordering::Relaxed);
+                }
+            }
+        }
+    }
+
+    pub fn is_pinned(&self, id: &NodeId) -> bool {
+        self.pinned_pos(id).is_some()
+    }
+
+    pub fn pinned_pos(&self, id: &NodeId) -> Option<Vec3> {
+        let idx = self.spatial.index_of(id)?;
+        self.spatial.pinned.get(idx.slot()).copied().flatten()
     }
 
     fn apply_delta(&mut self, d: Delta) {
@@ -1606,6 +1663,7 @@ impl GraphState {
         self.cfg.micro_tag_max = cfg.micro_tag_max.min(256);
         self.cfg.node_rings = cfg.node_rings;
         self.cfg.ring_min_degree = cfg.ring_min_degree.max(1);
+        self.cfg.edge_pick_threshold = cfg.edge_pick_threshold.max(0.01);
         self.cfg.audio_enabled = cfg.audio_enabled;
         self.cfg.audio_volume = cfg.audio_volume.clamp(0.0, 1.0);
         self.sync_agent_endpoints(cfg.agents.clone());
@@ -1658,6 +1716,7 @@ impl GraphState {
             micro_tag_max: self.cfg.micro_tag_max,
             node_rings: self.cfg.node_rings,
             ring_min_degree: self.cfg.ring_min_degree,
+            edge_pick_threshold: self.cfg.edge_pick_threshold,
             audio_enabled: self.cfg.audio_enabled,
             audio_volume: self.cfg.audio_volume,
             agents: self.net.endpoints.clone(),
@@ -1806,6 +1865,59 @@ mod tests {
             },
         );
         assert!(st.is_visible_rendered(&a));
+    }
+
+    #[test]
+    fn pin_set_clear_roundtrip() {
+        let mut st = GraphState::default();
+        let id = NodeId("p".to_string());
+        st.model.nodes.insert(
+            id.clone(),
+            Node::File {
+                path: "/p".to_string(),
+                inode: 1,
+                kind: FileKind::Regular,
+            },
+        );
+        let idx = st.spatial.intern(&id);
+        st.spatial.set_position(idx, Vec3::ZERO);
+        assert!(!st.is_pinned(&id));
+        st.set_pin(&id, Vec3::new(1.0, 2.0, 3.0));
+        assert!(st.is_pinned(&id));
+        assert_eq!(st.pinned_pos(&id), Some(Vec3::new(1.0, 2.0, 3.0)));
+        st.clear_pin(&id);
+        assert!(!st.is_pinned(&id));
+        assert_eq!(st.pinned_pos(&id), None);
+    }
+
+    #[test]
+    fn release_clears_pinned_slot_on_reuse() {
+        let mut st = GraphState::default();
+        let a = NodeId("a".to_string());
+        st.model.nodes.insert(
+            a.clone(),
+            Node::File {
+                path: "/a".to_string(),
+                inode: 1,
+                kind: FileKind::Regular,
+            },
+        );
+        st.spatial.intern(&a);
+        st.set_pin(&a, Vec3::splat(5.0));
+        assert!(st.is_pinned(&a));
+        // Release frees the slot; a new node reuses it and must not be pinned.
+        st.spatial.release(&a);
+        let b = NodeId("b".to_string());
+        st.model.nodes.insert(
+            b.clone(),
+            Node::File {
+                path: "/b".to_string(),
+                inode: 2,
+                kind: FileKind::Regular,
+            },
+        );
+        st.spatial.intern(&b);
+        assert!(!st.is_pinned(&b), "reused slot must not inherit a pin");
     }
 
     #[test]
