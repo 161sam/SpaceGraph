@@ -120,6 +120,19 @@ pub struct ViewerConfig {
     pub visual_theme: VisualTheme,
     #[serde(default)]
     pub fog_of_war: bool,
+    // ---- Gameplay / exploration ----
+    #[serde(default = "default_reveal_radius")]
+    pub reveal_radius: f32,
+    #[serde(default = "default_scan_speed")]
+    pub scan_speed: f32,
+    #[serde(default = "default_scan_max")]
+    pub scan_max: f32,
+    #[serde(default = "default_fly_speed")]
+    pub fly_speed: f32,
+    #[serde(default = "default_fly_boost")]
+    pub fly_boost: f32,
+    #[serde(default = "default_fly_sensitivity")]
+    pub fly_sensitivity: f32,
     #[serde(default = "default_agents")]
     pub agents: Vec<AgentEndpoint>,
 }
@@ -162,9 +175,34 @@ impl Default for ViewerConfig {
             default_agent_mode: AgentMode::User,
             visual_theme: VisualTheme::Standard,
             fog_of_war: false,
+            reveal_radius: default_reveal_radius(),
+            scan_speed: default_scan_speed(),
+            scan_max: default_scan_max(),
+            fly_speed: default_fly_speed(),
+            fly_boost: default_fly_boost(),
+            fly_sensitivity: default_fly_sensitivity(),
             agents: vec![AgentEndpoint::default()],
         }
     }
+}
+
+fn default_reveal_radius() -> f32 {
+    55.0
+}
+fn default_scan_speed() -> f32 {
+    70.0
+}
+fn default_scan_max() -> f32 {
+    500.0
+}
+fn default_fly_speed() -> f32 {
+    24.0
+}
+fn default_fly_boost() -> f32 {
+    4.0
+}
+fn default_fly_sensitivity() -> f32 {
+    0.0025
 }
 
 fn default_uds_path() -> String {

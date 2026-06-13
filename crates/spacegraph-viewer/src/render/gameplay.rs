@@ -20,12 +20,9 @@ pub struct ScanPulse {
     pub origin: Vec3,
 }
 
-const SCAN_SPEED: f32 = 70.0;
-const SCAN_MAX: f32 = 500.0;
+/// Width of the scan-pulse "active band" that glows nodes as the wave passes.
+/// (Speed, max range and reveal radius are configurable — see `cfg`.)
 const SCAN_BAND: f32 = 10.0;
-
-/// Fog-of-war reveal radius around the camera.
-const REVEAL_RADIUS: f32 = 55.0;
 
 /// Reveal nodes the camera comes close to (fog-of-war exploration). Placement
 /// runs on the full projection, so unrevealed nodes already have positions to
@@ -38,7 +35,7 @@ pub fn reveal_tick(cam_q: Query<&Transform, With<Camera>>, mut st: ResMut<GraphS
         return;
     };
     let cam = tf.translation;
-    let r2 = REVEAL_RADIUS * REVEAL_RADIUS;
+    let r2 = st.cfg.reveal_radius * st.cfg.reveal_radius;
     let mut newly: Vec<NodeId> = st
         .spatial
         .placed_positions()
@@ -71,7 +68,7 @@ pub fn scan_pulse(
     if !scan.active {
         return;
     }
-    scan.radius += SCAN_SPEED * time.delta_seconds();
+    scan.radius += st.cfg.scan_speed * time.delta_seconds();
     gizmos.sphere(scan.origin, Quat::IDENTITY, scan.radius, theme::PROCESS);
 
     let lo = scan.radius - SCAN_BAND;
@@ -94,7 +91,7 @@ pub fn scan_pulse(
     st.needs_redraw
         .store(true, std::sync::atomic::Ordering::Relaxed);
 
-    if scan.radius > SCAN_MAX {
+    if scan.radius > st.cfg.scan_max {
         scan.active = false;
     }
 }
