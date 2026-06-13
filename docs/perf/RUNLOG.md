@@ -313,6 +313,12 @@ Branch: `feat/visual-design-pass`.
   this headless build and shipping unverifiable render code is the larger risk.
   Documented in `DESIGN_LANGUAGE.md` as the next visual iteration.
 
+> **Resolved later (post-v0.4.0):** the deferred mesh-polyline edges shipped —
+> aggregated edges now render as a single batched HDR `LineList` mesh
+> (`render/edges.rs`, `setup_edge_mesh`/`update_edge_mesh`, reused buffers +
+> dirty-flag) with full bloom participation; live-verified on Vulkan with no
+> wgpu validation error. The raw-edge fallback + activity pulse remain gizmos.
+
 ---
 
 ## Phase 6 — v0.2.0 Multi-Node

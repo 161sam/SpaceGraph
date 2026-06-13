@@ -88,7 +88,7 @@ deterministische synthetische Graphen. Maschinen-Specs und Baseline-Zahlen in
 
 ---
 
-## Status-Reconciliation (Stand 2026-06-12, Tag v0.1.11)
+## Status-Reconciliation (Stand 2026-06-13, Tags bis v0.4.0)
 
 Abgleich der Gates mit dem tatsächlichen Stand nach der Perf-/Hardening-Arbeit
 (Phasen 0–4). „Automatisch verifiziert“ = via `cargo test`/`cargo bench`/
@@ -96,9 +96,11 @@ Abgleich der Gates mit dem tatsächlichen Stand nach der Perf-/Hardening-Arbeit
 
 - **Code Quality** — ✓ automatisch verifiziert (`fmt`, `clippy -D warnings`,
   `test`; keine `unwrap()` in `render/`).
-- **Performance** — ✓ benchmark-enforced: `force_step` 2.19 ms @2000 / 7.57 ms
-  @5000; neighbour-only Grid (kein O(N²)/O(E_total) im Frame); Layout +
-  Render arbeiten auf capped Sets; Edge-Aggregation aktiv.
+- **Performance** — ✓ benchmark-enforced: `force_step` **2.20 ms @2000 / 8.28 ms
+  @5000** (v0.4.0-Re-Messung nach dem Pin-Clamp; siehe `docs/perf/RUNLOG.md`
+  Phase 6 — Ausgangsbaseline war 2.19 / 7.57); neighbour-only Grid (kein
+  O(N²)/O(E_total) im Frame); Layout + Render arbeiten auf capped Sets;
+  Edge-Aggregation aktiv.
 - **v0.1.8** — ✓ Module vollständig (`app/ net/ graph/ render/ ui/ util/`).
 - **v0.1.9** — ✓ Indizes + Aggregation; Explain-BFS (Cap) liefert Pfade.
 - **v0.1.10** — ✓ Timeline-Determinismus-Tests; Klick-Selektion vorhanden.
