@@ -1775,4 +1775,31 @@ detections; no wire, no new kind.
   detections carry no reliable wire timestamp; a temporal window can refine later
   with no model change.
 
+## D5 — ATT&CK coverage + posture (ADR-0006 §3, AUTO, viewer-side)
+
+Branch: `feat/attack-coverage-posture`. Read-only over the rule registry + graph;
+no egress, no wire.
+
+### Changed
+
+* **`graph/coverage.rs` (new):** `coverage()` (tactic-grouped detected/undetected
+  from the registry) + `coverage_ratio()`. Pure; no live ATT&CK fetch (O-7').
+* **`graph/posture.rs` (new):** `posture(&GraphModel) -> Posture` — deterministic
+  0..100 risk from public listeners + alert density, amplified by the coverage gap.
+* `GraphState::coverage()` / `posture()` accessors. Navigator-style heatmap +
+  posture view are the visual layer.
+
+### Gate results
+
+* `fmt --check` clean · `clippy -D warnings` clean · `test --workspace` green —
+  core **6**, agent **48**, viewer **218** + 3 (6 new D5 tests: 3 coverage +
+  3 posture). Coverage honest by construction: T1041 (Exfiltration) is an unmapped
+  gap → ratio 0.75.
+
+### Notes
+
+* No new ADR — ADR-0006 §3 already specifies coverage + posture.
+* Posture is deterministic over a fixture graph (tested); the heatmap/HUD view is
+  the visual layer (not a CI gate).
+
 ---
