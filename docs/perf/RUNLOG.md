@@ -1226,3 +1226,27 @@ survives at Potato:
 v0.5.0 gates green: fmt / clippy -D / **188 tests**; both invariants held
 (registered-systems empty after the shell refactor; determinism gate green); all
 structural perf proxies asserted; layout benchmark code unchanged.
+
+---
+
+# FS-Search & Index MP (`feature/fs-search`)
+
+Track-A standalone feature (viewer + agent + wire protocol; no ESN), per
+`docs/spec_fs_search_index.md`. Branched from `v0.5.0` (`ee863b9`). Runs in
+parallel with the v0.5.1 focus/polish pass; shared files touched additively only
+(see `docs/recon/INTEGRATION_fs-search.md` at closeout).
+
+## Phase 0 — Branch + commit pending docs
+
+Branch: `feature/fs-search` (off `v0.5.0`).
+
+### Changed
+
+* Committed `docs/spec_fs_search_index.md` (the binding spec) — previously an
+  uncommitted worktree file.
+
+### Gate 0 results
+
+* `cargo test --workspace`: **green** (exit 0) at the `v0.5.0` baseline — the
+  feature branch starts from a green tree.
+* No source changed in Phase 0; the v0.5.0 fmt/clippy gates are inherited.
