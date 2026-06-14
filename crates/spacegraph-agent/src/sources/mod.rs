@@ -33,7 +33,7 @@ pub struct FsSource {
     pub policy: Arc<PathPolicy>,
     pub roots: Vec<PathBuf>,
     /// Builtin search index walker to keep incrementally fresh from inotify
-    /// events (`None` when a system locate index is used instead).
+    /// events.
     pub index_walker: Option<Arc<RwLock<Walker>>>,
 }
 

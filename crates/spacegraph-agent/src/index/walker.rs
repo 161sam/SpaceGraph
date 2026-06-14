@@ -90,6 +90,16 @@ impl Walker {
     pub fn on_remove(&mut self, path: &str) {
         self.paths.remove(path);
     }
+
+    /// Test-only constructor: a walker holding exactly `paths`, bypassing the
+    /// build-time scope/privilege filter so the search-time post-filter can be
+    /// exercised over a synthetic path universe.
+    #[cfg(test)]
+    pub(crate) fn from_paths(paths: impl IntoIterator<Item = String>) -> Self {
+        Self {
+            paths: paths.into_iter().collect(),
+        }
+    }
 }
 
 #[cfg(test)]
