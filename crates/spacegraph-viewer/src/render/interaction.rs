@@ -143,18 +143,21 @@ pub fn trigger_alert_ripple(
     res: Res<RippleResources>,
     mut mats: ResMut<Assets<StandardMaterial>>,
     existing: Query<(), With<FocusRipple>>,
-    mut last_alerts: Local<usize>,
+    mut last_alert: Local<Option<NodeId>>,
 ) {
-    let count = st.alert_order.len();
-    let grew = count > *last_alerts;
-    *last_alerts = count;
-    if !grew
+    // Track the newest alert by *identity*, not by count: `alert_order` is a
+    // capped ring buffer, so its length pins at the cap and a count delta would
+    // miss every new alert once full.
+    let newest = st.alert_order.back().cloned();
+    let is_new = newest.is_some() && newest != *last_alert;
+    *last_alert = newest.clone();
+    if !is_new
         || st.cfg.visual_theme != VisualTheme::Standard
         || existing.iter().count() >= MAX_RIPPLES
     {
         return;
     }
-    let Some(id) = st.alert_order.back() else {
+    let Some(id) = newest.as_ref() else {
         return;
     };
     let Some(idx) = st.spatial.index_of(id) else {
@@ -380,6 +383,50 @@ mod tests {
             ripple_count(&mut app),
             1,
             "a stable alert set spawns no more (no churn)"
+        );
+    }
+
+    #[test]
+    fn alert_ripple_fires_on_new_identity_at_constant_length() {
+        use spacegraph_core::Node;
+        fn add_alert(gs: &mut GraphState, name: &str) -> NodeId {
+            let id = NodeId(name.to_string());
+            gs.model.nodes.insert(
+                id.clone(),
+                Node::Alert {
+                    source: "s".into(),
+                    signature: "x".into(),
+                    severity: "high".into(),
+                    ts: "t".into(),
+                },
+            );
+            let idx = gs.spatial.intern(&id);
+            gs.spatial.set_position(idx, Vec3::ZERO);
+            id
+        }
+
+        let mut gs = GraphState::default();
+        let a = add_alert(&mut gs, "a");
+        gs.alert_order.push_back(a);
+        let mut app = ripple_app(gs);
+        app.add_systems(Update, trigger_alert_ripple);
+        app.update();
+        assert_eq!(ripple_count(&mut app), 1);
+
+        // Simulate the capped ring buffer evicting "a" and pushing "b": the length
+        // stays 1 but the newest identity changes. A count-delta check would miss
+        // this; the identity check must fire a second ripple.
+        {
+            let mut st = app.world_mut().resource_mut::<GraphState>();
+            let b = add_alert(&mut st, "b");
+            st.alert_order.clear();
+            st.alert_order.push_back(b);
+        }
+        app.update();
+        assert_eq!(
+            ripple_count(&mut app),
+            2,
+            "a new alert identity fires even when the buffer length is unchanged"
         );
     }
 }

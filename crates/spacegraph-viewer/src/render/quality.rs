@@ -413,10 +413,15 @@ pub fn apply_quality(
         *msaa = want_msaa;
     }
 
-    // The tier owns the node budget (spec §2.2: "max nodes (default)").
-    st.cfg.max_visible_nodes = gates.max_nodes;
-    // The v0.4.1 node-detail axis follows the effective tier.
-    *cap = quality.effective.detail_capability();
+    // The tier caps the node budget (spec §2.2) non-destructively: the user's
+    // persisted `max_visible_nodes` is preserved; the effective cap is
+    // `min(user, tier)` (see `GraphState::effective_max_nodes`), so raising the
+    // tier restores the user's value.
+    st.cfg.tier_max_nodes = gates.max_nodes;
+    // The v0.4.1 node-detail axis follows the effective tier, unless the user
+    // pinned an explicit `[node_detail] level` (which `finish` honoured).
+    *cap = crate::render::capability::parse_override(&st.cfg.node_detail.level)
+        .unwrap_or_else(|| quality.effective.detail_capability());
 }
 
 /// Runtime-adaptive tier stepping (spec §2.5): a ~1 s mean-FPS window feeds the

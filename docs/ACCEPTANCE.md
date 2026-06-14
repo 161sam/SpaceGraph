@@ -191,6 +191,50 @@ struktur-/pure-fn-geprüft (kein GPU/Pi in CI; FPS-Capture lokal, siehe RUNLOG).
 - **Layout-Benchmarks** — `force_step` unverändert innerhalb der Gates (dieser
   Pass ist render-seitig; Zahlen in `RUNLOG.md`, v0.4.1-Closeout).
 
+### v0.5.0 — GitS UX-Shell, Radial Command HUD & Quality Tiers (Track A)
+
+Alle Gates struktur-/pure-fn-geprüft (kein GPU/Pi in CI; FPS-Capture lokal, siehe
+RUNLOG). Beide Invarianten bleiben grün: Registered-Systems (kein UI/Render-System
+verwaist) und Determinismus (`force_step`/`visible_set_capped` deterministisch);
+alle v0.5.0-Zusätze sind render/UI oder reine Prädikate → determinismus-exempt.
+
+- **WP-0 Quality-Tiers** — ✓ `detect_tier` (Pi V3D/llvmpipe → Potato, discrete →
+  High, GL-iGPU → Low), adaptive State-Machine (3 s ab / 10 s auf + Margin →
+  keine Oszillation, nie unter Potato, Cap bei Base), `effective_gates` (Minimal →
+  günstigster Pfad), `take_dirty` (genau eine Rekonfiguration pro Wechsel),
+  `[quality]`-Config-Roundtrip.
+- **WP-1 Shell/Reskin/Selektoren** — ✓ `[shell]`-Roundtrip; Registered-Systems
+  nach dem Refactor erneut **leer** verifiziert (inkl. `apply_egui_theme`);
+  Control-Inventory (alle Vorbestände erhalten, Tuning unter Technician); Theme +
+  Tier Selektoren persistieren; Minimal behält flachen Look (eigener Visuals-Pfad).
+- **WP-2 Gate-Glyphs** — ✓ ein Glyph je sichtbarem Knoten (Standard), typ-gefärbt;
+  LOD-Selektion pure-fn (`glyph_layer_active`/`silhouette_active`); Potato/Low →
+  Silhouette unterdrückt (Glyph primär); Minimal → kein Glyph; kein Steady-State-
+  Churn.
+- **WP-3 Radial-HUD** — ✓ Zustands-Transitionen (open/switch/rotate-wrap/page-clamp),
+  Command→`CtxAct`, Pfad-Indexierung + sortiert-eindeutige Nachbarn; rendert
+  panik-frei headless (Camera + Fokus).
+- **WP-4 Ripples + Rand-Frame** — ✓ Ripple-Lebenszyklus (Fokus + Alert → abklingen
+  → despawn, kein Churn); Rand-Frame liest Global-State panik-frei.
+- **WP-5 Palette + Query-DSL** — ✓ Parser (valide/Negation/`deg:>N`/`recent:Nm`/
+  malformed→Fehler), Prädikat-Treffer/-Fehlschläge (rein + deterministisch),
+  Fuzzy-Match; Filter ersetzt durch Query-DSL mit entfernbaren Chips.
+- **Module/Boundaries** — ✓ Query-Prädikat ist Plain-Data in `graph/` (kein Bevy);
+  Glyph-/HUD-/Radial-State in `render/`/`ui/`; Graph-Wahrheit unberührt.
+
+### F3 — Lane-Timeline & Tree-View Acceptance (Recon-Finding, hier ergänzt)
+
+Diese in v0.3.x/v0.4.0 implementierten Modi hatten keine expliziten Gates (Recon
+F3). Nachgetragen:
+
+- **Lane-Timeline** — Events in Lanes je Entität (pid/Pfad) gruppiert,
+  deterministisch bei Pause/Scrub; Hover-Tooltip mit echten Metadaten; Klick auf
+  Event → Select → (im Spatial) Jump. Window/X-Scale/Connectors konfigurierbar;
+  Events gecappt (Ringpuffer). Determinismus: gleiche Events → gleiche Lanes.
+- **Tree-View** — Filesystem-Hierarchie mit Collapse/Expand, datei-LOD per Zoom
+  (`tree_file_zoom_threshold`), „Fit to view"; keine ID-Kollisionen; Wechsel
+  Spatial⇄Tree⇄Timeline markiert das Layout dirty (eine Neuberechnung, kein Churn).
+
 ---
 
 ## Definition „Release-fähig“

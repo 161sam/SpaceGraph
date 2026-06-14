@@ -205,3 +205,48 @@ participation. The raw-edge fallback and the recent-activity pulse remain gizmos
 
 Screenshots / GPU capture remain a local step (the build env is headless):
 `cargo run -p spacegraph-viewer -- --demo-load 2000`.
+
+## v0.5.0 — GitS UX-shell, quality tiers, radial HUD
+
+### Quality tiers (the cost axis)
+A `QualityTier {Potato, Low, Medium, High}` axis (`render::quality`) **orthogonal**
+to `VisualTheme`. Auto-detected from the GPU adapter, runtime-adaptive (FPS
+feedback with hysteresis), manually overridable. **GitS-at-low-cost split:**
+tier-*independent* (neon palette, gate-glyphs, reticle, radial HUD, dive ripples,
+rand-frame, palette, query-DSL) vs tier-*gated* (HDR bloom, post-FX, MSAA, 3D
+silhouettes + orbital-ring meshes, node budgets). So a Raspberry Pi at `Potato`
+still reads as Ghost-in-the-Shell. `Minimal` forces the cheapest path at any tier.
+
+### egui design tokens + GitS reskin
+`ui/tokens.rs` (neon-on-black colour roles, spacing, font roles) + `ui/theme_egui.rs`
+(GitS `Visuals` in Standard, plain dark in Minimal; embedded OFL fonts — Inter
+body, JetBrains Mono mono, Space Grotesk headers, committed under `assets/fonts/`).
+IDE shell: resizable/toggleable left operator rail (tuning demoted into a collapsed
+**Technician** section), right-docked inspector, `[shell]`-persisted.
+
+### Gate-glyph node LOD (`render::node_glyph`)
+A billboarded concentric-ring `LineList` glyph (unlit emissive, per-kind,
+instanced) on every visible node in Standard — with the v0.4.1 face icon as its
+centre, one **gate unit**. Primary at Potato/Low (3D silhouette suppressed),
+far-LOD at Medium/High (per-kind silhouette near). Minimal draws no glyph.
+
+### Radial command HUD (`ui/context_menu`)
+`F` opens a keyboard-driven concentric ring HUD on the focused node: inner ring =
+command verbs (`CtxAct`), outer ring = neighbour paths (paged by 9). Tab/↑↓ switch
+ring, ←→ rotate, `[`/`]` page, 1–9 select, Enter execute, Esc close; a path dive
+re-centres focus (keyboard graph traversal). egui painter, tier-independent.
+
+### Dive ripples + HUD rand-frame
+Decaying focus/alert ripples (`render::interaction`); a peripheral rand-frame
+(`ui/hud::hud_frame_overlay`) — corner brackets + a live strip (agents, alert
+severities, mode, FPS, active tier) hugging the viewport margins.
+
+### Command palette + query-DSL
+`Ctrl/Cmd+P` fuzzy command palette (actions + navigation + nodes; in-house
+subsequence matcher). The filter is a **query-DSL** (`graph::query`):
+`type:/kind:/host:/sev:/name:/path:/deg:>N/recent:Nm`, bare-word substring,
+`-` negation, implicit AND — rendered as removable chips (red chip on malformed).
+
+### Controls (v0.5.0)
+`F` radial HUD · `Ctrl+P` command palette · query-DSL filter box · Display
+selectors (theme + quality tier) in the left rail.
