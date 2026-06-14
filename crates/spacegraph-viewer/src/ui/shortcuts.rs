@@ -63,8 +63,9 @@ pub fn handle_shortcuts(
         return;
     }
 
-    if ctx.input(|i| i.key_pressed(egui::Key::P) && i.modifiers.ctrl) {
-        st.ui.search_open = true;
+    // Ctrl/Cmd+P opens the command palette (actions + nav + nodes; spec §3.7).
+    if ctx.input(|i| i.key_pressed(egui::Key::P) && (i.modifiers.ctrl || i.modifiers.command)) {
+        st.ui.palette_open = true;
     }
     if ctx.input(|i| i.key_pressed(egui::Key::Questionmark)) {
         st.ui.help_open = !st.ui.help_open;

@@ -1129,3 +1129,37 @@ cargo run --release -p spacegraph-viewer -- --demo-load 1500
 # focus a node → ripple; inject an alert → red ripple at it; the rand-frame
 # corner brackets + status strip show live agents/alerts/mode/FPS/tier.
 ```
+
+## Phase 6 — WP-5 Command palette + query-DSL (spec §3.7, §3.8)
+
+* `graph/query.rs`: pure parser + predicate (no Bevy). Grammar per spec — implicit
+  -AND terms, leading `-` negates, `key:value` over `type`/`kind`/`host`/`sev`/
+  `name`/`path`/`deg`/`recent` + bare-word substring; quote-aware tokenizer;
+  `deg:>N` operators, `recent:Nm` durations. Compiles to `Query::matches(&NodeView)`
+  (a borrowed view the caller fills from graph state); malformed → `QueryError`.
+  Replaces the substring filter: `visible_set_capped` parses the filter **once**
+  and applies `query_passes` per node (kind/label/name/path/host/severity/degree/
+  recent via a graph-side `node_kind_str` — no render dep). Blank/malformed query
+  → matches all (the chip shows the error). Filter UI now renders parsed tokens as
+  **removable chips** + a red error chip.
+* `ui/command_palette.rs`: `Ctrl/Cmd+P` palette over actions (theme/tier/panel
+  toggles, fog, search) + nodes (jump), ranked by an in-house subsequence
+  `fuzzy_match` (contiguous/prefix/short bonuses; **no new crate**). Bounded node
+  scan; Enter executes the top hit; Esc closes. `try_ctx_mut` → panic-free
+  headless. (Ctrl+P now opens the palette; the old search stays on its panel button.)
+* **Gate 6 PASS** — fmt / clippy -D / test green. New tests (+10):
+  query `parses_valid_forms`, `negation_and_implicit_and`, `malformed_inputs_error`,
+  `predicate_hits_and_misses`, `alert_severity_predicate`, `empty_query_matches_all`;
+  palette `fuzzy_matches_subsequence_only`, `fuzzy_prefers_contiguous_and_prefix`,
+  `ranked_entries_surface_theme_command`, `palette_overlay_runs_without_panic_headless`.
+  Determinism regression guard re-verified green (`force_step_is_deterministic`,
+  `capped_visible_set_is_deterministic`). **187 tests** total.
+
+### Local-capture (interaction)
+
+```
+cargo run --release -p spacegraph-viewer -- --demo-load 1500
+# Ctrl+P → palette (fuzzy actions + node jump). Filter box: type
+# `type:process deg:>3 -name:bash` → chips + live filtering; a malformed term
+# (e.g. deg:abc) shows a red error chip and stops filtering.
+```

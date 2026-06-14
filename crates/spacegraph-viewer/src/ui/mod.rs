@@ -1,3 +1,4 @@
+pub mod command_palette;
 pub mod context_menu;
 pub mod help;
 pub mod hud;
@@ -20,6 +21,7 @@ pub const HUD_EDGE_PADDING: f32 = 10.0;
 pub const HUD_MIN_CONTENT_W: f32 = 200.0;
 pub const HUD_FALLBACK_Y_OFFSET: f32 = 220.0;
 
+pub use command_palette::command_palette_overlay;
 pub use context_menu::{context_menu_overlay, radial_hud, RadialMenu, RadialState};
 pub use help::help_overlay;
 pub use hud::{hud_frame_overlay, hud_overlay};
