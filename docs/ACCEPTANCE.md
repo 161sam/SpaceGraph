@@ -235,6 +235,37 @@ F3). Nachgetragen:
   (`tree_file_zoom_threshold`), „Fit to view"; keine ID-Kollisionen; Wechsel
   Spatial⇄Tree⇄Timeline markiert das Layout dirty (eine Neuberechnung, kein Churn).
 
+### v0.5.1 — GitS Focus & Polish (Track A, viewer-local)
+
+Alle Gates struktur-/pure-fn-geprüft (kein GPU/Pi in CI; FPS-Capture lokal, siehe
+RUNLOG). Beide Invarianten grün: Registered-Systems (Focus-Systeme registriert,
+kein verwaister Systemshape) und Determinismus — `force_step` **byte-unverändert**
+ggü. v0.5.0 (Funktion aus beiden Revisionen extrahiert → IDENTICAL); alle Zusätze
+sind render/UI → determinismus-exempt. 208 Tests grün.
+
+- **Phase 1 Bugfixes** — ✓ Face-Icon: Atlas ist echte Alpha-Cutout-Maske (bimodal
+  0/255, Asset-Test) + `AlphaMode::Mask` mit explizitem Nearest-Sampler (scharfer
+  Schnitt statt gefülltem Quad); Billboard auf Knoten-Envelope geklammert
+  (`icon_half_extent`, pure-fn). ScrollArea-ID-Kollision im Paths-Dialog behoben
+  (`id_source(title)`, eindeutig + stabil).
+- **Phase 2 Gate-Ring + Radial-HUD** — ✓ Ring-`LineList` mit Tick-Marks (eine
+  geteilte Mesh je Knoten — strukturell, keine Per-Node-Allokation); Typ/Severity-
+  Farbe (`ring_color`, pure-fn; Alert-Rampe low/med/high); Radial-HUD-Backing-Disc
+  (Lesbarkeit), rendert panik-frei.
+- **Phase 3 Edge-Perf** — ✓ `edge_lod` (Full/Dim/Cull) pure-fn: fern → gedimmt/
+  gecullt; Focus-Mode → nicht-inzidente Kanten gecullt; Kamera-Zelle quantisiert
+  (Rebuild bleibt „settled→cheap"); `force_step` byte-unverändert; `[edge_lod]`-
+  Roundtrip; 3-Klassen-FPS-Capture im RUNLOG (Ziel: kein Regress).
+- **Phase 4 Focus Mode (Headliner)** — ✓ Enter/Exit-Transitionen (`enter_focus`/
+  `exit_focus`); Layout friert bei Fokus / taut bei Exit (`layout_frozen`,
+  reversibel — Determinismus grün); Pfad-Dive re-zentriert Fokus
+  (`dive_to_neighbor`); **kein Per-Node-Aufwand** (`focus_overlay` ohne `Commands`,
+  Struktur-Test); rendert panik-frei headless (Fokus + Camera); Minimal → schlichtes
+  Dim+Zentrum (keine Ringe/Arcs/DoF). High-Tier-DoF dokumentiert **deferred**
+  (Dim-only ausgeliefert — kein Blocker, §1.4).
+- **Module/Boundaries** — ✓ Focus-State als reversibler UI-Zustand (`ui.focus_mode`),
+  Graph-Wahrheit unberührt; Render/UI-Systeme determinismus-exempt.
+
 ---
 
 ## Definition „Release-fähig“

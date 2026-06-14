@@ -250,3 +250,45 @@ subsequence matcher). The filter is a **query-DSL** (`graph::query`):
 ### Controls (v0.5.0)
 `F` radial HUD · `Ctrl+P` command palette · query-DSL filter box · Display
 selectors (theme + quality tier) in the left rail.
+
+## v0.5.1 — Focus Mode, gate-ring polish, edge-LOD
+
+### Focus Mode (the headline)
+`F` / double-click enters **Focus Mode**: the camera eases the node to
+screen-centre + close, the rest of the graph **dims on all tiers** (depth-of-field
+blur is a High-tier enhancement, deferred), and the **force layout freezes** while
+focused (reversible; `force_step` byte-unchanged). The node becomes the centerpiece
+— prominent concentric **gate-rings + identity arcs** (kind / connections / id),
+the v0.4.1 type-preview rendered **as the centre**, and the v0.5.0 radial command
+ring symmetric around it. The keyboard radial model drives it; a **path dive**
+re-centres focus on a neighbour (cinematic graph traversal). `Esc` exits (eased
+camera return). **Minimal** degrades to a plain dim+centre (no rings/arcs/DoF).
+Cost is O(1) — one focused node + one dim rect; no per-visible-node entity.
+
+### Gate-ring polish
+The shared gate-glyph `LineList` (one mesh per node, instanced) gains outer
+**tick-marks** (cardinals longer) for the "gate" read, and alerts ring in the
+**severity ramp** (low = amber, medium = orange, high = red) via shared materials
+(`render::node_glyph::ring_color`). The radial HUD gets a dim backing disc so
+labels read against a busy graph. Field glyphs stay static (billboarded) — animated
+ring rotation is reserved for the O(1) focused centerpiece, to preserve the
+reactive idle-pacing (a continuously-spinning field would never go idle).
+
+### Edge-LOD (the FPS lever)
+Edges are thinned render-side (`render::edges::edge_lod`): distant edges **dim**
+then **cull** by camera distance (discrete bands, camera-cell-quantized so the mesh
+rebuild stays bounded — "settled → cheap" preserved), and in Focus Mode only the
+focused node's incident edges draw. Cuts overdraw/bloom on large graphs, where edge
+fill-rate dominates. `force_step` (layout truth) is untouched. The `[edge_lod]` and
+`[focus]` config blocks tune the distance bands, dim factor, and freeze/dim.
+
+### Face-icon fix
+The Level-1 face icons now cut cleanly — an explicit **nearest** sampler makes the
+alpha mask yield a crisp glyph instead of a filled quad — and are **clamped to the
+node's scale** (`icon_half_extent` ≤ the per-kind core envelope) so the glyph sits
+*on* the node face rather than overhanging it as a block.
+
+### Controls (v0.5.1)
+`F` / double-click **Focus Mode** · `Esc` exit focus · in focus: `1`–`9` select,
+`Tab`/`↑↓` switch ring, `←→` rotate, `[` `]` page, `Enter` execute, path dive
+re-centres.

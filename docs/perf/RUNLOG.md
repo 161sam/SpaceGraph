@@ -1379,3 +1379,21 @@ everything else is evolved, not duplicated.
 * **Gate 4 green:** fmt · clippy `-D warnings` · **208 tests** · determinism green ·
   `force_step` byte-identical · registered-systems intact (focus systems registered,
   no orphans) · renders without panic headless with a focused node + camera.
+
+### Phase 5 — Docs (`v0.5.1/phase5-docs`, merged `--no-ff`)
+
+Additive only — `docs/DESIGN_LANGUAGE.md` (Focus Mode, gate-ring polish, edge-LOD,
+face-icon fix, v0.5.1 controls), `README.md` (Focus Mode / edge-LOD / gate-ring
+features + `F`/`Esc`), `docs/ACCEPTANCE.md` (v0.5.1 gates), this RUNLOG. No tag, no
+main-merge, no push — the operator integrates the two parallel runs serially.
+
+### v0.5.1 closeout
+
+All four work phases green on `feature/v0.5.1-focus-polish`: fmt · clippy
+`-D warnings` · **208 tests** (baseline 188 + 20). Both invariants held throughout
+(registered-systems empty/intact; determinism gate green, `force_step` byte-unchanged
+vs v0.5.0). Perf is **perf-neutral-or-positive** by construction — edge-LOD reduces
+edge draw work; gate-ring + Focus Mode add no per-visible-node entity/material
+(structural tests). Deferred (documented, not blockers): High-tier DoF blur (dim-only
+ships); the 3-class FPS local-capture numbers (no GPU/Pi in this env — procedure +
+expected direction recorded above).
