@@ -1269,3 +1269,25 @@ FS-Search run's — left untouched).
 * **Gate 1 green:** fmt clean · clippy `-D warnings` clean · `cargo test --workspace`
   192 pass · determinism guard green · no per-frame entity churn (icons keep the
   persistent-entity path; only `Transform.scale` added).
+
+### Phase 2 — Gate-ring + radial-HUD polish (`v0.5.1/phase2-gatering`, merged `--no-ff`)
+
+* **Gate-ring → real "gate" look** (`render::node_glyph`): the shared ring
+  `LineList` now carries outer **tick-marks** (24, every 6th longer at the
+  cardinals) on top of the centre dot + two concentric arcs — still **one shared
+  mesh per node**, no per-node allocation (asserted by `glyphs_share_one_ring_mesh`).
+* **Type / severity colour:** `ring_color(kind, severity)` is the pure source of
+  truth; alerts ring in the **severity ramp** (low = amber, medium = orange,
+  high/critical = red) via three shared instanced materials (`alert_mat`), other
+  kinds keep the per-type colour. Pure-fn tested.
+* **Subtle rotation — deliberately scoped out of the field glyphs.** Spinning every
+  visible glyph each frame would defeat the reactive idle-pacing (constant redraw =
+  perf regression vs §1.1). The field glyphs stay billboarded/static; animated ring
+  rotation is reserved for the **O(1) focused centerpiece** (Phase 4).
+* **Radial-HUD legibility** (`ui::context_menu::render_radial`): a dim backing disc
+  + vignette ring behind the gate so the command/path labels read against a busy
+  graph. Renders without panic (`radial_render_does_not_panic`).
+* **Tests (+2 → 194 total):** `ring_color_maps_type_and_severity`,
+  `glyphs_share_one_ring_mesh`.
+* **Gate 2 green:** fmt clean · clippy `-D warnings` clean · 194 tests · ring stays
+  a single shared instanced mesh (structural) · no steady-state churn.
