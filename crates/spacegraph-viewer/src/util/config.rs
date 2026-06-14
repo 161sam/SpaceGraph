@@ -239,6 +239,34 @@ impl Default for EdgeLodConfig {
     }
 }
 
+/// Perimeter & exposure visual toggles (D0, ADR-0012). `aperture_by_state` and
+/// `anomaly_focus` are Standard-only render cues; `exposure_depth` is
+/// informational placement that applies in both themes. All derive from data
+/// already on the wire — no `spacegraph-core` change.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct SocketDisplayConfig {
+    /// Render the socket aperture form per port state (LISTEN/ESTABLISHED/…).
+    pub aperture_by_state: bool,
+    /// Place sockets on a radial shell by exposure (Public outer … Loopback core).
+    pub exposure_depth: bool,
+    /// Localize the post-fx around the most severe/recent alerts.
+    pub anomaly_focus: bool,
+    /// Strength of the anomaly-focus distortion (0..=1).
+    pub anomaly_intensity: f32,
+}
+
+impl Default for SocketDisplayConfig {
+    fn default() -> Self {
+        Self {
+            aperture_by_state: true,
+            exposure_depth: true,
+            anomaly_focus: true,
+            anomaly_intensity: 0.6,
+        }
+    }
+}
+
 /// Filesystem search (v0.5.2, spec §7). `full_system` (D-2) opts into the
 /// system-wide scope; `result_limit` caps the hits requested; `debounce_ms` is
 /// the search-box debounce before a query is sent.
@@ -332,6 +360,7 @@ pub struct ViewerConfig {
     // ---- Edge LOD (v0.5.1): render-side edge thinning (overdraw/bloom lever) ----
     #[serde(default)]
     pub edge_lod: EdgeLodConfig,
+    pub socket_display: SocketDisplayConfig,
     // ---- Focus Mode (v0.5.1): dim/DoF/layout-freeze for the centred node ----
     #[serde(default)]
     pub focus: FocusConfig,
@@ -403,6 +432,7 @@ impl Default for ViewerConfig {
             node_detail: NodeDetailConfig::default(),
             quality: QualityConfig::default(),
             edge_lod: EdgeLodConfig::default(),
+            socket_display: SocketDisplayConfig::default(),
             focus: FocusConfig::default(),
             shell: ShellConfig::default(),
             audio_enabled: default_audio_enabled(),
@@ -658,6 +688,29 @@ mod tests {
         };
         let dec2: EdgeLodConfig = toml::from_str(&toml::to_string(&overridden).unwrap()).unwrap();
         assert_eq!(overridden, dec2);
+    }
+
+    #[test]
+    fn socket_display_config_roundtrip() {
+        let cfg = SocketDisplayConfig::default();
+        let dec: SocketDisplayConfig = toml::from_str(&toml::to_string(&cfg).unwrap()).unwrap();
+        assert_eq!(cfg, dec);
+        assert!(dec.aperture_by_state && dec.exposure_depth && dec.anomaly_focus);
+
+        let overridden = SocketDisplayConfig {
+            aperture_by_state: false,
+            exposure_depth: false,
+            anomaly_focus: false,
+            anomaly_intensity: 0.25,
+        };
+        let dec2: SocketDisplayConfig =
+            toml::from_str(&toml::to_string(&overridden).unwrap()).unwrap();
+        assert_eq!(overridden, dec2);
+
+        // Present within the full ViewerConfig (nested serde(default)).
+        let full = ViewerConfig::default();
+        let dec3: ViewerConfig = toml::from_str(&toml::to_string(&full).unwrap()).unwrap();
+        assert_eq!(full.socket_display, dec3.socket_display);
     }
 
     #[test]

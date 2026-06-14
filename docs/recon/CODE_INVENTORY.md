@@ -157,4 +157,15 @@ Inline `#[cfg(test)]` unit tests only (no `tests/` dirs, no `#[tokio::test]`/
 - **core (2):** lib.rs — Hello protocol round-trip + legacy default.
 - **agent (26):** config 4, path_policy 5, watch_fs 4, sources/net 8, sources/suricata_eve 5.
 - **viewer (95):** main 3; graph: explain 2, gc 1, grid 3, interner 3, layout 10, model 2, namespace 3, state 15, synthetic 5, timeline 7, tree 4; render: freefly 1, gameplay 1, node_mesh 2, postfx 3, spatial 15, theme 3; ui: context_menu 3, reticle 3, settings_paths 2; util: agent_command 1, config 3.
+
+> **This inventory is the v0.4.0 baseline snapshot.** Current state (post v0.5.x +
+> the auto-safe band) is tracked in `RECON_REPORT-2026-06-14-auto-safe-band.md`.
+> Workspace total is now **243** (core 6, agent 44, viewer 190 + 3 main).
+>
+> **D0 additions (ADR-0012):** `render::spatial::{aperture_style, exposure_bucket,
+> ApertureStyle, Exposure}` (+ `NodeRenderResources.socket_aperture`);
+> `render::postfx::{select_focus_alerts, severity_weight, MAX_ALERT_FOCUS}` (+ the
+> anomaly fields on `PostFxSettings`); `sources/net::{parse_default_gateway,
+> gateway_node}`; `SocketDisplayConfig` (`[socket_display]`) wired through
+> `ViewerConfig`/`CfgState`. No new `Node`/`EdgeKind`; `PROTOCOL_VERSION` unchanged.
 </content>

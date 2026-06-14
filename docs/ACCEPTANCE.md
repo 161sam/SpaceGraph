@@ -306,6 +306,30 @@ wird zum Node.
 - **Gates**: `cargo fmt` / `clippy -D warnings` / `cargo test` grün; keine neue
   Cargo-Dependency; Modulgrenzen (`net`/`graph`/Agent-Index isoliert) gewahrt.
 
+## D0 — Perimeter & Exposure (ADR-0012, AUTO, no wire)
+
+- **Port-state-as-aperture (P1):** `aperture_style(state)` ist reine Funktion
+  (Unit-Test: LISTEN→Open, ESTABLISHED→Active, FILTERED→Shuttered,
+  TIME_WAIT/CLOSE_WAIT/SYN_SENT→Closing). Standard tönt idle Sockets per Apertur;
+  Minimal behält den flachen Torus. Cached Material-Handles (keine Per-Frame-Alloc).
+- **Exposure-as-depth (P2):** `exposure_bucket(local_addr)` reine Funktion
+  (Loopback/LAN/Public inkl. `0.0.0.0`/`::`→Public, RFC1918/link-local/ULA→LAN);
+  `shell_factor` ordnet Public außen … Loopback Kern; via `progressive_prepare`,
+  gilt in beiden Themes; per Toggle abschaltbar.
+- **Anomaly-as-distortion (P3):** `select_focus_alerts` reine Funktion
+  (severity→recency, count-bounded ≤ `MAX_ALERT_FOCUS`); Post-FX-Ramp lokalisiert
+  um Top-N-Alerts (screen-projiziert); unter Minimal aus (`postfx_active`); WGSL
+  naga-validiert. GPU-Look in RUNLOG dokumentiert.
+- **Gateway-Node (P4):** `parse_default_gateway` reine Funktion (Default-Route
+  `00000000`, little-endian); Gateway als `Node::RemoteHost` (bestehende Art,
+  **kein Wire-Bump**), diff-stabil; `/proc/net/route` read-only Parse (kein
+  exec/egress).
+- **Config & Inspector (P5):** `[socket_display]` (aperture/exposure/anomaly +
+  intensity) round-trip; Exposure-Bucket im Inspector-Tooltip.
+- **Gates / Audited Negatives:** `fmt`/`clippy -D`/`test --workspace` grün
+  (243 Tests); **kein `spacegraph-core`-Change / PROTOCOL_VERSION bleibt 4**;
+  **kein `child_process`/exec, kein Egress im Agent**; Minimal-Äquivalenz gewahrt.
+
 ---
 
 ## Definition „Release-fähig“

@@ -1596,3 +1596,68 @@ Branch: `feat/fs-search-wp3-config-docs` → merged into `feature/fs-search`.
 * None for Phase 4 (the `--index-source` and `tokio sync` notes are in Phases 2/3).
   **No tag, no main-merge, no push** — the feature branch is left ready for the
   operator to integrate serially.
+
+---
+
+## Baseline reconciliation — wire v4 ratify + agent no-exec (O-7'/O-8, ADR-0016)
+
+MP-ORCH Phase-1 recon found the merged v0.5.2 FS-search had (a) spent the single
+3→4 wire bump O-8 reserved for D4, and (b) added an agent `Command::new` shell-out
+breaking O-7' no-exec — neither reflected in the ROADMAP. Resolved per Sam:
+
+* **Agent no-exec restored:** removed `index/locate.rs` (`SystemLocate`/locate
+  shell-out) + the `IndexSource` selector; the FS index is the builtin **walker**
+  only. `grep Command::new crates/spacegraph-agent` → none. Search tests repointed
+  to a synthetic `Walker::from_paths`.
+* **Wire v4 ratified:** ROADMAP/ADR-0004 §O-8 reframed from "defer the one bump"
+  to "govern future bumps"; **ADR-0016** authored; `PROTOCOL_VERSION = 4`
+  (`MIN_COMPATIBLE = 3`). MP-ORCH Done reconciled (3 → 4, "no *further* bump").
+* **Gates:** `fmt`/`clippy -D`/`test --workspace` green. Merged to `main`
+  (`99645b9`) so the auto-safe band runs on a truthful baseline.
+
+## D0 — Perimeter & exposure visual pass (ADR-0012, AUTO, no wire)
+
+Branch: `feat/perimeter-exposure-visual`. Viewer-side + one read-only
+`/proc/net/route` parse; no wire, no exec, no egress.
+
+### Changed
+
+* **P1 aperture-by-state:** `render::spatial::aperture_style(state) ->
+  ApertureStyle` (pure); `theme.rs` aperture/barrier/gateway/exposure constants;
+  cached `socket_aperture[4]` materials in `NodeRenderResources` (no per-frame
+  alloc); idle Standard sockets take the aperture tint, activity-glow still flashes.
+* **P2 exposure-as-depth:** `render::spatial::exposure_bucket(local_addr) ->
+  Exposure` (+ `shell_factor`); `graph::layout::progressive_prepare` places sockets
+  by exposure shell (Public 1.8 / LAN 1.25 / Loopback 1.0); both themes; toggled.
+* **P3 anomaly-as-distortion:** `render::postfx::select_focus_alerts` (pure,
+  count-bounded) + `severity_weight`; `PostFxSettings` extended with a bounded
+  `[Vec4; 16]` alert array (single uniform, `_pad` keeps the vec4 array 16-aligned);
+  `sync_postfx` projects top-N alerts per camera; WGSL ramps a local danger
+  wash/pulse. Off under Minimal.
+* **P4 gateway node:** `sources/net::parse_default_gateway` + `gateway_node` (pure);
+  `collect()` emits the default-route gateway as a `Node::RemoteHost` (existing
+  kind), diff-stable.
+* **P5 config + inspector:** `[socket_display]` config (4-way discipline,
+  round-trip) wired through `ViewerConfig` ↔ `CfgState`; exposure bucket added to
+  the inspector tooltip (`node_tooltip_lines`, render-only).
+
+### Gate results
+
+* `cargo fmt --check` clean · `cargo clippy --workspace --all-targets -D warnings`
+  clean · `cargo test --workspace` green — core **6**, agent **44**, viewer **190**
+  + 3 (7 new D0 tests: perimeter 3, socket_display 1, postfx 3).
+* WGSL **naga-validates** (`wgsl_postfx_validates`); `postfx_active` forces Minimal
+  off; config round-trips.
+* **Audited negatives:** no `spacegraph-core` change (`PROTOCOL_VERSION` stays 4);
+  no `child_process`/exec; no outbound network. Minimal-equivalence preserved.
+
+### Deviations / notes
+
+* **Gateway linkage:** D0 emits the gateway as a positional `RemoteHost` node with
+  **no synthetic edges** (ADR-0012 §4 "appears as the egress hub" is positional;
+  synthetic edges would invent topology). The P4→P5 Stop-and-Show invited a Sam
+  look here — flagged, node-only chosen for graph-truth.
+* **GPU look** (aperture forms, exposure silhouette, anomaly ramp) is visual and
+  documented here, not a CI gate (headless has no display), per the MP test posture.
+* MP-D0 Phase 0 (place staged governance docs) was already satisfied (docs in
+  `docs/*`; no `docs/files(23)/` staging folder existed).
