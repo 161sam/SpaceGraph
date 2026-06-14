@@ -5,3 +5,5 @@ edition = "2021"
 description = "Headless canonical-state graph core for SpaceGraph — graph model, agent-UDS ingest, the D1/D3/D5 pipeline, and read-only queries. No Bevy / render / GUI dependency (ADR-0001)."
 
 [dependencies]
+spacegraph-core = { path = "../spacegraph-core" }
+smallvec = "1"

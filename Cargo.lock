@@ -3997,6 +3997,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "spacegraph-graph"
+version = "0.1.0"
+dependencies = [
+ "smallvec",
+ "spacegraph-core",
+]
+
+[[package]]
 name = "spacegraph-viewer"
 version = "0.1.0"
 dependencies = [
@@ -4013,6 +4021,7 @@ dependencies = [
  "serde_json",
  "smallvec",
  "spacegraph-core",
+ "spacegraph-graph",
  "tempfile",
  "tokio",
  "tokio-util",

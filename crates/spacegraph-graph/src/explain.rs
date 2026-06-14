@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet, VecDeque};
 
 use spacegraph_core::NodeId;
 
-use crate::graph::model::{EdgeKindClass, GraphModel};
+use crate::model::{EdgeKindClass, GraphModel};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PathStep {
@@ -84,7 +84,7 @@ fn reconstruct_path(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::graph::model::GraphModel;
+    use crate::model::GraphModel;
     use spacegraph_core::{Edge, EdgeKind, Node};
     use std::time::Instant;
 

@@ -4,9 +4,9 @@
 
 use spacegraph_core::Node;
 
-use crate::graph::coverage::coverage_ratio;
-use crate::graph::model::GraphModel;
-use crate::render::spatial::{exposure_bucket, Exposure};
+use crate::coverage::coverage_ratio;
+use crate::exposure::{exposure_bucket, Exposure};
+use crate::model::GraphModel;
 
 /// A posture snapshot: the components + a 0..=100 risk score (higher = more
 /// exposed). The components are surfaced so the view can explain the score.

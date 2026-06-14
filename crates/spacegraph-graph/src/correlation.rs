@@ -13,8 +13,8 @@ use std::collections::BTreeSet;
 
 use spacegraph_core::{Node, NodeId};
 
-use crate::graph::model::{EdgeKindClass, GraphModel};
-use crate::graph::rules::{technique, Tactic};
+use crate::model::{EdgeKindClass, GraphModel};
+use crate::rules::{technique, Tactic};
 
 /// A correlated multi-stage campaign — the linked detections, their subjects, and
 /// the distinct tactics they span (kill-chain order). `key` is stable across ticks

@@ -5,6 +5,7 @@ edition = "2021"
 
 [dependencies]
 spacegraph-core = { path = "../spacegraph-core" }
+spacegraph-graph = { path = "../spacegraph-graph" }
 
 anyhow = "1"
 directories = "5"
