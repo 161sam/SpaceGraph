@@ -18,7 +18,7 @@ use crate::graph::tree;
 use crate::net::{Incoming, IncomingKind, ReaderHandle};
 use crate::util::config::{
     AgentEndpoint, AgentMode, LodEdgesMode, NodeDetailConfig, PostFxConfig, QualityConfig,
-    ShellConfig, ViewerConfig, ViewerViewMode, VisualTheme,
+    SearchConfig, ShellConfig, ViewerConfig, ViewerViewMode, VisualTheme,
 };
 use crate::util::ids::{node_label_long, node_label_short};
 
@@ -618,6 +618,10 @@ pub struct CfgState {
     /// UI sound effects (effective only in builds with the `audio` feature).
     pub audio_enabled: bool,
     pub audio_volume: f32,
+
+    /// Filesystem (`ON DISK`) search (v0.5.2, spec §7): debounce, result cap,
+    /// full-system scope opt-in, index-source hint.
+    pub search: SearchConfig,
 }
 
 impl CfgState {
@@ -795,6 +799,7 @@ impl Default for GraphState {
                 shell: ShellConfig::default(),
                 audio_enabled: true,
                 audio_volume: 0.6,
+                search: SearchConfig::default(),
             },
             fs: FsSearchState::default(),
             needs_redraw: AtomicBool::new(true),
@@ -1941,6 +1946,7 @@ impl GraphState {
         self.cfg.node_detail = cfg.node_detail.clone();
         self.cfg.quality = cfg.quality.clone();
         self.cfg.shell = cfg.shell.clone();
+        self.cfg.search = cfg.search.clone();
         self.cfg.audio_enabled = cfg.audio_enabled;
         self.cfg.audio_volume = cfg.audio_volume.clamp(0.0, 1.0);
         self.sync_agent_endpoints(cfg.agents.clone());
@@ -2001,6 +2007,7 @@ impl GraphState {
             audio_enabled: self.cfg.audio_enabled,
             audio_volume: self.cfg.audio_volume,
             agents: self.net.endpoints.clone(),
+            search: self.cfg.search.clone(),
         }
     }
 }

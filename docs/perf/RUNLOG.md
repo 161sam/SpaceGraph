@@ -1390,3 +1390,38 @@ viewer **158 → 162**:
   `mpsc` needs the same. Making it explicit lets the viewer build standalone.
   (Shared-file note: this is `spacegraph-viewer/Cargo.toml`, not one of the MP's
   shared files; the edit is a single additive feature.)
+
+## Phase 4 — WP-3 Config, docs, integration report
+
+Branch: `feat/fs-search-wp3-config-docs` → merged into `feature/fs-search`.
+
+### Changed
+
+* `util/config.rs` (**shared, additive**): new `SearchConfig` (`index_source`,
+  `full_system`, `result_limit`, `debounce_ms`) + `ViewerConfig::search` field
+  (`#[serde(default)]`). Threaded into `CfgState` (apply + emit) and read by
+  `ui/search.rs` (debounce/limit/full_system now config-driven, no constants).
+* Docs (**additive**): `GRAPH_SCHEMA` (PROTOCOL_VERSION 4, the three search
+  messages, `fs_search` cap), `README` (FS-search feature + `[search]` defaults
+  table), `DESIGN_LANGUAGE` (`IN GRAPH` vs `ON DISK` distinction), `ACCEPTANCE`
+  (v0.5.2 FS-search criteria), this RUNLOG. `docs/recon/INTEGRATION_fs-search.md`
+  written (the operator hand-off; flags the protocol bump prominently).
+
+### Gate 4 results
+
+* `[search]` config **round-trips** (`search_config_roundtrip`): defaults match
+  spec §7; a full `ViewerConfig` round-trips the block; a config file **without**
+  `[search]` decodes to the default (backward compatible). `viewer.toml` is
+  runtime-generated (`save`), so the `[search]` block is now emitted automatically.
+* `ACCEPTANCE` gains the v0.5.2 FS-search criteria (protocol/handshake, agent
+  index incl. the security gate, viewer integration, config).
+* Integration report complete — feature branch + HEAD, **PROTOCOL_VERSION now 4**
+  flagged for the operator, every shared file + exact additions, all new files.
+* `cargo clippy --workspace --all-targets -- -D warnings`: clean.
+  `cargo test --workspace`: green — core **6**, agent **44**, viewer **163** + 3.
+
+### Deviations
+
+* None for Phase 4 (the `--index-source` and `tokio sync` notes are in Phases 2/3).
+  **No tag, no main-merge, no push** — the feature branch is left ready for the
+  operator to integrate serially.
