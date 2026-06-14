@@ -11,6 +11,7 @@ use anyhow::Result;
 use config::{default_excludes, default_includes, parse_args, should_warn_privileged_without_root};
 use index::{FsIndex, Walker};
 use path_policy::PathPolicy;
+use sources::nebula::NebulaSource;
 use sources::net::{NetConfig, NetSource};
 use sources::suricata_eve::SuricataEveSource;
 use sources::{EventSource, FsSource, ProcSource};
@@ -197,6 +198,12 @@ async fn main() -> Result<()> {
     if let Some(eve_file) = config.eve_file.clone() {
         sources.push(Box::new(SuricataEveSource {
             eve_file,
+            poll_interval: Duration::from_secs(1),
+        }));
+    }
+    if let Some(nebula_log) = config.nebula_log.clone() {
+        sources.push(Box::new(NebulaSource {
+            nebula_log,
             poll_interval: Duration::from_secs(1),
         }));
     }

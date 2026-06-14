@@ -17,6 +17,7 @@ use crate::config::AgentMode;
 use crate::index::Walker;
 use crate::path_policy::PathPolicy;
 
+pub mod nebula;
 pub mod net;
 pub mod suricata_eve;
 

@@ -1,0 +1,4 @@
+{"ts":"2024-01-01T00:00:00Z","event":"connect","target":"198.51.100.7","port":443,"proto":"tcp"}
+{"ts":"2024-01-01T00:00:03Z","event":"scan","target":"198.51.100.8","port":22,"proto":"tcp"}
+{"ts":"2024-01-01T00:00:05Z","event":"lateral","src":"198.51.100.7","target":"198.51.100.9"}
+{"ts":"2024-01-01T00:00:09Z","event":"finding","detail":"weak-credential"}

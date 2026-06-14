@@ -344,3 +344,19 @@ New `theme.rs` constants: `APERTURE_OPEN/ACTIVE/SHUTTERED/CLOSING`, `BARRIER_RIN
 `GATEWAY_ACCENT`, `EXPOSURE_LOOPBACK/LAN/PUBLIC`. Toggles: `[socket_display]`
 `aperture_by_state` / `exposure_depth` / `anomaly_focus` (+ `anomaly_intensity`),
 all default on.
+
+## D2-core — Threat-motion + purple-team origin (ADR-0009)
+
+- **Threat-motion** (`render::motion::motion_style`, Standard only). Each attack
+  class moves by its ATT&CK **tactic**: C2 → beacon pulse, lateral movement →
+  traversal sweep, exfiltration → outbound flow, credential access → rapid flash,
+  execution/impact → worm-spread (others → calm pulse). Each `MotionStyle` carries
+  `(speed, amplitude)` constants — no magic numbers in render. Minimal forces
+  `Static` (`motion_style_themed`); motion never changes graph truth.
+- **Purple-team origin** (`render::motion::origin_of`). Entities from a red-team
+  feed (a stream named `nebula-*` / `red-team-*`) are tagged `[red-team]` in the
+  inspector and styled distinctly in Standard, vs. `observed` for live telemetry —
+  so authorized engagements don't read as real threats. Derived viewer-side from
+  the emitting stream; **no wire field** (O-8). Minimal degrades to neutral.
+- **Nebula source** is observe-only (existing kinds, read-only log tail); its log
+  schema is an assumption to verify on the operator's host (A.5).
