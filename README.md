@@ -161,6 +161,18 @@ Zwei-Ebenen-Modell — reich *und* billig (bis Raspberry Pi):
 - **Command-Palette (`Ctrl/Cmd+P`):** Fuzzy über Aktionen + Navigation + Knoten.
 - **Query-DSL-Filter:** `type:process deg:>3 -name:bash recent:5m` → entfernbare
   Chips (rotes Fehler-Chip bei ungültiger Eingabe).
+- **Focus Mode (`F` / Doppelklick, `Esc` zurück) — v0.5.1:** zentriert den Knoten
+  bildschirmmittig (Kamera eased), dimmt den restlichen Graphen (alle Tiers),
+  friert das Layout ein und macht den Knoten zur Bühne — prominente Gate-Ringe +
+  Identitäts-Arcs, die v0.4.1-Vorschau als Zentrum und das Radial-HUD (Befehle/
+  Pfade) ringsum; ein Pfad-Dive re-zentriert den Fokus auf einen Nachbarn. Minimal:
+  schlichtes Dim+Zentrum. (High-Tier-DoF-Blur: dokumentiert, später.)
+- **Edge-LOD (v0.5.1):** entfernte/nicht-fokussierte Kanten werden gedimmt/gecullt
+  (Overdraw-/Bloom-Hebel; im Focus Mode bleiben nur inzidente Kanten) — `[edge_lod]`.
+  `force_step` (Layout-Wahrheit) bleibt unverändert.
+- **Gate-Ring-Politur (v0.5.1):** Tick-Marks am Ring + Alert-Severity-Farbrampe;
+  Radial-HUD-Backing-Disc für Lesbarkeit. Face-Icons schneiden sauber (Nearest-
+  Sampler) und sind auf Knotengröße geklammert (kein „großer Block" mehr).
 
 ### UX & Analyse
 - Ctrl+P Search & Jump

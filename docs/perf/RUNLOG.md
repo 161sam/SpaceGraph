@@ -1226,3 +1226,174 @@ survives at Potato:
 v0.5.0 gates green: fmt / clippy -D / **188 tests**; both invariants held
 (registered-systems empty after the shell refactor; determinism gate green); all
 structural perf proxies asserted; layout benchmark code unchanged.
+
+---
+
+## v0.5.1 — GitS Focus & Polish (Track-A, viewer-local)
+
+Feature branch `feature/v0.5.1-focus-polish` (off `v0.5.0` / `main` tip). Run in
+parallel with the FS-Search run; **not merged to main, not pushed, not tagged** —
+the operator integrates serially. One sub-branch per phase, merged `--no-ff`.
+
+### Phase 0 — Baseline
+
+Branch verified off `v0.5.0` (`main` tip `ee863b9`). Workspace green at baseline:
+`cargo fmt --check` clean; `cargo test --workspace` **188 tests** pass
+(agent 26 · core 2 · viewer 157 · viewer-bin 3); `cargo clippy --all-targets`
+clean. Both invariants green at start (registered-systems empty; determinism gate
+green). No stray docs committed (the pending `docs/spec_fs_search_index.md` is the
+FS-Search run's — left untouched).
+
+### Phase 1 — Bugfixes (`v0.5.1/phase1-bugfixes`, merged `--no-ff`)
+
+* **[icon] face-icon billboards rendered as solid squares ("big green blocks")** —
+  the committed atlas is correct white-on-transparent (alpha bimodal 0/255), so the
+  `AlphaMode::Mask` cutout failed at the sampler/edge level, not in the data. **Fix:**
+  attach an explicit **nearest** `ImageSampler` to the atlas so every fragment's
+  alpha is exactly 0 or 1 and the opaque-pass mask cuts a crisp glyph instead of a
+  linear-blended haze that reads as a filled quad. (GPU confirmation is a local step
+  in this headless env; asserted structurally below.)
+* **[icon] billboard clamped to node scale** — the quad was a fixed `0.26` half-extent
+  (0.52 wide), overhanging most cores. **Fix:** unit quad + per-kind
+  `icon_half_extent(kind)` = `node_envelope(kind) * 0.9` clamped to `[0.14, 0.26]`,
+  applied via the entity `Transform.scale`, so the glyph sits *on* the node face and
+  never exceeds the core envelope.
+* **[ui] egui ScrollArea ID collision in the Paths dialog** — `render_path_list` runs
+  twice (Includes/Excludes) inside `ui.columns(2, …)`; both un-ID'd `ScrollArea`s
+  shared one auto-id ("First/Second use of ScrollArea ID 32BF"). **Fix:**
+  `.id_source(path_list_scroll_source(title))` per column.
+* **Tests (+4 → 192 total):** `atlas_alpha_is_a_cutout_mask` (asset alpha-path),
+  `glyph_material_is_alpha_masked_with_nearest_atlas` (mask mode + explicit sampler),
+  `icon_half_extent_is_clamped_to_node_scale` (pure-fn clamp ≤ envelope),
+  `path_list_scroll_ids_are_unique_and_stable`.
+* **Gate 1 green:** fmt clean · clippy `-D warnings` clean · `cargo test --workspace`
+  192 pass · determinism guard green · no per-frame entity churn (icons keep the
+  persistent-entity path; only `Transform.scale` added).
+
+### Phase 2 — Gate-ring + radial-HUD polish (`v0.5.1/phase2-gatering`, merged `--no-ff`)
+
+* **Gate-ring → real "gate" look** (`render::node_glyph`): the shared ring
+  `LineList` now carries outer **tick-marks** (24, every 6th longer at the
+  cardinals) on top of the centre dot + two concentric arcs — still **one shared
+  mesh per node**, no per-node allocation (asserted by `glyphs_share_one_ring_mesh`).
+* **Type / severity colour:** `ring_color(kind, severity)` is the pure source of
+  truth; alerts ring in the **severity ramp** (low = amber, medium = orange,
+  high/critical = red) via three shared instanced materials (`alert_mat`), other
+  kinds keep the per-type colour. Pure-fn tested.
+* **Subtle rotation — deliberately scoped out of the field glyphs.** Spinning every
+  visible glyph each frame would defeat the reactive idle-pacing (constant redraw =
+  perf regression vs §1.1). The field glyphs stay billboarded/static; animated ring
+  rotation is reserved for the **O(1) focused centerpiece** (Phase 4).
+* **Radial-HUD legibility** (`ui::context_menu::render_radial`): a dim backing disc
+  + vignette ring behind the gate so the command/path labels read against a busy
+  graph. Renders without panic (`radial_render_does_not_panic`).
+* **Tests (+2 → 194 total):** `ring_color_maps_type_and_severity`,
+  `glyphs_share_one_ring_mesh`.
+* **Gate 2 green:** fmt clean · clippy `-D warnings` clean · 194 tests · ring stays
+  a single shared instanced mesh (structural) · no steady-state churn.
+
+### Phase 3 — Edge-perf pass (`v0.5.1/phase3-edgeperf`, merged `--no-ff`)
+
+The recon FPS table (POTATO ~7, high ~8–9) showed the bottleneck is
+**tier-independent edge rendering / overdraw**, not bloom. This pass thins the
+edge mesh render-side; `force_step` (layout truth) is untouched.
+
+* **Edge LOD** (`render::edges::edge_lod`, pure + unit-tested): each aggregated
+  edge is classified **Full / Dim / Cull**. Outside Focus Mode, edges **dim** past
+  `near_dist` (×`far_dim` brightness → less HDR/bloom) and **cull** past `far_dist`
+  (fewer vertices → less overdraw). In **Focus Mode**, edges not incident to the
+  focused node are culled (`focus_cull`) — the strong reduction that foregrounds the
+  focused subgraph.
+* **Bundling:** aggregated edges (`AggEdge`) already merge raw edges per class;
+  distance dim/cull is the render-side LOD on top. (No geometric edge-bundling —
+  out of scope; the dim/cull bands deliver the overdraw win without it.)
+* **Rebuild stays bounded:** the camera position is quantized into a cell
+  (`EDGE_LOD_CELL = 12`) in the rebuild fingerprint, so the mesh rebuilds only when
+  the camera crosses a cell — the v0.5.0 "settled → skip" property holds; idle costs
+  nothing. The rebuild cost equals the already-accepted layout-phase rebuild; the
+  per-frame **draw** savings (fewer + dimmer edges) dominate → perf-positive.
+* **`force_step` byte-unchanged:** `git diff v0.5.0 -- graph/layout.rs` → **empty**
+  (asserted in the gate). Determinism gate green.
+* **Config:** additive `[edge_lod]` block (`near_dist=70`, `far_dist=160`,
+  `far_dim=0.35`, `focus_cull=true`), plumbed `ViewerConfig ↔ CfgState`.
+* **Tests (+4 → 198 total):** `edge_lod_distance_bands`,
+  `edge_lod_focus_mode_culls_non_incident`, `cam_cell_quantizes_position`,
+  `edge_lod_config_roundtrip`.
+* **Gate 3 green:** fmt · clippy `-D warnings` · 198 tests · `force_step` empty diff ·
+  determinism green. **3-class FPS local-capture (required, no GPU/Pi in CI)** — run
+  per class and confirm no regression vs the v0.5.0 row (target: a gain on large
+  graphs where edge overdraw dominates):
+
+```
+cargo run --release -p spacegraph-viewer -- --demo-load 2000
+```
+
+| Class | Auto tier | FPS before (v0.5.0) | FPS after (edge-LOD) | Δ |
+|---|---|---|---|---|
+| Pi / GLES / llvmpipe | Potato | ~7 | | |
+| Integrated | Low/Medium | ~8–9 | | |
+| Discrete | High | | | |
+
+Expected: distant edges dim/cull on the 2000-node demo → fewer bright edge
+vertices → lower bloom/overdraw cost → FPS neutral-to-up, strongest at Potato/Low
+where fill-rate is the bottleneck.
+
+### Phase 4 — Focus Mode, the headline (`v0.5.1/phase4-focus`, merged `--no-ff`)
+
+A real **Focus Mode** that centres + foregrounds a node — the convergence of the
+preview, radial HUD, gate-rings, ripple and camera. New `ui/focus.rs` orchestrates;
+everything else is evolved, not duplicated.
+
+* **Enter / exit (FM-3):** `F` or double-click → `enter_focus` sets the subject,
+  selects it (fires the existing dive ripple on the focus change), and
+  `request_jump`s the camera to ease the node to **screen-centre + close**. `Esc` →
+  `exit_focus`; `render::focus_mode_camera` + `FocusCam` capture the pre-focus
+  framing on enter and **ease the camera back** on exit (edge-detected, O(1)).
+* **Background recedes (FM-1):** `ui::focus::focus_overlay` paints a full-screen dim
+  on **all tiers** (egui Background layer; the radial HUD + preview draw above it).
+  **DoF blur is High-tier-only and deferred** in v0.5.1 — dim-only ships, exactly the
+  documented fallback (§1.4); no WGSL added, not a blocker.
+* **Layout freeze (FM-2):** `GraphState::layout_frozen()` (focus + `freeze_layout`)
+  gates the `force_step` call in `update_layout_or_timeline`. Reversible; resumes the
+  instant focus clears. **`force_step` body is byte-identical to v0.5.0** (verified by
+  extracting the function from both revisions — 194 lines, IDENTICAL; only
+  `update_layout_or_timeline` + the new `layout_frozen` method changed).
+* **Node centerpiece (Standard):** a prominent gate ring + identity arcs
+  (kind / links / id) around screen-centre, the v0.4.1 preview **re-anchored to
+  CENTER**, and the v0.5.0 radial command ring — composed at the focused node.
+  **Minimal → plain dim+centre** (no rings/arcs/DoF), asserted by
+  `enter_focus_minimal_dims_without_radial`.
+* **In-focus interactivity + path dive:** the keyboard radial model drives it; a
+  path dive (`context_menu::dive_to_neighbor`) re-centres focus on a neighbour — the
+  camera eases onward and dim/freeze/edge-cull follow. Focus-mode **edge culling**
+  (Phase 3) is now live (only the focused node's incident edges draw).
+* **Cost:** O(1) — `focus_overlay` has no `Commands` and spawns nothing; the camera
+  system mutates only the camera. Structural test
+  `focus_mode_spawns_no_per_node_entities` asserts **no per-visible-node entity**.
+* **Config:** additive `[focus]` block (`dim=0.62`, `dof=false` (deferred),
+  `freeze_layout=true`), plumbed `ViewerConfig ↔ CfgState`.
+* **Tests (+10 → 208 total):** enter/exit + Minimal degrade, double-click entry,
+  path-dive re-centre, layout freeze/resume, camera capture/restore, no-spawn
+  structural, headless render, `[focus]` round-trip. All three new systems are also
+  exercised (executed) in tests → runtime-valid.
+* **Gate 4 green:** fmt · clippy `-D warnings` · **208 tests** · determinism green ·
+  `force_step` byte-identical · registered-systems intact (focus systems registered,
+  no orphans) · renders without panic headless with a focused node + camera.
+
+### Phase 5 — Docs (`v0.5.1/phase5-docs`, merged `--no-ff`)
+
+Additive only — `docs/DESIGN_LANGUAGE.md` (Focus Mode, gate-ring polish, edge-LOD,
+face-icon fix, v0.5.1 controls), `README.md` (Focus Mode / edge-LOD / gate-ring
+features + `F`/`Esc`), `docs/ACCEPTANCE.md` (v0.5.1 gates), this RUNLOG. No tag, no
+main-merge, no push — the operator integrates the two parallel runs serially.
+
+### v0.5.1 closeout
+
+All four work phases green on `feature/v0.5.1-focus-polish`: fmt · clippy
+`-D warnings` · **208 tests** (baseline 188 + 20). Both invariants held throughout
+(registered-systems empty/intact; determinism gate green, `force_step` byte-unchanged
+vs v0.5.0). Perf is **perf-neutral-or-positive** by construction — edge-LOD reduces
+edge draw work; gate-ring + Focus Mode add no per-visible-node entity/material
+(structural tests). Deferred (documented, not blockers): High-tier DoF blur (dim-only
+ships); the 3-class FPS local-capture numbers (no GPU/Pi in this env — procedure +
+expected direction recorded above).

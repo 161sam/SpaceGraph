@@ -120,7 +120,11 @@ fn render_path_list(
     ui.add_space(4.0);
 
     let mut remove_index: Option<usize> = None;
+    // Unique scroll-area id per column: `render_path_list` is called twice
+    // (Includes/Excludes) inside `ui.columns(2, …)`; without a distinct id source
+    // both areas collide on the same auto-id ("First/Second use of ScrollArea ID").
     egui::ScrollArea::vertical()
+        .id_source(path_list_scroll_source(title))
         .max_height(240.0)
         .show(ui, |ui| {
             for (idx, path) in entries.iter().enumerate() {
@@ -135,6 +139,12 @@ fn render_path_list(
     if let Some(idx) = remove_index {
         entries.remove(idx);
     }
+}
+
+/// Stable, per-column scroll-area id source so the two path lists (Includes /
+/// Excludes) never collide on a shared auto-id. Keyed by the column title.
+fn path_list_scroll_source(title: &str) -> String {
+    format!("path_list_scroll::{title}")
 }
 
 fn sanitize_paths(paths: &[String]) -> Vec<String> {
@@ -185,5 +195,15 @@ mod tests {
     fn sanitize_path_entry_rejects_empty() {
         assert!(sanitize_path_entry("   ").is_none());
         assert!(sanitize_path_entry("").is_none());
+    }
+
+    #[test]
+    fn path_list_scroll_ids_are_unique_and_stable() {
+        // The two columns must get distinct scroll-area id sources (the v0.5.1
+        // duplicate-ScrollArea-ID bug) and the value must be stable per title.
+        let inc = path_list_scroll_source("Includes");
+        let exc = path_list_scroll_source("Excludes");
+        assert_ne!(inc, exc, "Includes/Excludes must not share a scroll id");
+        assert_eq!(inc, path_list_scroll_source("Includes"), "id is stable");
     }
 }

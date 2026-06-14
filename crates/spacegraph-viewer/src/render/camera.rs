@@ -122,6 +122,43 @@ pub fn apply_jump_to(mut st: ResMut<GraphState>, mut cam_q: Query<&mut PanOrbitC
     }
 }
 
+/// Camera-restore state for Focus Mode: the pan-orbit framing the camera eases
+/// back to when focus exits. Captured on enter, applied on exit — one-time edges,
+/// no per-frame cost.
+#[derive(Resource, Default)]
+pub struct FocusCam {
+    active: bool,
+    /// `(target_focus, target_radius)` to ease back to on exit.
+    restore: Option<(Vec3, f32)>,
+}
+
+/// Focus Mode camera (v0.5.1): the **enter** dive is performed by `apply_jump_to`
+/// via `request_jump`; this system handles the **eased exit** — it captures the
+/// pre-focus framing on the enter edge and restores it on the exit edge, letting
+/// `PanOrbitCamera` interpolate the orbit pivot + radius back. Edge-detected from
+/// `ui.focus_mode`, so it runs O(1) on transitions only.
+pub fn focus_mode_camera(
+    st: Res<GraphState>,
+    mut fc: ResMut<FocusCam>,
+    mut cam_q: Query<&mut PanOrbitCamera>,
+) {
+    let now_active = st.ui.focus_mode.is_some();
+    if now_active && !fc.active {
+        // Entered: capture the framing to ease back to on exit.
+        if let Some(pan) = cam_q.iter().next() {
+            fc.restore = Some((pan.target_focus, pan.target_radius));
+        }
+    } else if !now_active && fc.active {
+        // Exited: ease the orbit pivot + radius back (PanOrbitCamera interpolates).
+        if let (Ok(mut pan), Some((focus, radius))) = (cam_q.get_single_mut(), fc.restore.take()) {
+            pan.target_focus = focus;
+            pan.target_radius = radius;
+            st.needs_redraw.store(true, Ordering::Relaxed);
+        }
+    }
+    fc.active = now_active;
+}
+
 pub fn update_tree_zoom(cam_q: Query<&Transform, With<Camera>>, mut st: ResMut<GraphState>) {
     if st.ui.view_mode != ViewMode::Tree {
         return;
@@ -131,4 +168,46 @@ pub fn update_tree_zoom(cam_q: Query<&Transform, With<Camera>>, mut st: ResMut<G
     };
     let dist = cam_tf.translation.distance(st.ui.tree_center).max(1.0);
     st.ui.tree_zoom = 1.0 / dist;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use spacegraph_core::NodeId;
+
+    #[test]
+    fn focus_camera_captures_then_restores_framing() {
+        let mut app = App::new();
+        app.insert_resource(GraphState::default())
+            .insert_resource(FocusCam::default())
+            .add_systems(Update, focus_mode_camera);
+        let before = Vec3::new(1.0, 2.0, 3.0);
+        let cam = app
+            .world_mut()
+            .spawn(PanOrbitCamera {
+                target_focus: before,
+                target_radius: 25.0,
+                ..default()
+            })
+            .id();
+
+        // Enter Focus Mode → capture the pre-focus framing.
+        app.world_mut().resource_mut::<GraphState>().ui.focus_mode = Some(NodeId("n".into()));
+        app.update();
+        // Simulate the dive pulling the camera onto the node.
+        {
+            let mut pan = app.world_mut().get_mut::<PanOrbitCamera>(cam).unwrap();
+            pan.target_focus = Vec3::new(9.0, 9.0, 9.0);
+            pan.target_radius = 8.0;
+        }
+        // Exit Focus Mode → eased restore to the captured framing.
+        app.world_mut().resource_mut::<GraphState>().ui.focus_mode = None;
+        app.update();
+        let pan = app.world().get::<PanOrbitCamera>(cam).unwrap();
+        assert_eq!(
+            pan.target_focus, before,
+            "camera eases back to the pre-focus pivot"
+        );
+        assert_eq!(pan.target_radius, 25.0);
+    }
 }
