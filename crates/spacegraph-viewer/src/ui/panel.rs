@@ -279,9 +279,47 @@ pub fn ui_panel(
 
                 ui.separator();
                 ui.vertical(|ui| {
-                    section_header(ui, "Filtering");
-                    ui.label("Filter (substring):");
+                    section_header(ui, "Filter (query-DSL)");
                     ui.text_edit_singleline(&mut st.ui.filter);
+                    ui.label(
+                        egui::RichText::new("e.g. type:process deg:>3 -name:bash recent:5m")
+                            .weak()
+                            .small(),
+                    );
+                    // Parsed terms as removable chips; malformed → red error chip.
+                    match crate::graph::query::parse_query(&st.ui.filter) {
+                        Err(e) => {
+                            ui.colored_label(
+                                egui::Color32::from_rgb(235, 90, 90),
+                                format!("⚠ {}", e.message),
+                            );
+                        }
+                        Ok(_) => {
+                            let toks: Vec<String> =
+                                st.ui.filter.split_whitespace().map(String::from).collect();
+                            let mut remove: Option<usize> = None;
+                            ui.horizontal_wrapped(|ui| {
+                                for (i, tok) in toks.iter().enumerate() {
+                                    if ui.small_button(format!("{tok} ✕")).clicked() {
+                                        remove = Some(i);
+                                    }
+                                }
+                            });
+                            if let Some(i) = remove {
+                                let kept: Vec<&String> = toks
+                                    .iter()
+                                    .enumerate()
+                                    .filter(|(j, _)| *j != i)
+                                    .map(|(_, t)| t)
+                                    .collect();
+                                st.ui.filter = kept
+                                    .iter()
+                                    .map(|s| s.as_str())
+                                    .collect::<Vec<_>>()
+                                    .join(" ");
+                            }
+                        }
+                    }
 
                     ui.add_space(6.0);
                     ui.horizontal(|ui| {

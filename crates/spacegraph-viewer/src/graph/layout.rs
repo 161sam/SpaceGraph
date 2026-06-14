@@ -7,6 +7,18 @@ use std::time::Instant;
 use crate::graph::state::{GraphState, ViewMode};
 use crate::graph::tree;
 
+/// Stable kind tag for the query-DSL (`type`/`kind`), graph-side (no render dep).
+fn node_kind_str(node: &Node) -> &'static str {
+    match node {
+        Node::Process { .. } => "process",
+        Node::File { .. } => "file",
+        Node::User { .. } => "user",
+        Node::Socket { .. } => "socket",
+        Node::RemoteHost { .. } => "host",
+        Node::Alert { .. } => "alert",
+    }
+}
+
 pub fn update_layout_or_timeline(time: Res<Time>, mut st: ResMut<GraphState>) {
     let vis: HashSet<_> = st.visible_set_capped();
     let (raw_count, agg_count) = st.visible_edge_counts(&vis);
@@ -69,12 +81,56 @@ impl GraphState {
         id_ok || node_ok
     }
 
+    /// Evaluate the query-DSL filter against a node (v0.5.0, spec §3.8). `None`
+    /// query (blank or malformed) matches everything (the UI shows the error).
+    pub fn query_passes(
+        &self,
+        query: Option<&crate::graph::query::Query>,
+        id: &NodeId,
+        node: &Node,
+    ) -> bool {
+        let Some(q) = query else {
+            return true;
+        };
+        let label = crate::util::ids::node_label_short(node);
+        let (name, path, host, severity): (&str, &str, &str, &str) = match node {
+            Node::Process { exe, .. } => (exe, "", "", ""),
+            Node::File { path, .. } => ("", path, "", ""),
+            Node::User { name, .. } => (name, "", "", ""),
+            Node::Socket { local_addr, .. } => ("", "", local_addr, ""),
+            Node::RemoteHost { addr, .. } => ("", "", addr, ""),
+            Node::Alert {
+                signature,
+                severity,
+                ..
+            } => (signature, "", "", severity),
+        };
+        let view = crate::graph::query::NodeView {
+            kind: node_kind_str(node),
+            label: &label,
+            name,
+            path,
+            host,
+            severity,
+            degree: self.model.degree(id) as u32,
+            recent: self.node_is_glowing(id),
+        };
+        q.matches(&view)
+    }
+
     pub fn visible_set_capped(&mut self) -> HashSet<NodeId> {
+        // Parse the query-DSL filter once (not per node). Malformed → None (the
+        // filter chip shows the error; everything stays visible).
+        let query = if self.ui.filter.trim().is_empty() {
+            None
+        } else {
+            crate::graph::query::parse_query(&self.ui.filter).ok()
+        };
         let mut base: HashSet<NodeId> = self
             .model
             .nodes
             .iter()
-            .filter(|(id, n)| self.passes_filter(id, n) && self.stream_enabled(id))
+            .filter(|(id, n)| self.query_passes(query.as_ref(), id, n) && self.stream_enabled(id))
             .map(|(id, _)| id.clone())
             .collect();
 

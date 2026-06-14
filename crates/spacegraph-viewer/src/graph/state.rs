@@ -281,6 +281,9 @@ pub struct UiState {
 
     pub search_open: bool,
     pub search_query: String,
+    /// Command palette (v0.5.0, Ctrl/Cmd+P) open state + query text.
+    pub palette_open: bool,
+    pub palette_query: String,
     pub search_hits: Vec<NodeId>,
     pub jump_to: Option<NodeId>,
     pub fit_to_view: bool,
@@ -642,6 +645,8 @@ impl Default for GraphState {
                 marked: HashSet::new(),
                 search_open: false,
                 search_query: String::new(),
+                palette_open: false,
+                palette_query: String::new(),
                 search_hits: Vec::new(),
                 jump_to: None,
                 fit_to_view: false,
