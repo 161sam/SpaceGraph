@@ -139,6 +139,28 @@ impl Default for NodeDetailConfig {
     }
 }
 
+/// Quality-tier (v0.5.0, spec §2.7) config block. `tier` =
+/// `auto`|`potato`|`low`|`medium`|`high` (auto = detect from the GPU adapter);
+/// `adaptive` toggles the runtime FPS-feedback tier stepping.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct QualityConfig {
+    pub tier: String,
+    pub adaptive: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub target_fps_override: Option<u32>,
+}
+
+impl Default for QualityConfig {
+    fn default() -> Self {
+        Self {
+            tier: "auto".to_string(),
+            adaptive: true,
+            target_fps_override: None,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct ViewerConfig {
@@ -205,6 +227,9 @@ pub struct ViewerConfig {
     // ---- Node detail (v0.4.1): face icons + focused-node previews ----
     #[serde(default)]
     pub node_detail: NodeDetailConfig,
+    // ---- Quality tier (v0.5.0): GPU-cost axis, Pi → desktop ----
+    #[serde(default)]
+    pub quality: QualityConfig,
     // ---- Audio (effective only in builds with the `audio` feature) ----
     #[serde(default = "default_audio_enabled")]
     pub audio_enabled: bool,
@@ -265,6 +290,7 @@ impl Default for ViewerConfig {
             edge_pick_threshold: default_edge_pick_threshold(),
             postfx: PostFxConfig::default(),
             node_detail: NodeDetailConfig::default(),
+            quality: QualityConfig::default(),
             audio_enabled: default_audio_enabled(),
             audio_volume: default_audio_volume(),
             agents: vec![AgentEndpoint::default()],
@@ -435,6 +461,23 @@ mod tests {
         let dec: NodeDetailConfig = toml::from_str(&enc).expect("deserialize override");
         assert_eq!(overridden, dec);
         assert_eq!(dec.level.as_deref(), Some("low"));
+    }
+
+    #[test]
+    fn quality_config_roundtrip() {
+        let cfg = QualityConfig::default();
+        let dec: QualityConfig = toml::from_str(&toml::to_string(&cfg).unwrap()).unwrap();
+        assert_eq!(cfg, dec);
+        assert_eq!(dec.tier, "auto");
+        assert!(dec.adaptive);
+
+        let overridden = QualityConfig {
+            tier: "potato".into(),
+            adaptive: false,
+            target_fps_override: Some(30),
+        };
+        let dec2: QualityConfig = toml::from_str(&toml::to_string(&overridden).unwrap()).unwrap();
+        assert_eq!(overridden, dec2);
     }
 
     #[test]

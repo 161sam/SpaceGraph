@@ -10,6 +10,7 @@ pub mod node_icon;
 pub mod node_mesh;
 pub mod pacing;
 pub mod postfx;
+pub mod quality;
 pub mod spatial;
 pub mod theme;
 pub mod timeline;
@@ -37,6 +38,9 @@ pub use node_icon::{
 };
 pub use pacing::{update_frame_pacing, FramePacing};
 pub use postfx::{sync_postfx, PostFxPlugin};
+pub use quality::{
+    adaptive_quality, apply_quality, detect_tier, effective_gates, QualityState, QualityTier,
+};
 pub use spatial::{
     apply_picked_focus, draw_node_labels, draw_spatial, highlight_style, hover_detection_spatial,
     picking_focus, rotate_node_rings, setup_node_render_resources, sync_node_entities,

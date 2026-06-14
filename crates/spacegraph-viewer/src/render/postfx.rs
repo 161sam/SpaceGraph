@@ -68,11 +68,14 @@ use settings::PostFxSettings;
 pub fn sync_postfx(
     mut commands: Commands,
     st: Res<GraphState>,
+    quality: Res<crate::render::quality::QualityState>,
     time: Res<Time>,
     cam_q: Query<Entity, With<Camera>>,
 ) {
     let cfg = st.cfg.postfx;
-    let active = postfx_active(st.cfg.visual_theme, cfg.enabled);
+    // Standard + user-enabled + the active quality tier permits post-FX.
+    let active = postfx_active(st.cfg.visual_theme, cfg.enabled)
+        && quality.gates(st.cfg.visual_theme).postfx.is_on();
     for cam in cam_q.iter() {
         if active {
             commands.entity(cam).insert(PostFxSettings {

@@ -931,3 +931,54 @@ command palette + query-DSL. Track-A, viewer-local — no ESN.
   authoritative `QualityTier {Potato,Low,Medium,High}`; `DetailCapability` will be
   derived from the effective tier so the v0.4.1 face-icon/preview systems follow
   the tier (the v0.4.1 face icon is the *centre* of WP-2's gate-glyph unit).
+
+## Phase 1 — WP-0 Quality-tier system (spec §2)
+
+* `render/quality.rs`: `QualityTier {Potato,Low,Medium,High}` (Ord, cheapest→
+  richest) + pure `detect_tier(name, AdapterKind, backend)` (V3D/VideoCore/
+  llvmpipe/software → Potato; discrete → High; GL-backend or weak-iGPU integrated
+  → Low; modern integrated → Medium; Cpu/Other → Potato). `TierGates` preset per
+  tier (HDR bloom / post-FX mode / rings / silhouettes / max_nodes / MSAA /
+  target_fps); `effective_gates(tier, theme)` folds in the theme (`Minimal` →
+  cheapest path). Pure `AdaptiveState` (3 s-down / 10 s-up + 15-fps margin band →
+  hysteresis, never below Potato, capped at base). `QualityState` resource with
+  `take_dirty` (exactly one reconfiguration per change).
+* Derives the v0.4.1 `DetailCapability` from the effective tier (Potato/Low→Low,
+  Medium→Mid, High→High) — the v0.4.1 node-detail axis now follows the tier.
+* `[quality]` config (`tier`/`adaptive`/`target_fps_override`) plumbed config.rs ↔
+  viewer.toml ↔ CfgState.
+* Wiring: `finish()` resolves the base tier (config `tier` override → adapter
+  `detect_tier` → Medium fallback) + derives DetailCapability (the `[node_detail]
+  level` override still wins). `apply_quality` reconfigures bloom intensity, MSAA,
+  the node budget and DetailCapability **once per change** (`take_dirty`);
+  `sync_postfx` / `sync_node_rings` gate on the tier each frame (idempotent);
+  `adaptive_quality` feeds a ~1 s mean-FPS window into the adaptive machine.
+  Bloom intensity moved from `sync_visual_theme` to `apply_quality` (single owner).
+* **Deviation (documented per §3):** `apply_quality` writes the tier's
+  `max_visible_nodes` (spec §2.2 "max nodes (default)") into the in-memory
+  CfgState on tier change; the persisted `viewer.toml` is untouched unless the
+  user saves settings. Tier is the runtime node-budget authority; the demoted
+  Technician slider adjusts within a session.
+* **Gate 1 PASS** — fmt / clippy -D / test green. New tests (+8):
+  `detect_tier_fixtures` (incl. Pi V3D → Potato, discrete → High, GL iGPU → Low),
+  `adaptive_steps_down_after_low_window_then_floors`,
+  `adaptive_steps_up_after_high_window_capped_at_base`,
+  `adaptive_in_band_does_not_oscillate`, `minimal_forces_cheapest_path`,
+  `parse_and_caps`, `dirty_fires_once_per_change`, `quality_config_roundtrip`.
+  **159 tests** total.
+
+### Local-capture procedure (perf — required, no GPU/Pi in CI)
+
+```
+cargo run --release -p spacegraph-viewer -- --demo-load 1500
+# startup logs "quality tier: <T> (auto|config)"; force a tier via viewer.toml
+# [quality] tier = potato|low|medium|high, or toggle adaptive and load the GPU
+```
+Record, per class, the auto-detected tier + steady FPS at each tier, and that an
+adaptive step-down recovers FPS without oscillation:
+
+| Class | Auto tier | FPS @ Potato/Low/Medium/High | Adaptive step verified |
+|---|---|---|---|
+| Pi / GLES / llvmpipe | Potato | | |
+| Integrated | Low/Medium | | |
+| Discrete | High | | |
