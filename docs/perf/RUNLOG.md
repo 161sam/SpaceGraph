@@ -1250,3 +1250,43 @@ Branch: `feature/fs-search` (off `v0.5.0`).
 * `cargo test --workspace`: **green** (exit 0) at the `v0.5.0` baseline — the
   feature branch starts from a green tree.
 * No source changed in Phase 0; the v0.5.0 fmt/clippy gates are inherited.
+
+## Phase 1 — WP-0 Protocol + handshake
+
+Branch: `feat/fs-search-wp0-protocol` → merged into `feature/fs-search`.
+
+### Changed
+
+* `spacegraph-core`: `PROTOCOL_VERSION` **3 → 4**. New
+  `MIN_COMPATIBLE_PROTOCOL = 3` + `protocol_compatible()` — peers in `3..=4`
+  interoperate (no strict-equality reject), so a v3 agent is never broken
+  silently. New wire types `SearchRequest`/`SearchResponse`/`SearchHit`/
+  `MaterialiseRequest` as `Msg` variants. `Capabilities` gains `fs_search`
+  (`#[serde(default)]` → a v3 `Identity` decodes it to `false`).
+  `fs_search_available()` couples version + capability.
+* `spacegraph-agent`: advertises `fs_search = true`; the UDS server handshake
+  now rejects only an *incompatible* peer (`protocol_compatible`), not any
+  non-equal version.
+* `spacegraph-viewer`: UDS reader handshake relaxed likewise; `NetStreamState`
+  stores the negotiated per-stream `fs_search` cap (set from `Identity`);
+  `GraphState::fs_search_available()` gates the FS-search surface — only true
+  when a connected stream advertised the capability.
+
+### Gate 1 results
+
+* **Protocol round-trip + negotiation** (core 2 → 6 tests): `protocol_compatible`
+  accepts v3/v4 and rejects 0/2/5; `fs_search_available` requires *both* a
+  compatible version and the capability; a legacy (v3) `Identity` decodes
+  `fs_search` to false; `SearchRequest`/`SearchResponse`/`MaterialiseRequest`
+  round-trip.
+* **Graceful v3 fallback** (viewer +1 test,
+  `v3_agent_handshake_disables_fs_search_without_panic`): feeding a v3-style
+  `Identity` leaves `fs_search_available()` false **without panic**; a v4 agent
+  flips it on.
+* `cargo clippy --workspace -- -D warnings`: clean. `cargo test --workspace`:
+  green (exit 0) — core **6**, agent **26**, viewer **158** + 3.
+
+### Deviations
+
+* None. No new Cargo dependency; module boundaries unchanged (new types live in
+  `spacegraph-core`, the shared contract).
