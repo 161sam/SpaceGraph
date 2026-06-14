@@ -4010,6 +4010,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "spacegraph-mcp"
+version = "0.1.0"
+dependencies = [
+ "crossbeam-channel",
+ "serde",
+ "serde_json",
+ "spacegraph-core",
+ "spacegraph-graph",
+ "tokio",
+]
+
+[[package]]
 name = "spacegraph-viewer"
 version = "0.1.0"
 dependencies = [
