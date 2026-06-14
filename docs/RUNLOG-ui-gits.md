@@ -10,11 +10,12 @@ v4), no agent change, no offensive/mutating code. All work in `crates/spacegraph
 -D warnings` ✓ (no warnings) · `cargo test --workspace` ✓ **192 passed / 0 failed**.
 
 ## Phase status
-- [x] **P0** — UI inventory + bug repro
-- [ ] **P1** — Panel-layer system + bugfix
-- [ ] **P2** — Sidebar replacement
-- [ ] **P3** — Focused-node detail
-- [ ] **P4** — Consistency pass + close-out
+- [x] **P0** — UI inventory + bug repro (`8ee4007`)
+- [x] **P1** — Panel-layer system + bugfix (`12ab3e2`)
+- [x] **P2** — Sidebar replacement (`848f2df`)
+- [x] **P3** — Focused-node detail (`25cc208`)
+- [x] **P4** — Consistency pass + close-out
+- [ ] **Sam's screenshot review** → merge (review-gated; NOT auto-merged)
 
 ---
 
@@ -341,3 +342,58 @@ Standard = GitS frame + corner brackets; Minimal = the plain flat card.
 - No core/graph/agent/wire change.
 - Screenshots: `afterp3-focus.png` (layered core + entity card),
   `afterp3-minimal-focus.png` (flat degrade). Compare vs `before-focus.png`.
+
+---
+
+## P4 — Consistency pass + close-out
+
+### What changed
+- **Telemetry HUD** (`ui/hud.rs`): wrapped in the GitS `panel_frame` with a
+  `◢ TELEMETRY` header (Standard) / flat (Minimal), consistent with the HUD panels.
+- **Legend** (`ui/legend.rs`): GitS `panel_frame` + corner brackets (Standard).
+- **Command palette** (`ui/command_palette.rs`): the now-dead "Toggle left rail"
+  action is repointed to **"Toggle controls panel"** (toggles the View HUD panel
+  via `RailState`); headless palette test updated.
+- Search/help/settings dialogs inherit the global GitS `Visuals` (already
+  consistent); the modal agent/path windows keep their dialog frame.
+- Docs updated: `DESIGN_LANGUAGE.md` (the 2D-chrome visual language + panel-layer
+  rules), `ACCEPTANCE.md` (the MP-UI-GitS acceptance criteria), `recon/
+  CODE_INVENTORY.md` (the new `ui/` modules), this RUNLOG.
+
+### Gate
+- `fmt --check` ✓ · `clippy --workspace --all-targets -D warnings` ✓ ·
+  `test --workspace` ✓ (196 viewer tests).
+- No `spacegraph-core`/`spacegraph-graph` change · no wire bump (stays v4) · no
+  agent change · no offensive/mutating code (audited across P1–P4).
+
+---
+
+## Close-out — for Sam's screenshot review
+
+**Branch `feat/ui-gits-overhaul` is ready for review — NOT auto-merged.**
+
+Commits: `8ee4007` P0 · `12ab3e2` P1 · `848f2df` P2 · `25cc208` P3 · P4 (this).
+
+### Before / after screenshot set (`docs/media/gits/`)
+| State | Before (baseline) | After |
+|---|---|---|
+| Default chrome | `before-default.png` (left dev sidebar) | `afterp2-default.png` (full-width + slim rail) |
+| HUD panel | — | `afterp2-view.png`, `afterp2-settings.png` |
+| Focus mode | `before-focus.png` (radial/preview/readout pile-up) | `afterp3-focus.png` (layered core + entity card) |
+| Hover readout | `before-hover.png` (on the node) | `afterp1-hover.png` (beside the node) |
+| Minimal theme | `before-minimal.png` | `afterp2-minimal.png`, `afterp3-minimal-focus.png` |
+
+> Screenshots were captured autonomously on `DISPLAY :0` from the offline
+> `--demo-load 2000` synthetic graph (no real agent data). Focus states use the
+> gated `SPACEGRAPH_DEMO_FOCUS` hub-autofocus; theme via an isolated
+> `XDG_CONFIG_HOME`. Re-capture: `/tmp/sg_capture_set.sh <out> <prefix>`.
+
+### Reviewer notes / open decisions
+- **Layered core** is a screen-space schematic over the focused node (the existing
+  centerpiece/reticle paradigm), **not** new 3D scene geometry — per the MP's
+  out-of-scope guard. If you want depth-true 3D core meshes, that's a separate
+  render-architecture task.
+- The gated `SPACEGRAPH_DEMO_FOCUS` hub-autofocus is screenshot-only tooling (no
+  effect on a normal run); remove it if undesired.
+- Rail glyphs/labels are functional placeholders (monospace); a dedicated icon
+  font could replace them in a later polish pass.

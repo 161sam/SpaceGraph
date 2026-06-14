@@ -224,4 +224,25 @@ The workspace now has **five** crates (was three). `PROTOCOL_VERSION` is **4**
 fields; the pure pipeline + ingest were moved out (re-exported under the historical
 `crate::graph::*` / `crate::net::*` paths). Renders over the core; behavior
 preserved.
+
+## MP-UI-GitS addendum — viewer chrome overhaul (viewer-only)
+
+New `ui/` modules (the permanent left sidebar `ui/panel.rs` was removed; its
+controls relocated — git history preserves the old file):
+
+| module | purpose |
+|---|---|
+| `ui/overlay.rs` | Panel-layer/z-order authority: `layer::{BACKDROP,PANEL,READOUT,MODAL}` Order contract + pure `place_card` anchoring (off-node, edge-aware, clamped) + `hover_readout_suppressed` + `estimate_text_size`. 7 unit tests. |
+| `ui/gits.rs` | GitS chrome helpers from tokens: `panel_frame(standard)`, `draw_brackets`/`bracket_response`, `section_header`. Standard=GitS / Minimal=flat. |
+| `ui/rail.rs` | Slim command rail (`command_rail`) + `RailState` + `update_ui_layout` (publishes `content_rect`). Replaces the old sidebar's launcher role. |
+| `ui/hud_panels.rs` | `hud_panels` (per-section GitS panels carrying every former-sidebar control) + `dispatch_windows` (hosts the path/agent/command/search windows). |
+| `ui/entity_card.rs` | `entity_card_overlay` — Focus-Mode framed GitS entity card (silhouette + fields + actions), corner-anchored. |
+
+Changed: `ui/tokens.rs` (+`radius`/`stroke_w`/`alpha`); `ui/focus.rs`
+(layered-core centerpiece); `ui/reticle.rs` + `render/spatial.rs` + `ui/tooltips.rs`
+(readouts via `place_card`, suppression); `ui/hud.rs` (telemetry → bottom-left
+GitS frame); `ui/legend.rs` (GitS frame); `ui/command_palette.rs` (RailState; the
+dead "Toggle left rail" → "Toggle controls panel"); `ui/inspector.rs` (suppressed
+in focus); `app/mod.rs` (rail/panel systems chained; `RailState`; gated
+`SPACEGRAPH_DEMO_FOCUS` screenshot hook). No core/graph/agent/wire change.
 </content>

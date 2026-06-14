@@ -436,3 +436,29 @@ Ein Release gilt als fertig, wenn:
 - alle Gates erfüllt sind
 - kein bekannter Crash reproduzierbar ist
 - Architekturregeln eingehalten sind
+
+## MP-UI-GitS — Viewer-Chrome-Overhaul (Track A, viewer-only, review-gated)
+
+Visuelle Qualität ist **nicht** test-gated; Sam reviewt das Before/After-
+Screenshot-Set (`docs/media/gits/`, `docs/RUNLOG-ui-gits.md`) vor dem Merge.
+Maschinell prüfbare Kriterien:
+
+- [x] **Kein permanentes Dev-Sidebar.** `ui/panel.rs` entfernt; Graph rendert
+  full-width; Chrome floatet darüber.
+- [x] **Command-Rail + GitS-HUD-Panels** (`ui/rail.rs`, `ui/hud_panels.rs`):
+  VIEW·FILT·ALRT·AGNT·CFG; jede Section togglet ein corner-anchored Panel.
+- [x] **Feature-Reachability:** jeder vormalige Sidebar-Control hat ein neues
+  Zuhause (Checkliste im RUNLOG, P2) — kein Control entfernt.
+- [x] **Z-Order-Bugfix:** keine Radial/Preview/Tooltip-Stapelung auf dem Knoten;
+  Tooltip neben statt auf dem Knoten; edge-aware Platzierung
+  (`ui::overlay::place_card`, pure + unit-getestet).
+- [x] **Focused-Node-Detail:** Layered-Core-Schematic + framed Entity-Card
+  (corner-anchored, überlappt den Knoten nie).
+- [x] **Minimal-Parität:** Rail/Panels/Card/Telemetry rendern unter Minimal flach
+  (kein Glow/Brackets); Layered-Core nur Standard; keine Reachability-Regression.
+- [x] **Scope:** keine `spacegraph-core`/`spacegraph-graph`-Änderung, kein
+  Wire-Bump (bleibt v4), keine Agent-Änderung, nichts Offensives/Mutierendes.
+- [x] **Gates:** `fmt --check` · `clippy --workspace --all-targets -D warnings` ·
+  `test --workspace` grün (196 Viewer-Tests, inkl. 7 neue `ui::overlay`-Tests).
+- [ ] **Visueller Review (Sam):** Before/After-Set gesichtet, GitS-Look bestätigt
+  → erst dann Merge.

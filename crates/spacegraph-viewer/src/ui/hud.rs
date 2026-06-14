@@ -4,8 +4,10 @@ use std::time::Instant;
 
 use crate::graph::{GraphState, ViewMode};
 use crate::render::quality::QualityState;
+use crate::ui::gits;
 use crate::ui::tokens::color;
 use crate::ui::{UiLayout, HUD_EDGE_PADDING};
+use crate::util::config::VisualTheme;
 
 /// HUD rand-frame (v0.5.0, spec §3.6): edge-hugging corner brackets carrying live
 /// global state (agents, alert counts by severity, mode, FPS, active tier). Drawn
@@ -82,6 +84,7 @@ pub fn hud_overlay(mut contexts: EguiContexts, st: Res<GraphState>, layout: Res<
     // P2: anchor the debug telemetry to the content area's bottom-left, clear of
     // the command rail and the HUD panels (which open from the top-left).
     let left = (content_rect.min.x + HUD_EDGE_PADDING).max(screen.min.x + HUD_EDGE_PADDING);
+    let standard = st.cfg.visual_theme == VisualTheme::Standard;
 
     egui::Area::new("hud".into())
         .order(crate::ui::overlay::layer::PANEL)
@@ -90,7 +93,19 @@ pub fn hud_overlay(mut contexts: EguiContexts, st: Res<GraphState>, layout: Res<
             egui::vec2(left, -HUD_EDGE_PADDING),
         )
         .show(ctx, |ui| {
-            ui.group(|ui| {
+            // P4: GitS readout frame (Standard) / plain (Minimal), consistent with
+            // the HUD panels.
+            gits::panel_frame(standard).show(ui, |ui| {
+                ui.label(
+                    egui::RichText::new("◢ TELEMETRY")
+                        .monospace()
+                        .small()
+                        .color(if standard {
+                            color::ACCENT
+                        } else {
+                            color::TEXT_DIM
+                        }),
+                );
                 let now = Instant::now();
                 let mut snapshot_seen = false;
                 let mut live_seen = false;
