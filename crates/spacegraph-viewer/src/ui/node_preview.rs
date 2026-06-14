@@ -475,10 +475,11 @@ pub fn node_preview_overlay(
         ))
         .inner_margin(egui::Margin::same(8.0))
         .rounding(2.0);
-    // Focus Mode (v0.5.1): the preview becomes the **centre** subject; otherwise it
-    // docks bottom-right as before.
+    // P1 (MP-UI-GitS): the focus-mode preview no longer sits CENTER_CENTER on the
+    // node (that caused the radial/centerpiece/preview pile-up). It docks to a
+    // screen corner, clear of the focused node; P3 reframes it as the entity card.
     let (anchor, offset) = if st.ui.focus_mode.is_some() {
-        (egui::Align2::CENTER_CENTER, [0.0, 0.0])
+        (egui::Align2::LEFT_BOTTOM, [12.0, -12.0])
     } else {
         (egui::Align2::RIGHT_BOTTOM, [-12.0, -12.0])
     };

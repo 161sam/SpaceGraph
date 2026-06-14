@@ -76,7 +76,7 @@ fn solid_from_tris(tris: &[[Vec3; 3]]) -> Mesh {
 }
 
 /// Build an unlit `LineList` wireframe mesh from a list of segments.
-fn wire_from_edges(edges: &[(Vec3, Vec3)]) -> Mesh {
+pub fn wire_from_edges(edges: &[(Vec3, Vec3)]) -> Mesh {
     let mut positions: Vec<[f32; 3]> = Vec::with_capacity(edges.len() * 2);
     for &(a, b) in edges {
         positions.push(a.to_array());
@@ -115,7 +115,7 @@ fn octahedron_solid(r: f32) -> Mesh {
     solid_from_tris(&tris)
 }
 
-fn octahedron_wire(r: f32) -> Mesh {
+pub fn octahedron_wire(r: f32) -> Mesh {
     let v = octahedron_verts(r);
     let (top, bottom) = (v[0], v[1]);
     let (e0, e1, e2, e3) = (v[2], v[3], v[4], v[5]);

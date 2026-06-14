@@ -11,6 +11,7 @@ use crate::graph::{GraphState, ViewMode};
 use crate::render::freefly::FlyCam;
 use crate::render::node_mesh;
 use crate::render::theme;
+use crate::ui::overlay;
 use crate::ui::tooltips::render_tooltip;
 use crate::util::config::VisualTheme;
 use crate::util::ids::node_label_short;
@@ -961,7 +962,12 @@ mod perimeter_tests {
     }
 }
 
-pub fn draw_spatial(mut st: ResMut<GraphState>, mut gizmos: Gizmos, mut contexts: EguiContexts) {
+pub fn draw_spatial(
+    mut st: ResMut<GraphState>,
+    mut gizmos: Gizmos,
+    mut contexts: EguiContexts,
+    cam_q: Query<(&Camera, &GlobalTransform)>,
+) {
     // Node entities are managed by `sync_node_entities`; this system only draws
     // immediate-mode overlays (tooltips, edge/LOD/tree gizmos) over the visible
     // set published by the layout step.
@@ -1021,60 +1027,88 @@ pub fn draw_spatial(mut st: ResMut<GraphState>, mut gizmos: Gizmos, mut contexts
             st.spatial.position_of(&key.to),
         ) {
             gizmos.line(a, b, theme::EDGE_HOVER);
-            let count = st
-                .core
-                .model
-                .agg_edge(&key)
-                .map(|e| e.stats.count)
-                .unwrap_or(0);
-            let lines = vec![
-                format!("edge: {}", edge_class_name(key.class)),
-                st.node_label_with_id(&key.from),
-                format!("→ {}", st.node_label_with_id(&key.to)),
-                format!("count: {count}"),
-            ];
-            let pos = contexts
-                .ctx_mut()
-                .input(|i| i.pointer.hover_pos().unwrap_or(egui::pos2(0.0, 0.0)))
-                + egui::vec2(14.0, 14.0);
-            render_tooltip(contexts.ctx_mut(), "tooltip_edge", pos, lines);
+            if !overlay::hover_readout_suppressed(
+                st.ui.focus_mode.is_some(),
+                st.ui.context_menu.is_some(),
+            ) {
+                let count = st
+                    .core
+                    .model
+                    .agg_edge(&key)
+                    .map(|e| e.stats.count)
+                    .unwrap_or(0);
+                let lines = vec![
+                    format!("edge: {}", edge_class_name(key.class)),
+                    st.node_label_with_id(&key.from),
+                    format!("→ {}", st.node_label_with_id(&key.to)),
+                    format!("count: {count}"),
+                ];
+                let ctx = contexts.ctx_mut();
+                let vp = ctx.screen_rect();
+                let ptr = ctx.input(|i| i.pointer.hover_pos().unwrap_or(egui::pos2(0.0, 0.0)));
+                let size = overlay::estimate_text_size(&lines);
+                let pos = overlay::place_card(ptr, 0.0, size, vp, overlay::CARD_GAP);
+                render_tooltip(ctx, "tooltip_edge", pos, overlay::layer::READOUT, lines);
+            }
         }
     }
 
-    // Tooltip
+    // Hover readout — node-anchored beside the hovered node (never on it),
+    // edge-aware (clamped on-screen), and suppressed while a modal owns the node
+    // region (focus mode / open context menu). P1 panel-layer authority.
     let hovered = st.ui.hovered.clone();
     let selected = st.ui.selected.clone();
     if let Some(hid) = hovered.as_ref() {
-        let pos = contexts
-            .ctx_mut()
-            .input(|i| i.pointer.hover_pos().unwrap_or(egui::pos2(0.0, 0.0)))
-            + egui::vec2(14.0, 14.0);
-
-        let mut lines = st.node_tooltip_lines(hid);
-        if let Some(selected) = selected.as_ref() {
-            if selected != hid {
-                lines.push("why connected:".to_string());
-                match st.explain_path_cached(selected, hid, &vis) {
-                    Some(path) if path.is_empty() => {
-                        lines.push("same node".to_string());
-                    }
-                    Some(path) => {
-                        for step in path {
-                            let from = st.node_label_with_id(&step.from);
-                            let to = st.node_label_with_id(&step.to);
-                            lines.push(format!(
-                                "{} --[{}]--> {}",
-                                from,
-                                edge_class_name(step.class),
-                                to
-                            ));
+        if !overlay::hover_readout_suppressed(
+            st.ui.focus_mode.is_some(),
+            st.ui.context_menu.is_some(),
+        ) {
+            let mut lines = st.node_tooltip_lines(hid);
+            if let Some(selected) = selected.as_ref() {
+                if selected != hid {
+                    lines.push("why connected:".to_string());
+                    match st.explain_path_cached(selected, hid, &vis) {
+                        Some(path) if path.is_empty() => {
+                            lines.push("same node".to_string());
                         }
+                        Some(path) => {
+                            for step in path {
+                                let from = st.node_label_with_id(&step.from);
+                                let to = st.node_label_with_id(&step.to);
+                                lines.push(format!(
+                                    "{} --[{}]--> {}",
+                                    from,
+                                    edge_class_name(step.class),
+                                    to
+                                ));
+                            }
+                        }
+                        None => lines.push("no path within depth cap".to_string()),
                     }
-                    None => lines.push("no path within depth cap".to_string()),
                 }
             }
+            // Anchor beside the hovered node's screen projection; fall back to
+            // the pointer if it is off-screen / unprojectable.
+            let node_screen = cam_q.get_single().ok().and_then(|(cam, tf)| {
+                st.spatial
+                    .position_of(hid)
+                    .and_then(|p| cam.world_to_viewport(tf, p))
+                    .map(|v| egui::pos2(v.x, v.y))
+            });
+            let ctx = contexts.ctx_mut();
+            let vp = ctx.screen_rect();
+            let size = overlay::estimate_text_size(&lines);
+            let pos = match node_screen {
+                Some(np) => {
+                    overlay::place_card(np, overlay::NODE_HALF_PX, size, vp, overlay::CARD_GAP)
+                }
+                None => {
+                    let ptr = ctx.input(|i| i.pointer.hover_pos().unwrap_or(egui::pos2(0.0, 0.0)));
+                    overlay::place_card(ptr, 0.0, size, vp, overlay::CARD_GAP)
+                }
+            };
+            render_tooltip(ctx, "tooltip_spatial", pos, overlay::layer::READOUT, lines);
         }
-        render_tooltip(contexts.ctx_mut(), "tooltip_spatial", pos, lines);
     }
 
     if lod_active {

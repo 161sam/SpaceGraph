@@ -10,6 +10,7 @@ use spacegraph_core::NodeId;
 
 use crate::graph::GraphState;
 use crate::render::quality::{parse_tier, QualityState};
+use crate::ui::rail::{RailSection, RailState};
 use crate::util::config::VisualTheme;
 
 /// Cap on nodes scanned per keystroke (bounds the palette's per-frame cost).
@@ -50,7 +51,7 @@ pub fn fuzzy_match(needle: &str, haystack: &str) -> Option<i32> {
 enum PaletteAction {
     SetTheme(VisualTheme),
     SetTier(&'static str),
-    ToggleLeft,
+    ToggleControls,
     ToggleRight,
     ToggleTechnician,
     ToggleHelp,
@@ -74,7 +75,7 @@ fn static_entries() -> Vec<Entry> {
         ("Quality: Low", SetTier("low")),
         ("Quality: Medium", SetTier("medium")),
         ("Quality: High", SetTier("high")),
-        ("Toggle left rail", ToggleLeft),
+        ("Toggle controls panel", ToggleControls),
         ("Toggle inspector (right)", ToggleRight),
         ("Toggle Technician section", ToggleTechnician),
         ("Toggle help", ToggleHelp),
@@ -89,7 +90,12 @@ fn static_entries() -> Vec<Entry> {
     .collect()
 }
 
-fn apply_palette_action(st: &mut GraphState, quality: &mut QualityState, action: PaletteAction) {
+fn apply_palette_action(
+    st: &mut GraphState,
+    quality: &mut QualityState,
+    rail: &mut RailState,
+    action: PaletteAction,
+) {
     match action {
         PaletteAction::SetTheme(t) => st.cfg.visual_theme = t,
         PaletteAction::SetTier(s) => {
@@ -99,7 +105,15 @@ fn apply_palette_action(st: &mut GraphState, quality: &mut QualityState, action:
                 quality.set_effective(t);
             }
         }
-        PaletteAction::ToggleLeft => st.cfg.shell.left_open = !st.cfg.shell.left_open,
+        // P4: the old "Toggle left rail" is repointed to the new HUD controls
+        // panel (the slim rail is always on; this toggles the View panel).
+        PaletteAction::ToggleControls => {
+            rail.open = if rail.open.is_some() {
+                None
+            } else {
+                Some(RailSection::View)
+            };
+        }
         PaletteAction::ToggleRight => st.cfg.shell.right_open = !st.cfg.shell.right_open,
         PaletteAction::ToggleTechnician => {
             st.cfg.shell.technician_open = !st.cfg.shell.technician_open
@@ -150,6 +164,7 @@ pub fn command_palette_overlay(
     mut contexts: EguiContexts,
     mut st: ResMut<GraphState>,
     mut quality: ResMut<QualityState>,
+    mut rail: ResMut<RailState>,
 ) {
     if !st.ui.palette_open {
         return;
@@ -204,7 +219,7 @@ pub fn command_palette_overlay(
     }
 
     if let Some(action) = chosen {
-        apply_palette_action(&mut st, &mut quality, action);
+        apply_palette_action(&mut st, &mut quality, &mut rail, action);
         close = true;
     }
     if close {
@@ -262,6 +277,7 @@ mod tests {
         app.init_resource::<bevy_egui::EguiUserTextures>()
             .insert_resource(st)
             .insert_resource(QualityState::default())
+            .insert_resource(RailState::default())
             .add_systems(Update, command_palette_overlay);
         app.update();
     }

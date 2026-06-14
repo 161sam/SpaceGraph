@@ -370,3 +370,58 @@ all default on.
 - **Posture / exposure score** (`graph::posture`): a deterministic 0..100 risk
   read-out from public-facing listeners + alert density, amplified by the coverage
   gap. Surfaced in the HUD/posture view; the components explain the number.
+
+## MP-UI-GitS — 2D chrome visual language (viewer-only)
+
+Extends the 3D scene aesthetic above to the **egui chrome**. Holographic
+technical readouts over a full-width scene, not flat widget lists. Standard =
+full GitS; **Minimal = flat** (plain egui, no glow/brackets) — every rule below
+degrades to the Minimal equivalent.
+
+- **Tokens** (`ui/tokens.rs`, extended): the egui-side palette
+  (`color::{BG,SURFACE,SURFACE_HI,LINE,ACCENT,ACCENT_GREEN,TEXT,TEXT_DIM,SEV_*}`),
+  spacing (`space::XS..XL`), font roles (`font::{BODY,MONO,HEADER}`), plus
+  `radius`, `stroke_w`, and `alpha` (translucent-surface opacities). Single source
+  of chrome values — converge literals onto them, don't fork.
+- **GitS chrome** (`ui/gits.rs`): `panel_frame(standard)` = translucent dark fill
+  (`alpha::PANEL_FILL`, scene reads faintly through) + hairline neon stroke +
+  flat rounding; `draw_brackets` / `bracket_response` = the ┌ ┐ └ ┘ corner
+  accents; `section_header` = monospace accent labels (`◢ TITLE`). Minimal →
+  plain egui popup frame, no brackets.
+- **Layout model**: the 3D graph renders **full-window**; chrome **floats over
+  it** (holographic HUD), it does not reserve a column. A slim always-on
+  **command rail** (`ui/rail.rs`, left edge: VIEW·FILT·ALRT·AGNT·CFG) toggles one
+  **corner-anchored HUD panel** (`ui/hud_panels.rs`) at a time. The top **status
+  strip** (`hud_frame_overlay`: AGENTS/ALERTS/MODE/FPS/TIER) + edge corner
+  brackets are the persistent frame; the telemetry readout docks bottom-left.
+  `update_ui_layout` publishes `content_rect` = screen minus the rail.
+- **Panel-layer / z-order authority** (`ui/overlay.rs`): a single owner of overlay
+  draw-order and node-anchored placement, so surfaces never stack on the node.
+  - `layer::{BACKDROP=Background, PANEL/READOUT=Middle, MODAL=Foreground}` — the
+    canonical egui `Order` per overlay class (no ad-hoc `.order()`).
+  - `place_card(node, node_half, size, viewport, gap)` — the one pure, unit-tested
+    anchoring rule: place a card/readout **beside** a node (prefer right, flip
+    left near the edge, vertically centre, clamp fully on-screen); clears the node
+    footprint. Reused by the hover tooltip, reticle readout, and entity card.
+    `node_half = 0` = a clamped pointer anchor.
+  - **Mutual exclusion**: the hover tooltip is suppressed while a modal owns the
+    node region (Focus Mode / context menu); entering Focus closes the context
+    menu / palette / search. The Esc cascade is preserved.
+- **Focused node — layered core** (`ui/focus.rs`, Standard): concentric core rings
+  + tick marks + a wireframe-octagon schematic + a `◤ FOCUS ◥` tag + radial
+  kind/links/identity labels, screen-space over the projected node (the
+  centerpiece/reticle/glyph paradigm — **not** new scene geometry). Static (no
+  per-frame animation). Minimal = plain dim.
+- **Entity card** (`ui/entity_card.rs`): in Focus Mode, a framed GitS card (type
+  silhouette + identity fields + origin + connections + Fly-to/Pin-compare),
+  corner-anchored bottom-right via the `place_card` model — never overlaps the
+  node; the docked inspector is suppressed in focus so they don't duplicate.
+
+### Rules (binding, 2D chrome)
+- Glow/detail serve legibility, never clutter; gate GitS decoration on the
+  Standard theme — **never** gate a control itself (Minimal keeps full reachability).
+- One owner of z-order + anchoring (`ui/overlay.rs`); new overlays pick a
+  `layer::*` class and (if node-anchored) use `place_card` — no ad-hoc `.order()`
+  or hand-rolled offsets.
+- Chrome floats; the scene stays full-width. No permanent space-reserving dev
+  sidebar.

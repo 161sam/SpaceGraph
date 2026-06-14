@@ -56,6 +56,7 @@ impl Plugin for SpaceGraphViewerPlugin {
             .insert_resource(crate::render::RippleTracker::default())
             .insert_resource(crate::render::PreviewExpand::default())
             .insert_resource(crate::ui::RadialMenu::default())
+            .insert_resource(crate::ui::RailState::default())
             .insert_resource(crate::render::FocusCam::default())
             // Default detail capability + quality tier; `finish` refines both from
             // the real GPU adapter (or config) once the renderer is initialized.
@@ -72,6 +73,12 @@ impl Plugin for SpaceGraphViewerPlugin {
             }
         }
 
+        // Gated visual smoke-test hook (no effect unless the env var is set):
+        // deterministically enters Focus Mode on a hub node for screenshot capture.
+        if std::env::var("SPACEGRAPH_DEMO_FOCUS").is_ok() {
+            app.add_systems(Update, demo_autofocus);
+        }
+
         app.add_systems(
             Startup,
             (
@@ -81,6 +88,7 @@ impl Plugin for SpaceGraphViewerPlugin {
                 crate::render::setup_node_glyph_resources,
                 crate::render::setup_ripple_resources,
                 crate::render::setup_edge_mesh,
+                crate::render::setup_focus_core_resources,
             ),
         )
         .add_systems(
@@ -92,7 +100,17 @@ impl Plugin for SpaceGraphViewerPlugin {
                 crate::graph::tick_housekeeping,
                 crate::ui::apply_egui_theme,
                 crate::ui::handle_shortcuts,
-                crate::ui::ui_panel,
+                // P2: the slim command rail + corner HUD panels replace the old
+                // permanent left sidebar. `update_ui_layout` runs first so panels
+                // read a fresh content_rect; `dispatch_windows` hosts the modal
+                // windows the old `ui_panel` used to dispatch.
+                (
+                    crate::ui::update_ui_layout,
+                    crate::ui::command_rail,
+                    crate::ui::hud_panels,
+                    crate::ui::dispatch_windows,
+                )
+                    .chain(),
                 crate::ui::help_overlay,
                 crate::ui::hud_overlay,
                 crate::ui::hud_frame_overlay,
@@ -101,11 +119,15 @@ impl Plugin for SpaceGraphViewerPlugin {
                 crate::ui::reticle_overlay,
                 crate::ui::context_menu_overlay,
                 crate::ui::radial_hud,
-                crate::ui::focus_overlay,
+                (crate::ui::focus_overlay, crate::ui::entity_card_overlay),
                 crate::ui::command_palette_overlay,
                 crate::ui::node_preview_overlay,
                 crate::ui::minimap,
-            ),
+            )
+                // Deterministic within-layer paint order for the egui overlays
+                // (P1: was an ambiguous tuple — the structural root of the
+                // overlap bug; z-order is now owned by `ui::overlay::layer`).
+                .chain(),
         )
         .add_systems(
             Update,
@@ -138,6 +160,7 @@ impl Plugin for SpaceGraphViewerPlugin {
             (
                 crate::ui::focus_double_click,
                 crate::render::focus_mode_camera,
+                crate::render::animate_focus_core,
             ),
         )
         // Render pipeline runs in order: layout publishes the visible set, the
@@ -153,6 +176,7 @@ impl Plugin for SpaceGraphViewerPlugin {
                 crate::render::sync_node_rings,
                 crate::render::sync_node_icons,
                 crate::render::sync_node_glyphs,
+                crate::render::sync_focus_core,
                 crate::render::update_edge_mesh,
                 crate::render::draw_scene,
                 crate::render::draw_node_labels,
@@ -243,6 +267,35 @@ fn pump_outbound(mut st: ResMut<GraphState>) {
 
 fn seed_demo_load(mut st: ResMut<GraphState>, demo: Res<DemoLoad>) {
     st.load_synthetic_graph(demo.0);
+}
+
+/// Visual smoke-test hook (gated on `SPACEGRAPH_DEMO_FOCUS`, registered only when
+/// that env var is set — see `build`). Once the demo layout exists, select and
+/// enter Focus Mode on the highest-degree (hub) node so screenshot automation can
+/// capture the focus visuals deterministically, without fragile click-picking
+/// against a still-settling layout. No effect on a normal run.
+fn demo_autofocus(
+    time: Res<Time>,
+    mut st: ResMut<GraphState>,
+    mut radial: ResMut<crate::ui::RadialMenu>,
+    mut done: Local<bool>,
+) {
+    // Time-gated (not frame-gated) so it fires reliably regardless of the
+    // reactive frame pacing: ~1.5s of app time lets the layout spread first.
+    if *done || time.elapsed_seconds() < 1.5 {
+        return;
+    }
+    // Highest-degree node *among placed nodes* (so it has a spatial position the
+    // camera can dive to and the focus core can frame). Deterministic enough.
+    let hub = st
+        .spatial
+        .placed_positions()
+        .map(|(id, _)| id.clone())
+        .max_by_key(|id| st.core.model.degree(id));
+    if let Some(id) = hub {
+        crate::ui::focus::enter_focus(&mut st, &mut radial, id);
+    }
+    *done = true;
 }
 
 fn auto_connect_agents(mut st: ResMut<GraphState>) {

@@ -12,7 +12,8 @@ use bevy_egui::{egui, EguiContexts};
 use crate::graph::model::{edge_class_name, EdgeKindClass};
 use crate::graph::GraphState;
 use crate::render::theme::{self, NodeKind};
-use crate::ui::egui_color;
+use crate::ui::{egui_color, gits};
+use crate::util::config::VisualTheme;
 
 const NODE_LABELS: [(NodeKind, &str); 6] = [
     (NodeKind::Process, "Process"),
@@ -47,12 +48,15 @@ pub fn legend_overlay(mut contexts: EguiContexts, mut st: ResMut<GraphState>) {
         return;
     }
 
+    let standard = st.cfg.visual_theme == VisualTheme::Standard;
     let mut open = st.ui.legend_open;
-    egui::Window::new("Legend")
+    let ctx = contexts.ctx_mut();
+    let resp = egui::Window::new("Legend")
         .id(egui::Id::new("color_legend"))
         .open(&mut open)
         .resizable(false)
-        .show(contexts.ctx_mut(), |ui| {
+        .frame(gits::panel_frame(standard))
+        .show(ctx, |ui| {
             ui.label(egui::RichText::new("Nodes").strong());
             for (kind, label) in NODE_LABELS {
                 swatch(ui, kind.base_color(), label);
@@ -70,6 +74,9 @@ pub fn legend_overlay(mut contexts: EguiContexts, mut st: ResMut<GraphState>) {
                 swatch(ui, theme::alert_severity_color(sev), sev);
             }
         });
+    if let Some(r) = resp {
+        gits::bracket_response(ctx, r.response.rect, standard);
+    }
 
     if open != st.ui.legend_open {
         st.ui.legend_open = open;

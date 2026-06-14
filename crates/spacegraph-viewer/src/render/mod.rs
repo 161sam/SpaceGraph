@@ -3,6 +3,7 @@ pub mod audio;
 pub mod camera;
 pub mod capability;
 pub mod edges;
+pub mod focus_core;
 pub mod freefly;
 pub mod gameplay;
 pub mod interaction;
@@ -30,6 +31,7 @@ pub use camera::{
 };
 pub use capability::{detect_capability, resolve_detail, DetailCapability, EffectiveDetail};
 pub use edges::{setup_edge_mesh, update_edge_mesh, EdgeMesh};
+pub use focus_core::{animate_focus_core, setup_focus_core_resources, sync_focus_core};
 pub use freefly::{fly_camera, FlyCam};
 pub use gameplay::{mission_tick, reveal_tick, scan_pulse, Mission, ScanPulse};
 pub use interaction::{
@@ -66,7 +68,7 @@ pub fn draw_scene(
     cam_q: Query<(&Camera, &GlobalTransform)>,
 ) {
     match st.ui.view_mode {
-        ViewMode::Spatial | ViewMode::Tree => draw_spatial(st, gizmos, contexts),
+        ViewMode::Spatial | ViewMode::Tree => draw_spatial(st, gizmos, contexts, cam_q),
         ViewMode::Timeline => draw_timeline(st, gizmos, contexts, layout, windows, buttons, cam_q),
     }
 }

@@ -31,6 +31,12 @@ const FOCUS_DOUBLE_CLICK_SECS: f64 = 0.35;
 /// camera to centre it. The keyboard radial command HUD is the in-focus interaction
 /// in the Standard theme; Minimal focus is a plain dim+centre spotlight (no rings).
 pub fn enter_focus(st: &mut GraphState, radial: &mut RadialMenu, id: NodeId) {
+    // Mutual exclusion (P1): entering focus closes the transient overlays that
+    // would otherwise stack on the focused node (right-click menu, palette,
+    // search). The radial HUD is the in-focus interaction.
+    st.ui.context_menu = None;
+    st.ui.palette_open = false;
+    st.ui.search_open = false;
     st.ui.focus_mode = Some(id.clone());
     st.ui.selected = Some(id.clone());
     st.request_jump(id.clone());
@@ -120,8 +126,11 @@ pub fn focus_overlay(
     draw_centerpiece(&painter, c, &label, degree, kind);
 }
 
-/// The node centerpiece arcs (Standard): a prominent gate ring + identity labels
-/// (kind / connections / id) arranged around the focused node.
+/// The focused-node **labels** (Standard): the radial kind / connections /
+/// identity readout + a FOCUS tag around the node. The *geometry* of the layered
+/// core (rings + wireframe shell + pulsing pip) is now a real depth-3D mesh rig
+/// (`render::focus_core`, P5); this 2D pass only carries the legible labels so it
+/// never double-draws the 3D rings. Static (no per-frame egui animation).
 fn draw_centerpiece(
     painter: &egui::Painter,
     c: egui::Pos2,
@@ -130,11 +139,18 @@ fn draw_centerpiece(
     kind: Option<theme::NodeKind>,
 ) {
     let accent = color::ACCENT;
-    let r = 148.0_f32;
-    painter.circle_stroke(c, r, egui::Stroke::new(1.5, accent));
-    painter.circle_stroke(c, r + 9.0, egui::Stroke::new(0.6, color::LINE));
+    // Label ring radius: sits just outside the 3D core's screen footprint.
+    let r = 150.0_f32;
 
     let kind_name = kind.map(kind_label).unwrap_or("node");
+    // Focus tag above the kind.
+    painter.text(
+        egui::pos2(c.x, c.y - r - 30.0),
+        egui::Align2::CENTER_BOTTOM,
+        "◤ FOCUS ◥",
+        egui::FontId::monospace(11.0),
+        accent,
+    );
     // Top arc: kind / status.
     painter.text(
         egui::pos2(c.x, c.y - r - 14.0),
