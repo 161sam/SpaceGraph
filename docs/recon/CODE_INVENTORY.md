@@ -190,4 +190,38 @@ Inline `#[cfg(test)]` unit tests only (no `tests/` dirs, no `#[tokio::test]`/
 > `coverage_ratio`, `TacticCoverage`) + `graph/posture.rs` (`posture`, `Posture`);
 > `GraphState::coverage()` / `posture()`. Read-only over the registry + graph; no
 > egress, no wire change.
+
+---
+
+## v0.6.0 addendum — two new crates (MCP provider, ADR-0001)
+
+The workspace now has **five** crates (was three). `PROTOCOL_VERSION` is **4**
+(the §1 `spacegraph-core` row above predates the 3→4 bump).
+
+### spacegraph-graph (new — headless canonical-state core; no Bevy)
+
+| module | purpose |
+|---|---|
+| `src/model.rs` | `GraphModel`, `EdgeKindClass`, agg edges (moved from the viewer, P2). |
+| `src/rules.rs` | D1 detection engine + ATT&CK tagging (`RuleRegistry`, `Detection`, `Tactic`, `evaluate_rules`) (P2). |
+| `src/correlation.rs` | D3 campaigns (`correlate`, `Campaign`) (P2). |
+| `src/coverage.rs` / `src/posture.rs` | D5 coverage + posture (P2). |
+| `src/explain.rs` | explain-path (`shortest_path`, `PathStep`) (P2). |
+| `src/exposure.rs` | socket reachability (`Exposure`, `exposure_bucket`) (P2). |
+| `src/net/{mod,protocol,uds}.rs` | agent-UDS ingest (`spawn_reader`, `Incoming`) (P3). |
+| `src/graph_core.rs` | `GraphCore` — graph + alert ledger + ingest + pipeline + read-only queries (`topology_stats`, `node_detail`, `alerts`, `campaigns`, `coverage`, `posture`, `explain_path`) (P4). |
+
+### spacegraph-mcp (new — read-only MCP stdio server; no Bevy)
+
+| module | purpose |
+|---|---|
+| `src/lib.rs` | Tool catalog (`tools_list`), dispatch (`call_tool`), JSON-RPC (`handle_message`). 7 read-only tools; contract tests. |
+| `src/main.rs` | stdio JSON-RPC loop + agent-UDS ingest into a shared `GraphCore`. The hub-spawned binary. |
+
+### spacegraph-viewer (changed)
+
+`GraphState` is now a thin Bevy `Resource` wrapping a `GraphCore` + render/ui
+fields; the pure pipeline + ingest were moved out (re-exported under the historical
+`crate::graph::*` / `crate::net::*` paths). Renders over the core; behavior
+preserved.
 </content>
