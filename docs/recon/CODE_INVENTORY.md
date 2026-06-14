@@ -160,7 +160,7 @@ Inline `#[cfg(test)]` unit tests only (no `tests/` dirs, no `#[tokio::test]`/
 
 > **This inventory is the v0.4.0 baseline snapshot.** Current state (post v0.5.x +
 > the auto-safe band) is tracked in `RECON_REPORT-2026-06-14-auto-safe-band.md`.
-> Workspace total is now **269** (core 6, agent 48, viewer 212 + 3 main).
+> Workspace total is now **275** (core 6, agent 48, viewer 218 + 3 main).
 >
 > **D0 additions (ADR-0012):** `render::spatial::{aperture_style, exposure_bucket,
 > ApertureStyle, Exposure}` (+ `NodeRenderResources.socket_aperture`);
@@ -185,4 +185,9 @@ Inline `#[cfg(test)]` unit tests only (no `tests/` dirs, no `#[tokio::test]`/
 > **D3 additions (ADR-0007):** new `graph/correlation.rs` (`correlate`,
 > `Campaign`); `GraphState::campaigns()`; campaign membership in
 > `node_tooltip_lines`. Viewer-internal — no new kind, no wire change.
+>
+> **D5 additions (ADR-0006 §3):** new `graph/coverage.rs` (`coverage`,
+> `coverage_ratio`, `TacticCoverage`) + `graph/posture.rs` (`posture`, `Posture`);
+> `GraphState::coverage()` / `posture()`. Read-only over the registry + graph; no
+> egress, no wire change.
 </content>

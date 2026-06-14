@@ -1332,6 +1332,18 @@ impl GraphState {
         crate::graph::correlation::correlate(&self.model)
     }
 
+    /// ATT&CK coverage (detected/undetected techniques, tactic-grouped) from the
+    /// rule registry (D5, ADR-0006 §3). Read-only; the heatmap view consumes this.
+    pub fn coverage(&self) -> Vec<crate::graph::coverage::TacticCoverage> {
+        crate::graph::coverage::coverage()
+    }
+
+    /// Posture / exposure score over the current graph (D5). Deterministic,
+    /// read-only; the posture view + HUD consume this.
+    pub fn posture(&self) -> crate::graph::posture::Posture {
+        crate::graph::posture::posture(&self.model)
+    }
+
     /// Alert node ids, newest first (for the Alerts panel list).
     pub fn alerts_newest_first(&self) -> impl Iterator<Item = &NodeId> {
         self.alert_order.iter().rev()

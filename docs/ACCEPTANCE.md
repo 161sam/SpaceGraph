@@ -385,6 +385,21 @@ wird zum Node.
 - **Gates / Audited Negatives:** `fmt`/`clippy -D`/`test --workspace` grün; **kein
   `spacegraph-core`-Change / PROTOCOL_VERSION 4**; kein exec/egress.
 
+## D5 — ATT&CK coverage + posture (ADR-0006 §3, AUTO, viewer-side)
+
+- **Coverage:** `coverage()` reine Funktion — pro vendierter Technik detected/
+  undetected aus der Rule-Registry, taktik-gruppiert; `coverage_ratio()`. Test:
+  T1021/T1571/T1071 detected, **T1041 ist eine ehrliche Lücke** → ratio 0.75; C2
+  gruppiert T1071+T1571. **Kein Live-ATT&CK-Fetch** (O-7').
+- **Posture:** `posture(&GraphModel) -> Posture` reine, **deterministische**
+  Funktion — Score 0..100 aus Public-Listenern + Alert-Dichte, verstärkt durch die
+  Coverage-Lücke. Test: gleiche Fixture → gleicher Score; leerer Graph → 0;
+  Komponenten (exposed_listeners/alert_count) unit-getestet.
+- **Accessors:** `GraphState::coverage()` / `posture()`. Heatmap-/Posture-View ist
+  die visuelle Schicht.
+- **Gates / Audited Negatives:** `fmt`/`clippy -D`/`test --workspace` grün; **kein
+  egress für den Lookup** (vendiert); kein `spacegraph-core`-Change / PROTOCOL 4.
+
 ---
 
 ## Definition „Release-fähig“

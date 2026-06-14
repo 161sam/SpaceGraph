@@ -360,3 +360,13 @@ all default on.
   the emitting stream; **no wire field** (O-8). Minimal degrades to neutral.
 - **Nebula source** is observe-only (existing kinds, read-only log tail); its log
   schema is an assumption to verify on the operator's host (A.5).
+
+## D5 — ATT&CK coverage + posture (ADR-0006 §3)
+
+- **Coverage heatmap** (`graph::coverage`): a Navigator-style grid, tactic-grouped,
+  marking each vendored technique **detected** (a rule maps to it) or a **gap**.
+  Honest by construction — an unmapped technique (e.g. T1041) shows red. Computed
+  read-only from the rule registry; no live ATT&CK fetch (O-7').
+- **Posture / exposure score** (`graph::posture`): a deterministic 0..100 risk
+  read-out from public-facing listeners + alert density, amplified by the coverage
+  gap. Surfaced in the HUD/posture view; the components explain the number.

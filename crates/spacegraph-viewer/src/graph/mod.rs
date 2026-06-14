@@ -1,4 +1,5 @@
 pub mod correlation;
+pub mod coverage;
 pub mod explain;
 pub mod gc;
 pub mod grid;
@@ -7,6 +8,7 @@ pub mod layout;
 pub mod metrics;
 pub mod model;
 pub mod namespace;
+pub mod posture;
 pub mod query;
 pub mod rules;
 pub mod state;
