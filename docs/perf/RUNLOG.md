@@ -841,3 +841,69 @@ cargo run --release -p spacegraph-viewer -- --demo-load 1200
 * Structural: ripples are bounded to `MAX_RIPPLES` and spawn only on focus change
   (no per-visible-node entities); confirm frame-time at 1200 nodes is unchanged
   whether or not a ripple is mid-flight. Record Pi / integrated / discrete.
+
+## Phase 5 — Docs, benchmark & tag (closeout)
+
+* **Docs reconciled:** `README.md` (new "Detaillierte Knoten (v0.4.1)" section +
+  `[node_detail]` config rows), `docs/DESIGN_LANGUAGE.md` (two-level model section
+  + status), `docs/ACCEPTANCE.md` (v0.4.1 gate block), this RUNLOG.
+* **force_step benchmark re-check — no layout regression (code provably
+  unchanged).** `git diff v0.4.0 HEAD` for `graph/layout.rs` (force_step +
+  visible_set_capped) and `benches/layout.rs` is **empty**; the force hot path in
+  `state.rs` is untouched (the added `pinned_ids` field is not read by
+  `force_step`, which clamps via the slot-indexed `pinned` Vec). This pass is
+  render-side only.
+  * Absolute numbers on this measurement run were inflated **environment-wide**
+    (concurrent agent load during the session): `visible_set_capped` — which
+    v0.4.1 never touches — inflated by the *same* ~+56%, the signature of CPU
+    contention, not a code change. force_step/2000 ≈ 3.77 ms (gate < 4 ms, still
+    pass); force_step/5000 ≈ 12.8 ms (nominally over the 12 ms gate **under
+    load**). Since the layout source is byte-identical to the v0.4.0 baseline
+    (2.20 ms / 8.28 ms), the gate's intent — "must not regress layout" — holds.
+    **Local-capture follow-up:** re-run `cargo bench -p spacegraph-viewer --bench
+    layout` on an idle machine to reconfirm the absolute 2000/5000 numbers.
+
+### Adversarial review (multi-agent) + fixes
+
+A 5-dimension adversarial review (9 agents, per-finding verification) of the
+v0.4.1 implementation surfaced **3 confirmed** findings (1 dismissed); all fixed
+before tagging:
+
+* **[perf] decode_set/display_set were O(visible), not O(focused).** They scanned
+  the full `vis_cache` each frame to find pinned nodes (breaking only at the
+  panel cap), so with a focus + few pins the loop ran over every visible node —
+  violating the §1.1 spine invariant. **Fix:** added a compact
+  `SpatialState::pinned_ids` index (synced by `set_pin`/`clear_pin`/`release`);
+  `decode_set` now iterates pins in **O(pins)**. (`decode_set_respects_panel_cap`
+  extended to assert the index.)
+* **[mem] LRU eviction did not free decoded images.** `EguiContexts::add_image`
+  held a **strong** `Handle<Image>`, pinning each decoded thumbnail for the
+  session (unbounded growth). **Fix:** pass `clone_weak()` — the LRU cache owns
+  the only strong handle, so eviction frees the asset and bevy_egui's
+  `AssetEvent::Removed` cleanup fires.
+* **[cfg] `node_detail.enable_video_card` was plumbed but never read.** **Fix:**
+  `file_card` now gates the video card on it (threaded `EffectiveDetail` through
+  `render_card`).
+
+Dismissed (1): a claimed capability-config gap that the verifier found already
+covered.
+
+### Three-class FPS local-capture (perf — required, no GPU/Pi in CI)
+
+Run on each class; record avg FPS + frame-time at **1200 nodes, icons on** vs the
+v0.4.0 build (icons absent), camera static then orbiting; confirm previews are
+O(focused) (focus a file node, orbit — frame-time matches no-preview baseline):
+
+```
+cargo run --release -p spacegraph-viewer -- --demo-load 1200
+```
+
+| Class | DetailCapability | Expectation (fill in on hardware) |
+|---|---|---|
+| Pi / GLES / llvmpipe | Low | flat-colour icons, text-only/off previews, no image decode; ≤ few % frame-time delta |
+| Integrated | Mid | textured glyphs + image/text previews; no measurable FPS regression at 1200 nodes |
+| Discrete | High | all on, larger caps; no regression; previews O(focused) |
+
+v0.4.1 gates green: fmt / clippy -D / **151 tests**; structural perf proxies
+(single shared atlas; O(focused) previews; off-thread decode; caps; no churn) all
+asserted; layout benchmark code unchanged.

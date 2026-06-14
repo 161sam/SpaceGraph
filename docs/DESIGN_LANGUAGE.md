@@ -107,6 +107,37 @@ the Ghost-in-the-Shell look. Standard-theme only and toggleable
 forces it off under Minimal without clobbering the saved config. The pass only
 runs when its per-camera `PostFxSettings` is attached (`sync_postfx`).
 
+## Node detail — two-level model (v0.4.1)
+
+Nodes carry type-specific detail without per-node cost, via a deliberate split.
+
+**Level 1 — node-face icon (every visible node, cheap).** A monochrome glyph on
+each node's camera-facing quad, sampled from a *single shared* atlas
+(`assets/icons/atlas.rgba`, a 4×4 grid of 64px cells; reproducible via
+`gen_atlas.py`). The per-instance glyph lives in per-cell quad-mesh UVs, so all
+nodes of a kind share one atlas + one material and Bevy GPU-instances them; an
+alpha **mask** keeps icons in the opaque pass (no per-frame transparency sort).
+Type from the node kind, file subtype from the path extension
+(image/video/text/code/json/log/audio/archive/binary). Standard theme only; Low
+capability uses a flat colour variant; Minimal draws none. (This icon is the
+*centre* of v0.5.0's gate-glyph unit.)
+
+**Level 2 — focused-node preview (focused + ≤ `max_preview_panels` pinned,
+bounded).** The focused node renders rich type-dispatched content in a framed
+egui panel (dark fill + neon stroke — the "screen frame"): image → thumbnail;
+text/code/json/log → monospace head; process → terminal-styled **read-only**
+readout; video/audio/archive/binary → card; user/socket/host/alert → type card.
+Content is read viewer-locally (path policy + size caps), decoded **off-thread**
+and LRU-cached — cost is **O(focused)**, never O(visible). Hover peeks a card; a
+focus change fires a decaying ripple; double-click expands the preview.
+
+**Deliberate boundaries.** No live video decode (card + metadata; a decoder is a
+later pass). No interactive terminal in a node — the read-only readout is the
+*look*; the real terminal is the v0.7.0 AdminBot control plane behind the
+approval layer. Detail scales to the GPU class (`render::capability`, the v0.5.0
+`QualityTier` precursor): Low (Pi/GLES) → colour icons, text-only/off previews,
+no image decode.
+
 ## Motion & recency
 
 - **Recent activity glow:** on upsert/touch a node flashes toward white
@@ -161,6 +192,11 @@ node ramps with decay, **per-type node geometry** (cores + wireframe shells),
 recent-activity edge pulse, capped billboard labels, **lock-on reticle + readout
 + micro-tags**, **cyberspace post-FX** (scanlines/vignette/aberration/grain),
 timeline palette.
+
+**v0.4.1** adds the **two-level node detail** above: Level-1 shared-atlas face
+icons on all nodes (`render::node_icon`) and Level-2 off-thread, LRU-cached
+focused-node previews (`ui::node_preview`) + focus ripple / hover-peek /
+double-click-expand (`render::interaction`), GPU-scaled via `render::capability`.
 
 **Edges** now render as a single **batched HDR `LineList` mesh** (`render::edges`,
 `setup_edge_mesh`/`update_edge_mesh`) with per-vertex HDR colours — full bloom
