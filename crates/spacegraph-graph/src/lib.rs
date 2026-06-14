@@ -18,5 +18,6 @@ pub mod coverage;
 pub mod explain;
 pub mod exposure;
 pub mod model;
+pub mod net;
 pub mod posture;
 pub mod rules;

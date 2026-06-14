@@ -1913,3 +1913,38 @@ logic changed.
   scanner/AdminBot.
 
 ---
+
+## v0.6.0 — MCP provider, Phase 3 (move the agent-UDS ingest) — AUTO
+
+Branch: `feat/mcp-provider`. Moved the agent-UDS client + protocol decode into the
+headless core so both the viewer and (P5) `spacegraph-mcp` ingest through it. No
+wire change — `PROTOCOL_VERSION` stays 4 (O-8).
+
+### What changed
+
+* **`net/{protocol,uds}.rs` → `spacegraph-graph`** (git-rename): the
+  length-delimited JSON UDS reader (`spawn_reader`/`ReaderHandle`), the
+  `Hello`/protocol handshake, and the `Msg` → [`Incoming`] decode/classification.
+  The core's `net` is fully Bevy-free (tokio/tokio-util/futures-util/
+  crossbeam-channel/serde_json — versions mirror the viewer's).
+* **Viewer `net/mod.rs` is now a re-export shim** (`pub use spacegraph_graph::net::*`)
+  so the 3 call sites (`app/mod.rs` `spawn_reader`, `app/resources.rs`,
+  `graph/state.rs` `Incoming`/`IncomingKind`/`ReaderHandle`) are untouched.
+* **New tests** (+2): `net::protocol` round-trips a `Msg` through the codec's
+  serde and checks the `Incoming` constructors — the module shipped with none, so
+  coverage grows (the apply-to-graph wiring is unit-tested headless in P4).
+
+### Gates
+
+* `cargo fmt --check` OK · `cargo clippy --workspace --all-targets -D warnings`
+  clean · `cargo build --workspace` OK · `cargo test --workspace` = **277 passed**
+  (6 core + **31 spacegraph-graph** + 48 agent + 192 viewer), 0 failed.
+* **Behavior preservation:** the ingest code is byte-for-byte relocated; the viewer
+  ingests through the shim; the `Hello` handshake still advertises
+  `PROTOCOL_VERSION 4`. Wire round-trip covered by the existing `spacegraph-core`
+  tests (green) + the new `net` tests.
+* Audited negatives: `PROTOCOL_VERSION` still 4 · `spacegraph-agent` untouched ·
+  no MCP tools yet · `spacegraph-graph` still has no Bevy/render dep · no
+  scanner/AdminBot.
+
+---

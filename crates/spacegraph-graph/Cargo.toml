@@ -7,3 +7,11 @@ description = "Headless canonical-state graph core for SpaceGraph — graph mode
 [dependencies]
 spacegraph-core = { path = "../spacegraph-core" }
 smallvec = "1"
+
+# Agent-UDS ingest (P3). Versions/features mirror the viewer's so the workspace
+# resolves a single set; no Bevy.
+serde_json = "1"
+crossbeam-channel = "0.5"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "io-util", "time", "sync"] }
+tokio-util = { version = "0.7", features = ["codec"] }
+futures-util = { version = "0.3", features = ["sink"] }

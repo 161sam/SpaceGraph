@@ -4000,8 +4000,13 @@ dependencies = [
 name = "spacegraph-graph"
 version = "0.1.0"
 dependencies = [
+ "crossbeam-channel",
+ "futures-util",
+ "serde_json",
  "smallvec",
  "spacegraph-core",
+ "tokio",
+ "tokio-util",
 ]
 
 [[package]]
