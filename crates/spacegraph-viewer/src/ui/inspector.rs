@@ -33,7 +33,7 @@ pub fn inspector_overlay(mut contexts: EguiContexts, mut st: ResMut<GraphState>)
     let Some(id) = st.ui.selected.clone().or_else(|| st.ui.focus.clone()) else {
         return;
     };
-    let Some(node) = st.model.nodes.get(&id).cloned() else {
+    let Some(node) = st.core.model.nodes.get(&id).cloned() else {
         return;
     };
 
@@ -47,7 +47,7 @@ pub fn inspector_overlay(mut contexts: EguiContexts, mut st: ResMut<GraphState>)
     let mut neighbors: Vec<(EdgeKindClass, NodeId, String)> = Vec::new();
     {
         let mut seen: HashSet<NodeId> = HashSet::new();
-        for edge in st.model.edges_for_node(&id) {
+        for edge in st.core.model.edges_for_node(&id) {
             let other = if edge.from == id {
                 edge.to.clone()
             } else {
@@ -58,6 +58,7 @@ pub fn inspector_overlay(mut contexts: EguiContexts, mut st: ResMut<GraphState>)
             }
             let class = EdgeKindClass::from_kind(&edge.kind);
             let label = st
+                .core
                 .model
                 .nodes
                 .get(&other)

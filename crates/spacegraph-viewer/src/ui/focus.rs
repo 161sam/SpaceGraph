@@ -83,8 +83,8 @@ pub fn focus_overlay(
     };
     let centre_world = st.spatial.position_of(&focus_id);
     let label = st.node_label_with_id(&focus_id);
-    let degree = st.model.degree(&focus_id);
-    let kind = st.model.nodes.get(&focus_id).map(theme::NodeKind::of);
+    let degree = st.core.model.degree(&focus_id);
+    let kind = st.core.model.nodes.get(&focus_id).map(theme::NodeKind::of);
     let standard = st.cfg.visual_theme == VisualTheme::Standard;
     let dim = (st.cfg.focus.dim.clamp(0.0, 0.95) * 255.0) as u8;
 
@@ -181,7 +181,7 @@ mod tests {
         let mut st = GraphState::default();
         st.cfg.visual_theme = theme;
         let id = NodeId("n".to_string());
-        st.model.nodes.insert(
+        st.core.model.nodes.insert(
             id.clone(),
             Node::Process {
                 pid: 1,

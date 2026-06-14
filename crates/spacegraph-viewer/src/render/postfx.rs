@@ -171,7 +171,7 @@ fn collect_focus_alerts(st: &GraphState) -> Vec<(Vec3, f32)> {
     let mut sev_rec: Vec<(u8, u64)> = Vec::new();
     let mut pos: Vec<Vec3> = Vec::new();
     let mut recency: u64 = 0;
-    for (id, node) in st.model.nodes.iter() {
+    for (id, node) in st.core.model.nodes.iter() {
         if let spacegraph_core::Node::Alert { severity, .. } = node {
             if let Some(idx) = st.spatial.index_of(id) {
                 if st.spatial.placed[idx.slot()] {

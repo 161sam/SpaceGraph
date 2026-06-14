@@ -10,7 +10,7 @@ use std::time::{Duration, Instant};
 use crate::graph::explain::{self, PathStep};
 use crate::graph::grid::Grid;
 use crate::graph::interner::{NodeIndex, NodeInterner};
-use crate::graph::model::{AggEdgeKey, GraphModel};
+use crate::graph::model::AggEdgeKey;
 use crate::graph::namespace;
 use crate::graph::synthetic;
 use crate::graph::timeline::{BatchSpan, NodeLife, TimelineEvt, TimelineEvtKind};
@@ -22,6 +22,7 @@ use crate::util::config::{
     ViewerViewMode, VisualTheme,
 };
 use crate::util::ids::{node_label_long, node_label_short};
+use spacegraph_graph::GraphCore;
 
 #[derive(Default)]
 pub struct SpatialState {
@@ -647,7 +648,10 @@ impl CfgState {
 
 #[derive(Resource)]
 pub struct GraphState {
-    pub model: GraphModel,
+    /// The headless canonical-state core (graph model + alert ledger + ingest +
+    /// pipeline + read-only queries). The viewer renders *over* this; the render/
+    /// ui fields below wrap it (ADR-0001 / MP-v0.6.0 P4).
+    pub core: GraphCore,
     pub spatial: SpatialState,
     pub timeline: TimelineState,
     pub ui: UiState,
@@ -657,8 +661,6 @@ pub struct GraphState {
     /// Filesystem (`ON DISK`) search state (spec §2/§4).
     pub fs: FsSearchState,
     pub explain_cache: Option<ExplainCache>,
-    /// Insertion order of retained alert nodes (oldest first) for cap eviction.
-    pub alert_order: VecDeque<NodeId>,
     /// Nodes revealed by exploration (camera proximity, scan, focus) — the
     /// fog-of-war render gate. Independent of placement/layout.
     pub revealed: HashSet<NodeId>,
@@ -692,7 +694,7 @@ impl From<ViewMode> for ViewerViewMode {
 impl Default for GraphState {
     fn default() -> Self {
         Self {
-            model: GraphModel::default(),
+            core: GraphCore::default(),
             spatial: SpatialState {
                 dirty_layout: true,
                 springs_dirty: true,
@@ -826,7 +828,6 @@ impl Default for GraphState {
             fs: FsSearchState::default(),
             needs_redraw: AtomicBool::new(true),
             explain_cache: None,
-            alert_order: VecDeque::new(),
             revealed: HashSet::new(),
             snapshot_loaded: false,
             live_events_seen: false,
@@ -837,7 +838,7 @@ impl Default for GraphState {
 
 impl GraphState {
     pub fn clear(&mut self) {
-        self.model.clear();
+        self.core.model.clear();
         self.spatial.reset();
         self.ui.focus = None;
         self.ui.hovered = None;
@@ -868,7 +869,7 @@ impl GraphState {
         self.spatial.progressive_cursor = 0;
         self.spatial.dirty_layout = true;
         self.explain_cache = None;
-        self.alert_order.clear();
+        self.core.alert_order.clear();
         self.revealed.clear();
         self.snapshot_loaded = false;
         self.live_events_seen = false;
@@ -893,7 +894,7 @@ impl GraphState {
                 self.cfg.demo_mode = false;
                 return;
             }
-            if !self.model.nodes.is_empty() && !self.demo_loaded {
+            if !self.core.model.nodes.is_empty() && !self.demo_loaded {
                 self.cfg.demo_mode = false;
                 return;
             }
@@ -920,7 +921,7 @@ impl GraphState {
         }
 
         if !self.demo_loaded {
-            if !self.model.nodes.is_empty() {
+            if !self.core.model.nodes.is_empty() {
                 self.cfg.demo_mode = false;
                 return;
             }
@@ -1031,12 +1032,12 @@ impl GraphState {
             },
         ];
 
-        self.model.load_snapshot(nodes, edges, now);
-        let node_ids: Vec<_> = self.model.nodes.keys().cloned().collect();
+        self.core.model.load_snapshot(nodes, edges, now);
+        let node_ids: Vec<_> = self.core.model.nodes.keys().cloned().collect();
         for id in node_ids {
             self.push_timeline_at(now, TimelineEvtKind::NodeUpsert, Some(id), None, None);
         }
-        let edges: Vec<_> = self.model.edges.iter().cloned().collect();
+        let edges: Vec<_> = self.core.model.edges.iter().cloned().collect();
         for edge in edges {
             self.push_timeline_at(
                 now,
@@ -1061,8 +1062,8 @@ impl GraphState {
         self.clear();
         let now = Instant::now();
         let (nodes, edges) = synthetic::synthetic_graph(n);
-        self.model.load_snapshot(nodes, edges, now);
-        for id in self.model.nodes.keys() {
+        self.core.model.load_snapshot(nodes, edges, now);
+        for id in self.core.model.nodes.keys() {
             self.timeline.record_node_upsert(id, now);
         }
         self.snapshot_loaded = true;
@@ -1104,11 +1105,12 @@ impl GraphState {
                 self.remove_stream(&inc.stream);
                 for (id, node) in nodes {
                     let gid = namespace::globalize(&inc.stream, &id);
-                    self.model.upsert_node(gid.clone(), node, now);
+                    self.core.model.upsert_node(gid.clone(), node, now);
                     self.timeline.record_node_upsert(&gid, now);
                 }
                 for edge in edges {
-                    self.model
+                    self.core
+                        .model
                         .upsert_edge(namespace::globalize_edge(&inc.stream, &edge), now);
                 }
                 self.snapshot_loaded = true;
@@ -1176,6 +1178,7 @@ impl GraphState {
     fn remove_stream(&mut self, stream: &str) {
         let prefix = namespace::prefix(stream);
         let ids: Vec<NodeId> = self
+            .core
             .model
             .nodes
             .keys()
@@ -1186,7 +1189,7 @@ impl GraphState {
             return;
         }
         for id in ids {
-            self.model.remove_node(&id);
+            self.core.model.remove_node(&id);
             self.spatial.release(&id);
             if self.ui.focus.as_ref() == Some(&id) {
                 self.ui.focus = None;
@@ -1235,16 +1238,9 @@ impl GraphState {
 
     /// Track a new alert node; evict the oldest past `max_visible_alerts`.
     fn note_alert(&mut self, id: NodeId) {
-        if self.alert_order.contains(&id) {
-            return;
-        }
-        self.alert_order.push_back(id);
-        let cap = self.cfg.max_visible_alerts.max(1);
-        while self.alert_order.len() > cap {
-            if let Some(old) = self.alert_order.pop_front() {
-                self.model.remove_node(&old);
-                self.spatial.release(&old);
-            }
+        let cap = self.cfg.max_visible_alerts;
+        for old in self.core.note_alert(id, cap) {
+            self.spatial.release(&old);
         }
     }
 
@@ -1253,38 +1249,21 @@ impl GraphState {
     /// the existing alert plumbing. Idempotent on the stable id (re-emitting the
     /// same detection does not duplicate it). No wire change (O-8).
     pub fn emit_detection(&mut self, det: &crate::graph::rules::Detection) -> NodeId {
-        let now = Instant::now();
-        let alert_id = spacegraph_core::id_alert(&det.subject.0, &det.dedup_key());
-        self.model.upsert_node(
-            alert_id.clone(),
-            Node::Alert {
-                source: "spacegraph-rule".to_string(),
-                signature: det.signature(),
-                severity: det.severity.as_str().to_string(),
-                ts: String::new(),
-            },
-            now,
-        );
-        self.model.upsert_edge(
-            spacegraph_core::Edge {
-                from: alert_id.clone(),
-                to: det.subject.clone(),
-                kind: spacegraph_core::EdgeKind::AlertsOn,
-            },
-            now,
-        );
-        self.note_alert(alert_id.clone());
+        let cap = self.cfg.max_visible_alerts;
+        let (alert_id, evicted) = self.core.emit_detection(det, cap);
+        for old in evicted {
+            self.spatial.release(&old);
+        }
         self.spatial.dirty_layout = true;
         self.needs_redraw.store(true, Ordering::Relaxed);
         alert_id
     }
 
-    /// Clear a detection alert (re-arm): remove the node + its order entry so a
-    /// later recurrence emits a fresh alert.
+    /// Clear a detection alert (re-arm): remove it via the core, release its layout
+    /// slot, redraw.
     pub fn clear_detection(&mut self, alert_id: &NodeId) {
-        self.model.remove_node(alert_id);
+        self.core.clear_detection(alert_id);
         self.spatial.release(alert_id);
-        self.alert_order.retain(|id| id != alert_id);
         self.needs_redraw.store(true, Ordering::Relaxed);
     }
 
@@ -1310,43 +1289,34 @@ impl GraphState {
         current
     }
 
-    /// Count current alerts by severity (for the Alerts panel).
+    /// Count current alerts by severity (for the Alerts panel). Delegates to the
+    /// core (D1/D5 read-only query).
     pub fn alert_severity_counts(&self) -> (usize, usize, usize) {
-        let (mut low, mut med, mut high) = (0, 0, 0);
-        for id in &self.alert_order {
-            if let Some(Node::Alert { severity, .. }) = self.model.nodes.get(id) {
-                match severity.as_str() {
-                    "low" => low += 1,
-                    "medium" => med += 1,
-                    _ => high += 1,
-                }
-            }
-        }
-        (low, med, high)
+        self.core.alert_severity_counts()
     }
 
     /// Multi-stage campaigns correlated from the current detections (D3,
-    /// ADR-0007). Pure read of the model; the highlighted-path render + timeline
-    /// lane consume this, and the inspector notes campaign membership.
+    /// ADR-0007). The highlighted-path render + timeline lane consume this, and the
+    /// inspector notes campaign membership.
     pub fn campaigns(&self) -> Vec<crate::graph::correlation::Campaign> {
-        crate::graph::correlation::correlate(&self.model)
+        self.core.campaigns()
     }
 
     /// ATT&CK coverage (detected/undetected techniques, tactic-grouped) from the
-    /// rule registry (D5, ADR-0006 §3). Read-only; the heatmap view consumes this.
+    /// rule registry (D5, ADR-0006 §3). The heatmap view consumes this.
     pub fn coverage(&self) -> Vec<crate::graph::coverage::TacticCoverage> {
-        crate::graph::coverage::coverage()
+        self.core.coverage()
     }
 
-    /// Posture / exposure score over the current graph (D5). Deterministic,
-    /// read-only; the posture view + HUD consume this.
+    /// Posture / exposure score over the current graph (D5). Deterministic. The
+    /// posture view + HUD consume this.
     pub fn posture(&self) -> crate::graph::posture::Posture {
-        crate::graph::posture::posture(&self.model)
+        self.core.posture()
     }
 
     /// Alert node ids, newest first (for the Alerts panel list).
     pub fn alerts_newest_first(&self) -> impl Iterator<Item = &NodeId> {
-        self.alert_order.iter().rev()
+        self.core.alerts_newest_first()
     }
 
     /// Fog-of-war render gate: fog off → always shown; fog on → only revealed
@@ -1354,7 +1324,7 @@ impl GraphState {
     pub fn is_visible_rendered(&self, id: &NodeId) -> bool {
         if !self.cfg.fog_of_war
             || self.revealed.contains(id)
-            || matches!(self.model.nodes.get(id), Some(Node::Alert { .. }))
+            || matches!(self.core.model.nodes.get(id), Some(Node::Alert { .. }))
         {
             return true;
         }
@@ -1433,7 +1403,7 @@ impl GraphState {
                 self.needs_redraw.store(true, Ordering::Relaxed);
             }
             Delta::UpsertNode { id, node } => {
-                self.model.upsert_node(id.clone(), node, ts);
+                self.core.model.upsert_node(id.clone(), node, ts);
                 self.spatial.dirty_layout = true;
 
                 self.push_timeline_at(
@@ -1447,7 +1417,7 @@ impl GraphState {
                 // A picked `ON DISK` result just materialised: fly to it. The id
                 // is already stream-namespaced; match on the File node's path
                 // (the materialise key) so we don't have to predict the id.
-                let materialised_path = match self.model.nodes.get(&id) {
+                let materialised_path = match self.core.model.nodes.get(&id) {
                     Some(Node::File { path, .. }) => Some(path.clone()),
                     _ => None,
                 };
@@ -1460,8 +1430,8 @@ impl GraphState {
                     }
                 }
 
-                let is_alert = matches!(self.model.nodes.get(&id), Some(Node::Alert { .. }));
-                if matches!(self.model.nodes.get(&id), Some(Node::File { .. })) {
+                let is_alert = matches!(self.core.model.nodes.get(&id), Some(Node::Alert { .. }));
+                if matches!(self.core.model.nodes.get(&id), Some(Node::File { .. })) {
                     self.note_path_change(&id, ts);
                 } else if self.spatial.in_batch {
                     self.spatial.touched_nodes.insert(id.clone());
@@ -1475,7 +1445,7 @@ impl GraphState {
                 self.needs_redraw.store(true, Ordering::Relaxed);
             }
             Delta::RemoveNode { id } => {
-                let removed_edges = self.model.remove_node(&id);
+                let removed_edges = self.core.model.remove_node(&id);
                 self.spatial.release(&id);
                 self.spatial.springs_dirty = true;
                 for edge in removed_edges {
@@ -1516,7 +1486,7 @@ impl GraphState {
                 self.needs_redraw.store(true, Ordering::Relaxed);
             }
             Delta::UpsertEdge { edge } => {
-                self.model.upsert_edge(edge.clone(), ts);
+                self.core.model.upsert_edge(edge.clone(), ts);
                 self.touch_node_at(&edge.from, ts);
                 self.touch_node_at(&edge.to, ts);
                 self.spatial.dirty_layout = true;
@@ -1544,7 +1514,7 @@ impl GraphState {
                 self.needs_redraw.store(true, Ordering::Relaxed);
             }
             Delta::RemoveEdge { edge } => {
-                self.model.remove_edge(&edge);
+                self.core.model.remove_edge(&edge);
                 self.spatial.glow_edges.remove(&edge);
                 self.spatial.springs_dirty = true;
 
@@ -1562,11 +1532,11 @@ impl GraphState {
     }
 
     fn touch_node_at(&mut self, id: &NodeId, ts: Instant) {
-        self.model.last_seen.insert(id.clone(), ts);
+        self.core.model.last_seen.insert(id.clone(), ts);
     }
 
     fn note_path_change(&mut self, id: &NodeId, ts: Instant) {
-        let Some(Node::File { .. }) = self.model.nodes.get(id) else {
+        let Some(Node::File { .. }) = self.core.model.nodes.get(id) else {
             return;
         };
         let mut ids = vec![id.clone()];
@@ -1585,7 +1555,7 @@ impl GraphState {
     }
 
     fn file_ancestor_ids(&self, id: &NodeId) -> Vec<NodeId> {
-        let Some(Node::File { path, .. }) = self.model.nodes.get(id) else {
+        let Some(Node::File { path, .. }) = self.core.model.nodes.get(id) else {
             return Vec::new();
         };
         let Some(prefix) = id.0.split_once(":file:").map(|(prefix, _)| prefix) else {
@@ -1594,7 +1564,7 @@ impl GraphState {
         let mut out = Vec::new();
         for parent in tree::ancestor_paths(path) {
             let ancestor_id = NodeId(format!("{prefix}:file:{parent}"));
-            if self.model.nodes.contains_key(&ancestor_id) {
+            if self.core.model.nodes.contains_key(&ancestor_id) {
                 out.push(ancestor_id);
             }
         }
@@ -1665,7 +1635,7 @@ impl GraphState {
     }
 
     pub fn node_tooltip_lines(&self, id: &NodeId) -> Vec<String> {
-        let Some(n) = self.model.nodes.get(id) else {
+        let Some(n) = self.core.model.nodes.get(id) else {
             return vec![id.0.clone()];
         };
         let mut out = Vec::new();
@@ -1729,6 +1699,7 @@ impl GraphState {
         }
 
         let mut hits: Vec<NodeId> = self
+            .core
             .model
             .nodes
             .iter()
@@ -1942,7 +1913,7 @@ impl GraphState {
         }
 
         let result = explain::shortest_path(
-            &self.model,
+            &self.core.model,
             a.clone(),
             b.clone(),
             self.cfg.explain_max_depth.max(1),
@@ -1959,7 +1930,8 @@ impl GraphState {
     }
 
     pub fn node_label_with_id(&self, id: &NodeId) -> String {
-        self.model
+        self.core
+            .model
             .nodes
             .get(id)
             .map(|n| format!("{} ({})", node_label_short(n), id.0))
@@ -1967,7 +1939,7 @@ impl GraphState {
     }
 
     pub fn toggle_tree_dir(&mut self, id: &NodeId) -> bool {
-        let Some(Node::File { path, kind, .. }) = self.model.nodes.get(id) else {
+        let Some(Node::File { path, kind, .. }) = self.core.model.nodes.get(id) else {
             return false;
         };
         if !matches!(kind, FileKind::Dir) {
@@ -1988,7 +1960,7 @@ impl GraphState {
     }
 
     pub fn tree_dir_is_expanded(&self, id: &NodeId) -> bool {
-        let Some(Node::File { path, kind, .. }) = self.model.nodes.get(id) else {
+        let Some(Node::File { path, kind, .. }) = self.core.model.nodes.get(id) else {
             return false;
         };
         if !matches!(kind, FileKind::Dir) {
@@ -2208,11 +2180,12 @@ mod tests {
         st.apply(snapshot_with("b", 1));
 
         assert_eq!(
-            st.model.nodes.len(),
+            st.core.model.nodes.len(),
             2,
             "colliding local ids across streams must not merge"
         );
         let origins: HashSet<Option<&str>> = st
+            .core
             .model
             .nodes
             .keys()
@@ -2302,7 +2275,7 @@ mod tests {
         fs_stream(&mut st);
 
         // A graph node matching "report" (instant, in-memory).
-        st.model.upsert_node(
+        st.core.model.upsert_node(
             NodeId("a:file:/x/report.txt".into()),
             Node::File {
                 path: "/x/report.txt".into(),
@@ -2380,10 +2353,10 @@ mod tests {
         // index ≠ graph: receiving results must never add graph nodes.
         let mut st = GraphState::default();
         fs_stream(&mut st);
-        let before = st.model.nodes.len();
+        let before = st.core.model.nodes.len();
         st.apply(disk_response(&["/a/one", "/a/two"]));
         assert_eq!(
-            st.model.nodes.len(),
+            st.core.model.nodes.len(),
             before,
             "results never materialise nodes"
         );
@@ -2395,12 +2368,16 @@ mod tests {
         let mut st = GraphState::default();
         fs_stream(&mut st);
         st.apply(disk_response(&["/disk/picked.txt"]));
-        let before = st.model.nodes.len();
+        let before = st.core.model.nodes.len();
 
         // Pick the on-disk hit → a MaterialiseRequest is enqueued; path pending;
         // still no node (only the *picked* result materialises, on arrival).
         assert!(st.pick_fs_result(0));
-        assert_eq!(st.model.nodes.len(), before, "picking alone adds no node");
+        assert_eq!(
+            st.core.model.nodes.len(),
+            before,
+            "picking alone adds no node"
+        );
         assert!(st.fs.pending_materialise.contains("/disk/picked.txt"));
         assert_eq!(st.net.outbox.len(), 1);
         match &st.net.outbox[0].msg {
@@ -2426,6 +2403,7 @@ mod tests {
 
         // The node is now in the graph and the camera flies to it.
         let (gid, _) = st
+            .core
             .model
             .nodes
             .iter()
@@ -2451,12 +2429,13 @@ mod tests {
 
         st.apply(snapshot_with("a", 2));
         st.apply(snapshot_with("b", 3));
-        assert_eq!(st.model.nodes.len(), 5);
+        assert_eq!(st.core.model.nodes.len(), 5);
 
         // A fresh snapshot from "a" replaces only a's subgraph; b is untouched.
         st.apply(snapshot_with("a", 1));
-        assert_eq!(st.model.nodes.len(), 4);
+        assert_eq!(st.core.model.nodes.len(), 4);
         let b_count = st
+            .core
             .model
             .nodes
             .keys()
@@ -2493,7 +2472,7 @@ mod tests {
     fn fog_gates_rendering_but_not_placement() {
         let mut st = GraphState::default();
         let n = NodeId("host:file:/x".to_string());
-        st.model.nodes.insert(
+        st.core.model.nodes.insert(
             n.clone(),
             Node::File {
                 path: "/x".to_string(),
@@ -2510,7 +2489,7 @@ mod tests {
         assert!(st.is_visible_rendered(&n));
         // Alerts always render, even unrevealed.
         let a = NodeId("host:alert:1".to_string());
-        st.model.nodes.insert(
+        st.core.model.nodes.insert(
             a.clone(),
             Node::Alert {
                 source: "s".to_string(),
@@ -2526,7 +2505,7 @@ mod tests {
     fn pin_set_clear_roundtrip() {
         let mut st = GraphState::default();
         let id = NodeId("p".to_string());
-        st.model.nodes.insert(
+        st.core.model.nodes.insert(
             id.clone(),
             Node::File {
                 path: "/p".to_string(),
@@ -2549,7 +2528,7 @@ mod tests {
     fn release_clears_pinned_slot_on_reuse() {
         let mut st = GraphState::default();
         let a = NodeId("a".to_string());
-        st.model.nodes.insert(
+        st.core.model.nodes.insert(
             a.clone(),
             Node::File {
                 path: "/a".to_string(),
@@ -2563,7 +2542,7 @@ mod tests {
         // Release frees the slot; a new node reuses it and must not be pinned.
         st.spatial.release(&a);
         let b = NodeId("b".to_string());
-        st.model.nodes.insert(
+        st.core.model.nodes.insert(
             b.clone(),
             Node::File {
                 path: "/b".to_string(),
@@ -2614,19 +2593,22 @@ mod tests {
             });
         }
         assert_eq!(
-            st.alert_order.len(),
+            st.core.alert_order.len(),
             3,
             "alerts capped at max_visible_alerts"
         );
         assert!(!st
+            .core
             .model
             .nodes
             .contains_key(&NodeId("host:alert:0".to_string())));
         assert!(!st
+            .core
             .model
             .nodes
             .contains_key(&NodeId("host:alert:1".to_string())));
         assert!(st
+            .core
             .model
             .nodes
             .contains_key(&NodeId("host:alert:4".to_string())));
@@ -2648,7 +2630,7 @@ mod tests {
             },
         });
         for i in 0..20 {
-            st.model.nodes.insert(
+            st.core.model.nodes.insert(
                 NodeId(format!("host:file:/f{i}")),
                 Node::File {
                     path: format!("/f{i}"),
@@ -2699,7 +2681,7 @@ mod tests {
         let b = NodeId("b-node".to_string());
         let c = NodeId("c-node".to_string());
 
-        st.model.nodes.insert(
+        st.core.model.nodes.insert(
             b.clone(),
             Node::File {
                 path: "/var/log/b.log".to_string(),
@@ -2707,7 +2689,7 @@ mod tests {
                 kind: FileKind::Regular,
             },
         );
-        st.model.nodes.insert(
+        st.core.model.nodes.insert(
             a.clone(),
             Node::File {
                 path: "/var/log/a.log".to_string(),
@@ -2715,7 +2697,7 @@ mod tests {
                 kind: FileKind::Regular,
             },
         );
-        st.model.nodes.insert(
+        st.core.model.nodes.insert(
             c.clone(),
             Node::File {
                 path: "/var/log/c.log".to_string(),

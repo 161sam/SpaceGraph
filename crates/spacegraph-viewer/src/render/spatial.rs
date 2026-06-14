@@ -317,7 +317,8 @@ pub fn setup_node_render_resources(
 /// A visible node qualifies for an orbital ring if it is a hub (degree at least
 /// `ring_min_degree`) or an Alert. Degree uses the prebuilt adjacency (O(1)).
 fn node_qualifies_for_ring(st: &GraphState, id: &spacegraph_core::NodeId) -> bool {
-    node_kind(st, id) == theme::NodeKind::Alert || st.model.degree(id) >= st.cfg.ring_min_degree
+    node_kind(st, id) == theme::NodeKind::Alert
+        || st.core.model.degree(id) >= st.cfg.ring_min_degree
 }
 
 /// Spawn/despawn orbital ring child entities to match qualification. Standard
@@ -437,7 +438,8 @@ fn node_meshes(
 
 /// Resolve a node's kind (defaulting to File for an unknown id).
 fn node_kind(st: &GraphState, id: &spacegraph_core::NodeId) -> theme::NodeKind {
-    st.model
+    st.core
+        .model
         .nodes
         .get(id)
         .map(theme::NodeKind::of)
@@ -466,6 +468,7 @@ fn node_material(
         }
         crate::util::config::VisualTheme::Standard => {
             let kind = st
+                .core
                 .model
                 .nodes
                 .get(id)
@@ -484,7 +487,9 @@ fn node_material(
                 && kind == theme::NodeKind::Socket
                 && st.cfg.socket_display.aperture_by_state
             {
-                if let Some(spacegraph_core::Node::Socket { state, .. }) = st.model.nodes.get(id) {
+                if let Some(spacegraph_core::Node::Socket { state, .. }) =
+                    st.core.model.nodes.get(id)
+                {
                     return res.socket_aperture[aperture_style(state).index()].clone();
                 }
             }
@@ -668,7 +673,7 @@ pub fn hover_detection_spatial(
         if !st.is_visible_rendered(id) {
             continue;
         }
-        for edge in st.model.edges_for_node(id) {
+        for edge in st.core.model.edges_for_node(id) {
             if &edge.from != id || !st.is_visible_rendered(&edge.to) {
                 continue;
             }
@@ -1016,7 +1021,12 @@ pub fn draw_spatial(mut st: ResMut<GraphState>, mut gizmos: Gizmos, mut contexts
             st.spatial.position_of(&key.to),
         ) {
             gizmos.line(a, b, theme::EDGE_HOVER);
-            let count = st.model.agg_edge(&key).map(|e| e.stats.count).unwrap_or(0);
+            let count = st
+                .core
+                .model
+                .agg_edge(&key)
+                .map(|e| e.stats.count)
+                .unwrap_or(0);
             let lines = vec![
                 format!("edge: {}", edge_class_name(key.class)),
                 st.node_label_with_id(&key.from),
@@ -1077,7 +1087,7 @@ pub fn draw_spatial(mut st: ResMut<GraphState>, mut gizmos: Gizmos, mut contexts
                 continue;
             };
             // Alerts always stand out (severity colour) even under LOD.
-            let color = match st.model.nodes.get(id) {
+            let color = match st.core.model.nodes.get(id) {
                 Some(spacegraph_core::Node::Alert { severity, .. }) => {
                     theme::alert_severity_color(severity)
                 }
@@ -1141,7 +1151,7 @@ pub fn draw_spatial(mut st: ResMut<GraphState>, mut gizmos: Gizmos, mut contexts
                 if !st.is_visible_rendered(id) {
                     continue;
                 }
-                for edge in st.model.edges_for_node(id) {
+                for edge in st.core.model.edges_for_node(id) {
                     if &edge.from != id
                         || !st.edge_visible(edge, &vis)
                         || !st.is_visible_rendered(&edge.to)
@@ -1234,6 +1244,7 @@ pub fn draw_node_labels(
             continue;
         };
         let label = st
+            .core
             .model
             .nodes
             .get(&id)
@@ -1317,7 +1328,7 @@ mod tests {
         gs.cfg.max_visible_nodes = 16;
         gs.cfg.progressive_nodes_per_frame = 16;
         let id = NodeId("n".to_string());
-        gs.model.nodes.insert(id, node);
+        gs.core.model.nodes.insert(id, node);
         let vis = gs.visible_set_capped();
         gs.progressive_prepare(&vis);
         gs.spatial.vis_cache = vis;
@@ -1657,10 +1668,10 @@ mod tests {
         gs.cfg.ring_min_degree = 6;
         let now = Instant::now();
         let hub = NodeId("hub".to_string());
-        gs.model.nodes.insert(hub.clone(), process_node());
+        gs.core.model.nodes.insert(hub.clone(), process_node());
         for i in 0..6 {
             let f = NodeId(format!("f{i}"));
-            gs.model.nodes.insert(
+            gs.core.model.nodes.insert(
                 f.clone(),
                 Node::File {
                     path: format!("/f{i}"),
@@ -1668,7 +1679,7 @@ mod tests {
                     kind: FileKind::Regular,
                 },
             );
-            gs.model.upsert_edge(
+            gs.core.model.upsert_edge(
                 Edge {
                     from: hub.clone(),
                     to: f.clone(),
@@ -1678,8 +1689,8 @@ mod tests {
             );
         }
         let low = NodeId("low".to_string());
-        gs.model.nodes.insert(low.clone(), process_node());
-        gs.model.upsert_edge(
+        gs.core.model.nodes.insert(low.clone(), process_node());
+        gs.core.model.upsert_edge(
             Edge {
                 from: low.clone(),
                 to: NodeId("f0".to_string()),
@@ -1687,7 +1698,7 @@ mod tests {
             },
             now,
         );
-        gs.model.nodes.insert(
+        gs.core.model.nodes.insert(
             NodeId("alert".to_string()),
             Node::Alert {
                 source: "s".to_string(),

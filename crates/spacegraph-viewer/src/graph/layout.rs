@@ -125,7 +125,7 @@ impl GraphState {
             path,
             host,
             severity,
-            degree: self.model.degree(id) as u32,
+            degree: self.core.model.degree(id) as u32,
             recent: self.node_is_glowing(id),
         };
         q.matches(&view)
@@ -150,6 +150,7 @@ impl GraphState {
             crate::graph::query::parse_query(&self.ui.filter).ok()
         };
         let mut base: HashSet<NodeId> = self
+            .core
             .model
             .nodes
             .iter()
@@ -170,7 +171,7 @@ impl GraphState {
                 if d >= hops {
                     continue;
                 }
-                for nb in self.model.neighbors(&cur) {
+                for nb in self.core.model.neighbors(&cur) {
                     if !vis.contains(&nb) {
                         vis.insert(nb.clone());
                         q.push_back((nb, d + 1));
@@ -208,7 +209,7 @@ impl GraphState {
 
         // Alerts always render regardless of the node cap or LOD: union them in
         // (already bounded by `max_visible_alerts`).
-        for id in &self.alert_order {
+        for id in &self.core.alert_order {
             if self.stream_enabled(id) {
                 result.insert(id.clone());
             }
@@ -252,6 +253,7 @@ impl GraphState {
                     break;
                 }
                 let mut neighbors: Vec<NodeId> = self
+                    .core
                     .model
                     .neighbors(&cur)
                     .filter(|nb| base.contains(nb) && !visible.contains(nb))
@@ -277,7 +279,7 @@ impl GraphState {
         let mut kind_by_id: HashMap<NodeId, FileKind> = HashMap::new();
         let mut non_file_ids: Vec<NodeId> = Vec::new();
         for id in base.iter() {
-            match self.model.nodes.get(id) {
+            match self.core.model.nodes.get(id) {
                 Some(Node::File { path, kind, .. }) => {
                     path_by_id.insert(id.clone(), path.clone());
                     kind_by_id.insert(id.clone(), kind.clone());
@@ -392,7 +394,7 @@ impl GraphState {
     pub fn visible_edge_counts(&self, vis: &HashSet<NodeId>) -> (usize, usize) {
         let mut raw_count = 0usize;
         for id in vis.iter() {
-            for edge in self.model.edges_for_node(id) {
+            for edge in self.core.model.edges_for_node(id) {
                 if &edge.from != id {
                     continue;
                 }
@@ -403,6 +405,7 @@ impl GraphState {
         }
 
         let agg_count = self
+            .core
             .model
             .agg_edges()
             .filter(|edge| vis.contains(&edge.key.from) && vis.contains(&edge.key.to))
@@ -452,7 +455,7 @@ impl GraphState {
             // Network nodes sit on an outer shell; sockets refine their radial
             // depth by exposure (Public outermost, Loopback at the core) so the
             // host's attack surface reads as silhouette (D0/ADR-0012, no wire).
-            let shell = match self.model.nodes.get(id) {
+            let shell = match self.core.model.nodes.get(id) {
                 Some(Node::RemoteHost { .. }) => 1.8_f32,
                 Some(Node::Socket { local_addr, .. }) => {
                     if self.cfg.socket_display.exposure_depth {
@@ -491,6 +494,7 @@ impl GraphState {
     /// is deterministic regardless of `HashSet` iteration order.
     fn rebuild_springs(&mut self) {
         let mut pairs: Vec<(NodeId, NodeId)> = self
+            .core
             .model
             .edges
             .iter()
@@ -704,7 +708,7 @@ impl GraphState {
 
     pub fn apply_tree_layout(&mut self, vis: &HashSet<NodeId>) {
         let positions =
-            tree::layout_tree_positions(&self.model.nodes, vis, &self.cfg.path_includes);
+            tree::layout_tree_positions(&self.core.model.nodes, vis, &self.cfg.path_includes);
         let mut min = Vec3::new(f32::INFINITY, f32::INFINITY, f32::INFINITY);
         let mut max = Vec3::new(f32::NEG_INFINITY, f32::NEG_INFINITY, f32::NEG_INFINITY);
         for id in vis {
@@ -826,8 +830,8 @@ mod tests {
 
         // Remove a node (GC-style) and recompute; spring endpoints must still
         // resolve and none may reference the removed node's slot.
-        let victim = st.model.nodes.keys().next().cloned().unwrap();
-        st.model.remove_node(&victim);
+        let victim = st.core.model.nodes.keys().next().cloned().unwrap();
+        st.core.model.remove_node(&victim);
         st.spatial.release(&victim);
         st.spatial.springs_dirty = true;
 

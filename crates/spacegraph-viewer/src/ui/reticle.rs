@@ -155,7 +155,7 @@ fn draw_readout(painter: &egui::Painter, lines: &[String], anchor: egui::Pos2) {
 
 fn readout_lines(st: &GraphState, id: &NodeId) -> Vec<String> {
     let mut out = Vec::new();
-    if let Some(n) = st.model.nodes.get(id) {
+    if let Some(n) = st.core.model.nodes.get(id) {
         out.extend(node_label_long(n));
     }
     if st.spatial.node_glow(id).is_some_and(|d| d > Instant::now()) {

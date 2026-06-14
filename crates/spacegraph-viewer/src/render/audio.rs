@@ -67,7 +67,7 @@ pub fn audio_triggers(
     mut picks: EventReader<Picked>,
     mut mem: Local<AudioMemory>,
 ) {
-    let alert_count = st.alert_order.len();
+    let alert_count = st.core.alert_order.len();
     let pick_count = picks.read().count(); // always drain the reader
 
     // First run: snapshot current state so a pre-loaded backlog doesn't blast.

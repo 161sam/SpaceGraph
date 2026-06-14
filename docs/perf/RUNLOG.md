@@ -1948,3 +1948,59 @@ wire change — `PROTOCOL_VERSION` stays 4 (O-8).
   scanner/AdminBot.
 
 ---
+
+## v0.6.0 — MCP provider, Phase 4 (extract `GraphCore`) — AUTO
+
+Branch: `feat/mcp-provider`. The crux: extract the headless canonical-state object
+and make the viewer's `GraphState` wrap it. Two commits (P4a additive core, P4b
+viewer integration), behavior-preserving.
+
+### What changed
+
+* **P4a — `spacegraph-graph::graph_core::GraphCore`** (additive): a render-free
+  type owning `model: GraphModel` + the `alert_order` ledger, with
+  - read-only queries (the MCP surface): `topology_stats`, `node_detail`,
+    `alerts`, `alert_severity_counts`, `campaigns`, `coverage`, `posture`,
+    `explain_path` (+ `TopologyStats`/`NodeDetail`/`AlertView` result types);
+  - headless ingest: `apply_snapshot` / `apply_delta` (single-stream canonical
+    subset of the viewer's render-ful ingest; both call the shared `GraphModel`
+    mutators — no duplicated graph logic);
+  - alert/detection pipeline: `note_alert`/`emit_detection`/`clear_detection`/
+    `apply_detections`/`run_detection`, returning cap-evicted ids.
+  - **6 headless unit tests** (fixture graph → typed result).
+* **P4b — `GraphState` wraps `GraphCore`**: the `model` + `alert_order` fields
+  became a single `core: GraphCore` (sibling render/ui fields preserve disjoint
+  borrows). All **138 `.model` + 17 `.alert_order`** call sites rewired to
+  `.core.*` (compiler-verified). The alert plumbing + read-only query methods now
+  **delegate to the core** (logic lives in one place); the viewer adds only render
+  bookkeeping (release evicted layout slots, `dirty_layout`, `needs_redraw`).
+
+### Design fork resolved (Stop-and-Show, recorded)
+
+"What stays Bevy vs. moves to core" for the **alert mutation + ingest**: the
+viewer's `note_alert`/`emit_detection` evict via `spatial.release()` and set
+`needs_redraw`, and its `apply`/`apply_delta` namespace ids per stream + drive
+timeline/glow — all render/multi-stream concerns. **Resolution (behavior-
+preserving):** the core does the graph+alert mutation and *returns evicted ids*;
+the viewer releases their layout slots + redraws. The viewer keeps its render-ful,
+multi-stream `apply`/`apply_delta` operating on `self.core.model`; the core's
+`apply_delta`/`apply_snapshot` are the minimal single-stream path for the headless
+MCP (P5). No graph logic is duplicated (shared `GraphModel` mutators).
+
+### Gates
+
+* `cargo fmt --check` OK · `cargo clippy --workspace --all-targets -D warnings`
+  clean · `cargo build --workspace` OK · `cargo test --workspace` = **283 passed**
+  (6 core + **37 spacegraph-graph** + 48 agent + 192 viewer), 0 failed.
+* **Headless invariant proven:** `cargo tree -p spacegraph-graph` has **no Bevy**.
+* **Behavior preservation:** pure relocation + delegation, zero logic change; all
+  189 viewer lib tests (ingest/alerts/snapshot/fog/pins/search/LOD/spatial) green.
+  A live GPU capture of the D0–D5 visual phases needs a display session (this build
+  env is headless) — deferred to Sam's review.
+* Audited negatives: `PROTOCOL_VERSION` still 4 · `spacegraph-agent` untouched ·
+  no MCP tools yet (P5) · core stays headless · no scanner/AdminBot.
+
+> **Extraction milestone reached.** Per MP this is the natural review point; Sam
+> pre-authorized the full P1–P6 autonomous run, so execution continues to P5.
+
+---

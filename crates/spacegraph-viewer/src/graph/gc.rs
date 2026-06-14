@@ -29,13 +29,13 @@ impl GraphState {
         self.perf.gc_last_run = now;
 
         let mut degree: HashMap<NodeId, u32> = HashMap::new();
-        for e in self.model.edges.iter() {
+        for e in self.core.model.edges.iter() {
             *degree.entry(e.from.clone()).or_insert(0) += 1;
             *degree.entry(e.to.clone()).or_insert(0) += 1;
         }
 
         let mut to_remove: Vec<NodeId> = Vec::new();
-        for (id, node) in self.model.nodes.iter() {
+        for (id, node) in self.core.model.nodes.iter() {
             let is_orphan = degree.get(id).copied().unwrap_or(0) == 0;
             if !is_orphan {
                 continue;
@@ -43,7 +43,7 @@ impl GraphState {
             if !matches!(node, Node::File { .. }) {
                 continue;
             }
-            let last = self.model.last_seen.get(id).copied().unwrap_or(now);
+            let last = self.core.model.last_seen.get(id).copied().unwrap_or(now);
             if now.duration_since(last) >= self.cfg.gc_ttl {
                 to_remove.push(id.clone());
             }
@@ -54,9 +54,9 @@ impl GraphState {
         }
 
         for id in to_remove {
-            self.model.nodes.remove(&id);
+            self.core.model.nodes.remove(&id);
             self.spatial.release(&id);
-            self.model.last_seen.remove(&id);
+            self.core.model.last_seen.remove(&id);
 
             if self.ui.focus.as_ref() == Some(&id) {
                 self.ui.focus = None;
@@ -83,7 +83,7 @@ mod tests {
     fn gc_removes_orphan_file_after_ttl() {
         let mut st = GraphState::default();
         let file_id = NodeId("file-1".to_string());
-        st.model.nodes.insert(
+        st.core.model.nodes.insert(
             file_id.clone(),
             Node::File {
                 path: "/tmp/test".to_string(),
@@ -92,7 +92,8 @@ mod tests {
             },
         );
         let now = Instant::now();
-        st.model
+        st.core
+            .model
             .last_seen
             .insert(file_id.clone(), now - Duration::from_secs(10));
         st.cfg.gc_ttl = Duration::from_secs(5);
@@ -100,6 +101,6 @@ mod tests {
 
         st.tick_gc();
 
-        assert!(!st.model.nodes.contains_key(&file_id));
+        assert!(!st.core.model.nodes.contains_key(&file_id));
     }
 }

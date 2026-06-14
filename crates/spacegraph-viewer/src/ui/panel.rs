@@ -25,11 +25,11 @@ pub fn ui_panel(
                 ui.heading("SpaceGraph");
                 ui.vertical(|ui| {
                     section_header(ui, "Status");
-                    ui.label(format!("nodes: {}", st.model.nodes.len()));
+                    ui.label(format!("nodes: {}", st.core.model.nodes.len()));
                     ui.label(format!(
                         "edges: raw {} / agg {}",
-                        st.model.edges.len(),
-                        st.model.agg_edge_count()
+                        st.core.model.edges.len(),
+                        st.core.model.agg_edge_count()
                     ));
                 });
 
@@ -87,7 +87,7 @@ pub fn ui_panel(
                         ));
                     }
                     let demo_allowed = st.net.active_connection_count() == 0
-                        && (st.model.nodes.is_empty() || st.demo_loaded);
+                        && (st.core.model.nodes.is_empty() || st.demo_loaded);
                     let mut demo_mode = st.cfg.demo_mode;
                     if ui
                         .add_enabled(
@@ -249,7 +249,7 @@ pub fn ui_panel(
                         let recent: Vec<(spacegraph_core::NodeId, String, String)> = st
                             .alerts_newest_first()
                             .take(10)
-                            .filter_map(|id| match st.model.nodes.get(id) {
+                            .filter_map(|id| match st.core.model.nodes.get(id) {
                                 Some(spacegraph_core::Node::Alert {
                                     signature,
                                     severity,

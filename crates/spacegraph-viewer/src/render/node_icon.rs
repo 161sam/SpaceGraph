@@ -373,7 +373,7 @@ pub fn sync_node_icons(
         if !st.spatial.placed[idx.slot()] || !st.is_visible_rendered(id) {
             continue;
         }
-        let Some(node) = st.model.nodes.get(id) else {
+        let Some(node) = st.core.model.nodes.get(id) else {
             continue;
         };
         let kind = theme::NodeKind::of(node);

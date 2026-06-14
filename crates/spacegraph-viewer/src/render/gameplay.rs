@@ -118,7 +118,8 @@ pub fn mission_bonus(secs: f32) -> u32 {
 
 /// The investigation target of an alert: the node its `alerts_on` edge points to.
 fn alert_target(st: &GraphState, alert: &NodeId) -> Option<NodeId> {
-    st.model
+    st.core
+        .model
         .edges_for_node(alert)
         .find(|e| &e.from == alert && EdgeKindClass::from_kind(&e.kind) == EdgeKindClass::AlertsOn)
         .map(|e| e.to.clone())
@@ -138,7 +139,7 @@ pub fn mission_tick(
             .cloned();
         if let Some(alert) = next {
             let target = alert_target(&st, &alert);
-            let signature = match st.model.nodes.get(&alert) {
+            let signature = match st.core.model.nodes.get(&alert) {
                 Some(spacegraph_core::Node::Alert { signature, .. }) => signature.clone(),
                 _ => "alert".to_string(),
             };

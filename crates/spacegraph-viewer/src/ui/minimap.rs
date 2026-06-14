@@ -72,6 +72,7 @@ pub fn minimap(
                     continue;
                 }
                 let color = st
+                    .core
                     .model
                     .nodes
                     .get(id)
