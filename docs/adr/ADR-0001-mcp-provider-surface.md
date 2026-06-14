@@ -5,8 +5,14 @@
 **Depends on:** ADR-0004 (two-plane; O-7' read-only/no-egress, O-8 wire-stability),
 ADR-0005/0006/0007 (the viewer-side detections/campaigns/coverage the surface
 exposes).
-**Implemented by:** MP-v0.6.0 (Track B). **Never auto-merged** — external ESN
-contract (Sam reviews).
+**Implemented by:** MP-v0.6.0 (Track B).
+**Merge policy (amended 2026-06-14, Sam):** the original "**Never auto-merged** —
+external ESN contract (Sam reviews)" stance is **superseded**. Sam authorized
+**auto-merge-on-green** for all phases P1–P6 (local `--no-ff` merge to `main` per
+phase once gates pass; `v0.6.0` tag on `main`), waiving the external-contract
+pre-merge review carve-out. The technical invariants below (read-only O-7',
+no-wire-bump O-8, agent untouched, behavior preservation) are **unchanged** — only
+the merge gate moved.
 
 ## Context
 
