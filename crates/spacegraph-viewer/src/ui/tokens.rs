@@ -41,6 +41,33 @@ pub mod space {
     pub const XL: f32 = 16.0;
 }
 
+/// Corner rounding (px) per surface role — flat, segmented GitS look.
+pub mod radius {
+    /// HUD panels / rail (nearly square).
+    pub const PANEL: f32 = 2.0;
+    /// Readout cards / entity card.
+    pub const CARD: f32 = 3.0;
+}
+
+/// Stroke widths (px).
+pub mod stroke_w {
+    /// Hairline separators / inactive frames.
+    pub const HAIR: f32 = 1.0;
+    /// Active frame / corner brackets.
+    pub const FRAME: f32 = 1.5;
+}
+
+/// Alpha (0–255) for translucent GitS surfaces drawn over the 3D scene, so the
+/// graph reads faintly through the holographic chrome.
+pub mod alpha {
+    /// HUD panel / rail fill.
+    pub const PANEL_FILL: u8 = 232;
+    /// Backing scrim behind a readout (radial disc, etc.).
+    pub const SCRIM: u8 = 170;
+    /// Corner-bracket accent.
+    pub const BRACKET: u8 = 150;
+}
+
 /// Font-family role names registered in `theme_egui::setup_fonts`.
 pub mod font {
     /// Body / proportional (Inter).

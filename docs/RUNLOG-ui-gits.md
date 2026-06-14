@@ -253,3 +253,55 @@ Module map + bug repro (code-level) recorded ✓ · baseline green ✓ · no cod
   radial/preview/readout pile-up) vs `afterp1-focus.png` (preview corner-docked,
   readouts suppressed); `before-hover.png` vs `afterp1-hover.png` (tooltip moved
   off the node); Minimal parity in `*-minimal*.png`.
+
+---
+
+## P2 — Sidebar replacement
+
+### What changed
+- **Removed** the permanent left dev sidebar (`ui/panel.rs` deleted; its widget
+  bodies relocated, history preserved in git). The 3D graph now renders
+  **full-width**; the chrome floats over it (holographic HUD model).
+- **New `ui/rail.rs`** — a slim always-on **command rail** (icon-grouped:
+  VIEW · FILT · ALRT · AGNT · CFG) floating at the left edge; each button toggles
+  one corner-anchored HUD panel (`RailState`). Carries alert/agent count badges.
+  Also owns `update_ui_layout` (publishes `content_rect` = screen minus the rail,
+  run first so panels read it fresh).
+- **New `ui/hud_panels.rs`** — the controls, grouped by rail section, in a single
+  GitS-framed panel anchored beside the rail; plus `dispatch_windows`, which hosts
+  the four modal windows + node search the old sidebar used to dispatch.
+- **New `ui/gits.rs`** — GitS chrome helpers (translucent panel frame, corner
+  brackets, monospace section headers) built from the **extended** `tokens.rs`
+  (`radius`, `stroke_w`, `alpha` added). Standard = GitS frame; Minimal = the
+  plain egui popup frame (flat) — both verified.
+- Moved the debug-telemetry HUD (`ui/hud.rs`) to the content area's bottom-left so
+  it no longer collides with the top-left HUD panels.
+- `app/mod.rs`: `ui_panel` → `(update_ui_layout, command_rail, hud_panels,
+  dispatch_windows).chain()`; registered `RailState`.
+
+### Reachability checklist (every prior control kept)
+- [x] **View/Display** → VIEW panel: mode Spatial/Tree/Timeline, Fit-to-view,
+  Show files, Demo Mode, 3D, Edges, Agg edges, Raw edges, Theme, Quality,
+  Adaptive, **Show/Hide legend** (new button; was L-key only), Minimap (auto).
+- [x] **Timeline** → VIEW panel (Timeline mode): Pause, Window, X-scale, Show
+  connectors, Scrub, Reset scrub, Selection A/B, Jump to Spatial.
+- [x] **Filter/Query** → FILT panel: filter DSL, removable chips, Focus hops,
+  Clear focus.
+- [x] **Alerts/Incident** → ALRT panel: Incident-Hunt score/status, recent-alert
+  rows (click → jump), severity counts. (M / G keybinds unchanged.)
+- [x] **Agents** → AGNT panel: count + Manage Agents… → the agent-manager window
+  (all per-row controls + Add Agent form unchanged, via `dispatch_windows`).
+- [x] **Settings** → CFG panel: Edit Paths…, Save Settings, Reset Defaults,
+  Clear graph, Technician (full tuning block: Performance, LOD, Layout, Glow,
+  Gameplay, Post-FX, Audio, GC), Open Search.
+- [x] **Focus/Nav, Search palette, all keybinds** unchanged (Ctrl+P palette,
+  F/I/L/O/T/?/M/G/V/Esc; right-click menu; radial).
+
+### Gate
+- `fmt --check` ✓ · `clippy --workspace --all-targets -D warnings` ✓ ·
+  `test --workspace` ✓ (196 viewer tests).
+- No core/graph/agent/wire change.
+- Screenshots: `afterp2-default.png` (full-width graph + slim rail),
+  `afterp2-view.png` / `afterp2-settings.png` (GitS HUD panels),
+  `afterp2-minimal*.png` (flat Minimal parity). Compare vs `before-default.png`
+  (old left sidebar).

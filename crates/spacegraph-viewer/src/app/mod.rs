@@ -56,6 +56,7 @@ impl Plugin for SpaceGraphViewerPlugin {
             .insert_resource(crate::render::RippleTracker::default())
             .insert_resource(crate::render::PreviewExpand::default())
             .insert_resource(crate::ui::RadialMenu::default())
+            .insert_resource(crate::ui::RailState::default())
             .insert_resource(crate::render::FocusCam::default())
             // Default detail capability + quality tier; `finish` refines both from
             // the real GPU adapter (or config) once the renderer is initialized.
@@ -98,7 +99,17 @@ impl Plugin for SpaceGraphViewerPlugin {
                 crate::graph::tick_housekeeping,
                 crate::ui::apply_egui_theme,
                 crate::ui::handle_shortcuts,
-                crate::ui::ui_panel,
+                // P2: the slim command rail + corner HUD panels replace the old
+                // permanent left sidebar. `update_ui_layout` runs first so panels
+                // read a fresh content_rect; `dispatch_windows` hosts the modal
+                // windows the old `ui_panel` used to dispatch.
+                (
+                    crate::ui::update_ui_layout,
+                    crate::ui::command_rail,
+                    crate::ui::hud_panels,
+                    crate::ui::dispatch_windows,
+                )
+                    .chain(),
                 crate::ui::help_overlay,
                 crate::ui::hud_overlay,
                 crate::ui::hud_frame_overlay,
