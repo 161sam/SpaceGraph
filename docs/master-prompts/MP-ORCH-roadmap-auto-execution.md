@@ -74,23 +74,24 @@ its ADR; own branch; own gates; RUNLOG entry per phase. Order:
 
 1. **D0** — perimeter & exposure → **MP-D0** (ADR-0012). AUTO, no wire.
 2. **D1** — rule engine + ATT&CK → **MP-D1** (ADR-0004/0005/0006). AUTO, no wire.
-3. **D2** — threat-motion + Nebula source (+ firewall/flow sources) → roadmap D2 +
-   ADR-0009. AUTO, no wire, no exec in the sources (netlink read-only).
-4. **D3** — multi-stage correlation → roadmap D3 + ADR-0007. AUTO, viewer-internal.
-5. **D5** — ATT&CK coverage + posture → roadmap D5 + ADR-0006. AUTO, after the
+3. **D2** — three MPs, run in this order: **MP-D2-core** (threat-motion + Nebula +
+   purple-team origin, ADR-0009) → **MP-D2-firewall** (nftables netlink source,
+   activates D0's gated aperture) → **MP-D2-flow** (conntrack flow source). AUTO, no
+   wire, no exec in the sources (netlink/`/proc` read-only). The firewall + flow MPs
+   each pin a new netlink dependency (approved by their MP).
+4. **D3** — multi-stage correlation → **MP-D3** (ADR-0007). AUTO, viewer-internal.
+5. **D5** — ATT&CK coverage + posture → **MP-D5** (ADR-0006). AUTO, after the
    D1/D2/D3 rule corpus exists.
-6. **v0.6.0** — MCP server (read-only) + ESN admission → roadmap v0.6.0 (Track B) +
-   ADR-0001 (author it at this phase). **Reality-Check-Gate first** (read the
-   orchestrator hub registration shape). **Resolve the canonical-state-access crux**
-   (how the out-of-process MCP server reads the in-process `GraphState`) — if the
-   resolution is non-obvious or needs a design decision, **STOP-and-Show** before
-   writing tool code (the roadmap mandates resolving it first). Read-only tools
-   only; no action tools.
+6. **v0.6.0** — MCP server (read-only) + ESN admission → **MP-v0.6.0** (ADR-0001).
+   **Run its Phase 0 first** (orchestrator Reality-Check + the canonical-state-access
+   crux — STOP-and-Show before tool code). Read-only tools only; **never
+   auto-merged.**
 
 For each AUTO phase, honour that phase's own Stop-and-Show conditions and audited
-negatives (e.g. no `child_process`/exec, no agent egress, no `spacegraph-core` wire
-bump in D0–D3/D5; the wire stays at PROTOCOL_VERSION 3 — **any need for a wire bump
-means you have wandered into D4: STOP**).
+negatives (e.g. no `child_process`/exec, no agent egress, no **further**
+`spacegraph-core` wire bump in D0–D3/D5; the wire is at PROTOCOL_VERSION 4 (the
+3→4 bump was spent by v0.5.2 FS-search, ratified ADR-0016) — **any need to change
+the wire means you have wandered into D4: STOP**).
 
 **Merge policy (confirm with Sam if unset):** default is **branch-ready-for-review
 per phase**, not auto-merge — auto-merge-on-green is acceptable only for the
@@ -115,8 +116,9 @@ master-prompt (MP-E1 exists for E1; v0.7.0 / D4 / F reserved). Hand back to Sam.
   `cargo test --workspace`.
 - No `unwrap`/`expect` in render/IPC paths.
 - **Audited negatives (per the auto-safe band):** the **agent stays read-only /
-  no-egress / no-exec** (O-7'); **no `spacegraph-core` wire bump** (O-8 — would be
-  D4); no scanner code (that is Track E, NOT in this MP); no AdminBot/action code
+  no-egress / no-exec** (O-7'); **no further `spacegraph-core` wire bump** (O-8 —
+  wire is at v4; a further bump would be D4); no scanner code (that is Track E, NOT
+  in this MP); no AdminBot/action code
   (Track C). Assert at each phase's close-out.
 - Conventional commits, English, imperative. **No AI-authorship markers.** Naming
   hygiene; existing-code-first; archive-not-delete.
@@ -145,7 +147,7 @@ no-exec guarantee, or the auto-boundary to get unblocked.
 - Fresh recon report with per-phase readiness.
 - Auto-safe band landed: D0, D1, D2, D3, D5, and v0.6.0 (read-only MCP + ESN
   admission), each with gates green, RUNLOG + ACCEPTANCE updated.
-- `spacegraph-core` still at PROTOCOL_VERSION 3 (no wire bump); agent still
-  read-only/no-exec; no scanner/AdminBot/exploitation code.
+- `spacegraph-core` still at PROTOCOL_VERSION 4 (no further wire bump); agent
+  still read-only/no-exec; no scanner/AdminBot/exploitation code.
 - **Clean hard stop at the offensive/mutating boundary**, with a status report and
   the handoff list of NOT-AUTO phases for Sam's supervised MPs.
