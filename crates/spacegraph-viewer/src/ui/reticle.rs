@@ -16,6 +16,7 @@ use crate::graph::{namespace, GraphState, ViewMode};
 use crate::render::spatial::{highlight_style, HighlightStyle};
 use crate::render::theme;
 use crate::ui::egui_color;
+use crate::ui::overlay;
 use crate::util::ids::node_label_long;
 
 /// World radius around the camera within which micro-tags may appear.
@@ -38,6 +39,7 @@ pub fn reticle_overlay(
     let ctx = contexts.ctx_mut();
     let t = ctx.input(|i| i.time) as f32;
     let pulse = 0.5 + 0.5 * (t * 3.0).sin();
+    let screen = ctx.screen_rect();
     let painter = ctx.layer_painter(egui::LayerId::new(
         egui::Order::Foreground,
         egui::Id::new("lockon_reticle"),
@@ -66,11 +68,17 @@ pub fn reticle_overlay(
         draw_brackets(&painter, c, base + 4.0 * pulse, egui_color(color));
     }
 
-    // Leader-lined readout for the selection.
+    // Leader-lined readout for the selection — placed *beside* the node (P1
+    // `place_card`, edge-aware), suppressed in Focus Mode (the radial owns the
+    // node region) and when the selection is also the hovered node (the hover
+    // readout covers it). This breaks the concentric readout pile-up.
     if let Some(id) = &st.ui.selected {
-        if let Some(pos) = st.spatial.position_of(id) {
-            if let Some(c) = project(pos) {
-                draw_readout(&painter, &readout_lines(&st, id), c);
+        let suppress = st.ui.focus_mode.is_some() || st.ui.hovered.as_ref() == Some(id);
+        if !suppress {
+            if let Some(pos) = st.spatial.position_of(id) {
+                if let Some(c) = project(pos) {
+                    draw_readout(&painter, &readout_lines(&st, id), c, screen);
+                }
             }
         }
     }
@@ -116,18 +124,22 @@ fn draw_brackets(painter: &egui::Painter, c: egui::Pos2, h: f32, color: egui::Co
     }
 }
 
-fn draw_readout(painter: &egui::Painter, lines: &[String], anchor: egui::Pos2) {
+fn draw_readout(painter: &egui::Painter, lines: &[String], anchor: egui::Pos2, vp: egui::Rect) {
     if lines.is_empty() {
         return;
     }
     let line_h = 15.0;
-    let box_min = egui::pos2(anchor.x + 34.0, anchor.y - 24.0);
-    let rect = egui::Rect::from_min_size(
-        box_min,
-        egui::vec2(240.0, line_h * lines.len() as f32 + 8.0),
-    );
+    let size = egui::vec2(240.0, line_h * lines.len() as f32 + 8.0);
+    let box_min = overlay::place_card(anchor, overlay::NODE_HALF_PX, size, vp, overlay::CARD_GAP);
+    let rect = egui::Rect::from_min_size(box_min, size);
+    // Leader line from the node to the box's nearest vertical edge.
+    let leader_target = if rect.min.x >= anchor.x {
+        egui::pos2(rect.min.x, rect.center().y)
+    } else {
+        egui::pos2(rect.max.x, rect.center().y)
+    };
     painter.line_segment(
-        [anchor, box_min],
+        [anchor, leader_target],
         egui::Stroke::new(1.0, egui_color(theme::RETICLE_SELECT)),
     );
     painter.rect_filled(

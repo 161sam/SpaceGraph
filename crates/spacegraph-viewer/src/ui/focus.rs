@@ -31,6 +31,12 @@ const FOCUS_DOUBLE_CLICK_SECS: f64 = 0.35;
 /// camera to centre it. The keyboard radial command HUD is the in-focus interaction
 /// in the Standard theme; Minimal focus is a plain dim+centre spotlight (no rings).
 pub fn enter_focus(st: &mut GraphState, radial: &mut RadialMenu, id: NodeId) {
+    // Mutual exclusion (P1): entering focus closes the transient overlays that
+    // would otherwise stack on the focused node (right-click menu, palette,
+    // search). The radial HUD is the in-focus interaction.
+    st.ui.context_menu = None;
+    st.ui.palette_open = false;
+    st.ui.search_open = false;
     st.ui.focus_mode = Some(id.clone());
     st.ui.selected = Some(id.clone());
     st.request_jump(id.clone());

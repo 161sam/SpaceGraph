@@ -72,6 +72,12 @@ impl Plugin for SpaceGraphViewerPlugin {
             }
         }
 
+        // Gated visual smoke-test hook (no effect unless the env var is set):
+        // deterministically enters Focus Mode on a hub node for screenshot capture.
+        if std::env::var("SPACEGRAPH_DEMO_FOCUS").is_ok() {
+            app.add_systems(Update, demo_autofocus);
+        }
+
         app.add_systems(
             Startup,
             (
@@ -105,7 +111,11 @@ impl Plugin for SpaceGraphViewerPlugin {
                 crate::ui::command_palette_overlay,
                 crate::ui::node_preview_overlay,
                 crate::ui::minimap,
-            ),
+            )
+                // Deterministic within-layer paint order for the egui overlays
+                // (P1: was an ambiguous tuple — the structural root of the
+                // overlap bug; z-order is now owned by `ui::overlay::layer`).
+                .chain(),
         )
         .add_systems(
             Update,
@@ -243,6 +253,35 @@ fn pump_outbound(mut st: ResMut<GraphState>) {
 
 fn seed_demo_load(mut st: ResMut<GraphState>, demo: Res<DemoLoad>) {
     st.load_synthetic_graph(demo.0);
+}
+
+/// Visual smoke-test hook (gated on `SPACEGRAPH_DEMO_FOCUS`, registered only when
+/// that env var is set — see `build`). Once the demo layout exists, select and
+/// enter Focus Mode on the highest-degree (hub) node so screenshot automation can
+/// capture the focus visuals deterministically, without fragile click-picking
+/// against a still-settling layout. No effect on a normal run.
+fn demo_autofocus(
+    time: Res<Time>,
+    mut st: ResMut<GraphState>,
+    mut radial: ResMut<crate::ui::RadialMenu>,
+    mut done: Local<bool>,
+) {
+    // Time-gated (not frame-gated) so it fires reliably regardless of the
+    // reactive frame pacing: ~1.5s of app time lets the layout spread first.
+    if *done || time.elapsed_seconds() < 1.5 {
+        return;
+    }
+    let hub = st
+        .core
+        .model
+        .nodes
+        .keys()
+        .max_by_key(|id| st.core.model.degree(id))
+        .cloned();
+    if let Some(id) = hub {
+        crate::ui::focus::enter_focus(&mut st, &mut radial, id);
+    }
+    *done = true;
 }
 
 fn auto_connect_agents(mut st: ResMut<GraphState>) {

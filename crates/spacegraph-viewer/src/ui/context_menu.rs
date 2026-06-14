@@ -179,6 +179,7 @@ pub struct RadialMenu(pub Option<RadialState>);
 /// radial re-opens on it. Pure state change (unit-tested).
 pub fn dive_to_neighbor(st: &mut GraphState, radial: &mut RadialMenu, nid: NodeId) {
     st.reveal(&nid);
+    st.ui.context_menu = None; // keep the radial the sole node-region overlay (P1)
     st.ui.focus = Some(nid.clone());
     st.ui.selected = Some(nid.clone());
     st.ui.focus_mode = Some(nid.clone());

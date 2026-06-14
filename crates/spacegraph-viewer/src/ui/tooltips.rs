@@ -4,9 +4,11 @@ pub fn render_tooltip(
     ctx: &egui::Context,
     id: &str,
     pos: egui::Pos2,
+    order: egui::Order,
     lines: impl IntoIterator<Item = String>,
 ) {
     egui::Area::new(egui::Id::new(id))
+        .order(order)
         .fixed_pos(pos)
         .show(ctx, |ui| {
             ui.group(|ui| {

@@ -474,6 +474,7 @@ pub fn draw_timeline(
             ctx,
             "tooltip_timeline",
             pos,
+            crate::ui::overlay::layer::READOUT,
             best.text.lines().map(|line| line.to_string()),
         );
     }

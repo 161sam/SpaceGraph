@@ -8,6 +8,7 @@ pub mod layout;
 pub mod legend;
 pub mod minimap;
 pub mod node_preview;
+pub mod overlay;
 pub mod panel;
 pub mod reticle;
 pub mod search;

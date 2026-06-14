@@ -207,3 +207,49 @@ Target before-shots: `before-default.png` (Standard chrome + left rail),
 
 ### P0 gate
 Module map + bug repro (code-level) recorded ✓ · baseline green ✓ · no code changed.
+
+---
+
+## P1 — Panel-layer system + bugfix
+
+### What changed
+- **New `ui/overlay.rs`** — the panel-layer & anchoring authority:
+  - `layer` — the canonical egui draw-order contract per overlay class
+    (`BACKDROP`=Background, `PANEL`/`READOUT`=Middle, `MODAL`=Foreground), so
+    z-order is owned in one place instead of ad-hoc `.order()` calls.
+  - `place_card(node, node_half, size, vp, gap) -> Pos2` — the single **pure,
+    unit-tested** anchoring rule: prefer the node's right, flip left near the
+    right edge, vertically centre, clamp fully on-screen; clears the node
+    footprint. Reused by the hover tooltip, the reticle readout, and (P3) the
+    entity card. `node_half = 0` degrades to a clamped pointer anchor.
+  - `estimate_text_size` (size a readout before egui lays it out) and
+    `hover_readout_suppressed(focus_mode, context_menu_open)`.
+- **Tooltip anchoring + suppression** (`render/spatial.rs`, `ui/tooltips.rs`):
+  the node hover readout is now anchored **beside the hovered node's projection**
+  via `place_card` (was `pointer + (14,14)`, which sat on the node), edge-aware,
+  and **suppressed in Focus Mode / while the context menu is open**. The edge
+  tooltip is clamped on-screen and suppressed the same way. `render_tooltip`
+  gained an explicit `Order`. `draw_spatial` now receives the camera (threaded
+  through `draw_scene`) to project the node.
+- **Reticle readout** (`ui/reticle.rs`): the selection readout is placed via
+  `place_card` (off-node, edge-aware, leader line to the nearest box edge) and
+  **suppressed in Focus Mode and when the selection is also the hovered node**
+  (the hover readout covers it) — removing the duplicate/concentric box.
+- **Focus de-clutter**: the focus-mode preview no longer anchors `CENTER_CENTER`
+  on the node (`ui/node_preview.rs`) — it docks to a screen corner; P3 reframes
+  it as the entity card. Entering focus / diving now closes the context menu,
+  palette and search (`ui/focus.rs`, `ui/context_menu.rs`) so the radial is the
+  sole node-region overlay (mutual exclusion; the Esc cascade is preserved).
+- **Deterministic paint order**: the egui overlay system tuple in `app/mod.rs`
+  is now `.chain()`ed (was an ambiguous tuple — P0's flagged structural root).
+
+### Gate
+- `cargo fmt --check` ✓ · `clippy --workspace --all-targets -D warnings` ✓ ·
+  `cargo test --workspace` ✓ **196 viewer tests** (+7 new `ui::overlay` tests:
+  right-placement, left-flip near edge, vertical clamp, tiny-viewport no-panic,
+  pointer anchor, size estimate, suppression).
+- No `spacegraph-core`/`spacegraph-graph` change; no wire bump; no agent change.
+- Before/after screenshots: `docs/media/gits/before-focus.png` (the concentric
+  radial/preview/readout pile-up) vs `afterp1-focus.png` (preview corner-docked,
+  readouts suppressed); `before-hover.png` vs `afterp1-hover.png` (tooltip moved
+  off the node); Minimal parity in `*-minimal*.png`.
