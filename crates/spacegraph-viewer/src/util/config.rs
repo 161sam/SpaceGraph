@@ -188,6 +188,34 @@ impl Default for QualityConfig {
     }
 }
 
+/// Edge level-of-detail (v0.5.1) — render-side edge thinning to cut overdraw /
+/// bloom (the FPS lever). Distant edges **dim** past `near_dist` and **cull** past
+/// `far_dist`; in Focus Mode, edges not incident to the focused node are culled
+/// when `focus_cull`. Purely render-side: `force_step` (layout truth) is untouched.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct EdgeLodConfig {
+    /// Edges with a midpoint nearer than this render at full brightness.
+    pub near_dist: f32,
+    /// Edges with a midpoint farther than this are culled (not drawn).
+    pub far_dist: f32,
+    /// Brightness multiplier for edges in the dim band `(near_dist, far_dist]`.
+    pub far_dim: f32,
+    /// Cull edges not incident to the focused node while Focus Mode is active.
+    pub focus_cull: bool,
+}
+
+impl Default for EdgeLodConfig {
+    fn default() -> Self {
+        Self {
+            near_dist: 70.0,
+            far_dist: 160.0,
+            far_dim: 0.35,
+            focus_cull: true,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct ViewerConfig {
@@ -257,6 +285,9 @@ pub struct ViewerConfig {
     // ---- Quality tier (v0.5.0): GPU-cost axis, Pi → desktop ----
     #[serde(default)]
     pub quality: QualityConfig,
+    // ---- Edge LOD (v0.5.1): render-side edge thinning (overdraw/bloom lever) ----
+    #[serde(default)]
+    pub edge_lod: EdgeLodConfig,
     // ---- IDE shell (v0.5.0): native-panel layout persistence ----
     #[serde(default)]
     pub shell: ShellConfig,
@@ -321,6 +352,7 @@ impl Default for ViewerConfig {
             postfx: PostFxConfig::default(),
             node_detail: NodeDetailConfig::default(),
             quality: QualityConfig::default(),
+            edge_lod: EdgeLodConfig::default(),
             shell: ShellConfig::default(),
             audio_enabled: default_audio_enabled(),
             audio_volume: default_audio_volume(),
@@ -525,6 +557,24 @@ mod tests {
             target_fps_override: Some(30),
         };
         let dec2: QualityConfig = toml::from_str(&toml::to_string(&overridden).unwrap()).unwrap();
+        assert_eq!(overridden, dec2);
+    }
+
+    #[test]
+    fn edge_lod_config_roundtrip() {
+        let cfg = EdgeLodConfig::default();
+        let dec: EdgeLodConfig = toml::from_str(&toml::to_string(&cfg).unwrap()).unwrap();
+        assert_eq!(cfg, dec);
+        assert!(dec.focus_cull);
+        assert!(dec.near_dist < dec.far_dist);
+
+        let overridden = EdgeLodConfig {
+            near_dist: 40.0,
+            far_dist: 90.0,
+            far_dim: 0.5,
+            focus_cull: false,
+        };
+        let dec2: EdgeLodConfig = toml::from_str(&toml::to_string(&overridden).unwrap()).unwrap();
         assert_eq!(overridden, dec2);
     }
 
