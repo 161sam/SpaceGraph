@@ -18,8 +18,8 @@ use crate::graph::tree;
 use crate::net::{Incoming, IncomingKind, ReaderHandle};
 use crate::util::config::{
     AgentEndpoint, AgentMode, EdgeLodConfig, FocusConfig, LodEdgesMode, NodeDetailConfig,
-    PostFxConfig, QualityConfig, SearchConfig, ShellConfig, ViewerConfig, ViewerViewMode,
-    VisualTheme,
+    PostFxConfig, QualityConfig, SearchConfig, ShellConfig, SocketDisplayConfig, ViewerConfig,
+    ViewerViewMode, VisualTheme,
 };
 use crate::util::ids::{node_label_long, node_label_short};
 
@@ -619,6 +619,7 @@ pub struct CfgState {
 
     /// Edge level-of-detail (v0.5.1): render-side edge dim/cull (overdraw lever).
     pub edge_lod: EdgeLodConfig,
+    pub socket_display: SocketDisplayConfig,
 
     /// Focus Mode (v0.5.1): background dim / DoF / layout-freeze presentation.
     pub focus: FocusConfig,
@@ -809,6 +810,7 @@ impl Default for GraphState {
                 node_detail: NodeDetailConfig::default(),
                 quality: QualityConfig::default(),
                 edge_lod: EdgeLodConfig::default(),
+                socket_display: SocketDisplayConfig::default(),
                 focus: FocusConfig::default(),
                 shell: ShellConfig::default(),
                 audio_enabled: true,
@@ -1586,6 +1588,13 @@ impl GraphState {
             namespace::local_part(id)
         ));
         out.extend(node_label_long(n));
+        // D0/ADR-0012: surface the socket's exposure bucket next to its state.
+        if let Node::Socket { local_addr, .. } = n {
+            out.push(format!(
+                "exposure: {}",
+                crate::render::spatial::exposure_bucket(local_addr).label()
+            ));
+        }
         if let Some(stream) = namespace::origin(id) {
             match self
                 .net
@@ -1960,6 +1969,7 @@ impl GraphState {
         self.cfg.node_detail = cfg.node_detail.clone();
         self.cfg.quality = cfg.quality.clone();
         self.cfg.edge_lod = cfg.edge_lod;
+        self.cfg.socket_display = cfg.socket_display;
         self.cfg.focus = cfg.focus;
         self.cfg.shell = cfg.shell.clone();
         self.cfg.search = cfg.search.clone();
@@ -2020,6 +2030,7 @@ impl GraphState {
             node_detail: self.cfg.node_detail.clone(),
             quality: self.cfg.quality.clone(),
             edge_lod: self.cfg.edge_lod,
+            socket_display: self.cfg.socket_display,
             focus: self.cfg.focus,
             shell: self.cfg.shell.clone(),
             audio_enabled: self.cfg.audio_enabled,

@@ -449,9 +449,18 @@ impl GraphState {
         for (off, id) in slice.iter().enumerate() {
             // Network nodes sit on an outer shell (remote hosts furthest out),
             // so connections fan outward from the process core.
+            // Network nodes sit on an outer shell; sockets refine their radial
+            // depth by exposure (Public outermost, Loopback at the core) so the
+            // host's attack surface reads as silhouette (D0/ADR-0012, no wire).
             let shell = match self.model.nodes.get(id) {
                 Some(Node::RemoteHost { .. }) => 1.8_f32,
-                Some(Node::Socket { .. }) => 1.25,
+                Some(Node::Socket { local_addr, .. }) => {
+                    if self.cfg.socket_display.exposure_depth {
+                        crate::render::spatial::exposure_bucket(local_addr).shell_factor()
+                    } else {
+                        1.25
+                    }
+                }
                 Some(_) => 1.0,
                 None => continue,
             };

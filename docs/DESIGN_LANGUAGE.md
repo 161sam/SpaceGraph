@@ -309,3 +309,38 @@ until picked — so the search box can surface the whole filesystem while the gr
 stays bounded. When no connected agent advertises `fs_search`, the surface shows
 `IN GRAPH only` and the `ON DISK` section is absent (graceful v3 fallback). A
 capped result set shows a "results capped — refine the query" hint.
+
+## D0 — Perimeter & exposure (ADR-0012)
+
+Four viewer-side derivations make the network surface legible with **no wire
+change and no new data** — all derived from fields already on `Node::Socket`
+(`state`, `local_addr`) and reusing `Node::RemoteHost`. All key off `theme.rs`
+constants; all degrade to Minimal without changing graph truth.
+
+- **Port-state-as-aperture** (`render::spatial::aperture_style`, Standard only).
+  A socket renders by state: **LISTEN** → an open, bright outward aperture;
+  **ESTABLISHED** → the active socket blue; **gated/filtered** → a dimmed,
+  shuttered form behind a barrier ring (dormant until the D2 firewall source emits
+  the state); **closing** (TIME_WAIT/CLOSE_WAIT/…) → dimmed. Idle sockets show the
+  aperture tint; recent activity still flashes white via the glow ramp. Minimal
+  keeps the flat torus.
+- **Exposure-as-depth** (`render::spatial::exposure_bucket`, both themes). A
+  socket's `local_addr` buckets to `Loopback` / `Lan` / `Public`, driving radial
+  shell depth — **Public** on the outer shell facing the perimeter, **Lan** mid,
+  **Loopback** at the core. Attack surface reads as *silhouette*. This positions
+  truth (not decoration), so it applies in both themes.
+- **Anomaly-as-scene-distortion** (`render::postfx`, Standard only). The most
+  severe/recent alerts (bounded top-N, screen-projected) localize the post-fx — a
+  proximity ramp that desaturates toward a danger wash and pulses — so the eye is
+  drawn to *where* it is wrong. Off under Minimal (`postfx_active`); never clobbers
+  saved config.
+- **Gateway as a derived node.** The default-route gateway (read from
+  `/proc/net/route` by the `net` source) appears as a `RemoteHost` on the outer
+  shell — the egress hub outbound traffic sits near. Reuses the existing kind; no
+  new type, no wire bump. (At D0 it is positional; the internet-membrane *region*
+  it anchors is D4/ADR-0008.)
+
+New `theme.rs` constants: `APERTURE_OPEN/ACTIVE/SHUTTERED/CLOSING`, `BARRIER_RING`,
+`GATEWAY_ACCENT`, `EXPOSURE_LOOPBACK/LAN/PUBLIC`. Toggles: `[socket_display]`
+`aperture_by_state` / `exposure_depth` / `anomaly_focus` (+ `anomaly_intensity`),
+all default on.

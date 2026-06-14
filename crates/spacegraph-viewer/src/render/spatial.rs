@@ -47,6 +47,9 @@ pub struct NodeRenderResources {
     /// Flat sphere used by the Minimal theme (the pre-geometry look).
     pub minimal_mesh: Handle<Mesh>,
     pub standard: Vec<[Handle<StandardMaterial>; GLOW_LEVELS]>,
+    /// Per-aperture-state socket materials (Standard theme, idle sockets), indexed
+    /// by [`ApertureStyle::index`] (D0/ADR-0012). No per-frame allocation.
+    pub socket_aperture: [Handle<StandardMaterial>; 4],
     pub minimal_normal: Handle<StandardMaterial>,
     pub minimal_glow: Handle<StandardMaterial>,
 }
@@ -276,6 +279,21 @@ pub fn setup_node_render_resources(
         })
         .collect();
 
+    // Per-aperture-state socket materials (idle sockets, Standard theme): the
+    // port state tints the aperture; an active flash still ramps via `standard`.
+    let socket_aperture: [Handle<StandardMaterial>; 4] = std::array::from_fn(|i| {
+        let style = ApertureStyle::ALL[i];
+        let c = style.tint().to_linear();
+        let k = style.intensity();
+        mats.add(StandardMaterial {
+            base_color: style.tint(),
+            emissive: LinearRgba::rgb(c.red * k, c.green * k, c.blue * k),
+            perceptual_roughness: 0.5,
+            metallic: 0.0,
+            ..default()
+        })
+    });
+
     let minimal_normal = mats.add(StandardMaterial::default());
     let minimal_glow = mats.add(StandardMaterial {
         emissive: LinearRgba::rgb(1.0, 1.0, 1.0),
@@ -290,6 +308,7 @@ pub fn setup_node_render_resources(
         ring_mat,
         minimal_mesh,
         standard,
+        socket_aperture,
         minimal_normal,
         minimal_glow,
     });
@@ -452,7 +471,6 @@ fn node_material(
                 .get(id)
                 .map(theme::NodeKind::of)
                 .unwrap_or(theme::NodeKind::File);
-            let ramp = &res.standard[kind.index()];
             let level = match glow_until {
                 Some(deadline) if glow_secs > 0.0 && deadline > now => {
                     let frac = (deadline - now).as_secs_f32() / glow_secs;
@@ -460,6 +478,17 @@ fn node_material(
                 }
                 _ => 0,
             };
+            // Idle sockets show their port-state aperture tint (D0/ADR-0012,
+            // Standard only); an active flash still ramps to white via the ramp.
+            if level == 0
+                && kind == theme::NodeKind::Socket
+                && st.cfg.socket_display.aperture_by_state
+            {
+                if let Some(spacegraph_core::Node::Socket { state, .. }) = st.model.nodes.get(id) {
+                    return res.socket_aperture[aperture_style(state).index()].clone();
+                }
+            }
+            let ramp = &res.standard[kind.index()];
             ramp[level.min(GLOW_LEVELS - 1)].clone()
         }
     }
@@ -826,6 +855,191 @@ pub fn highlight_style(theme: VisualTheme) -> HighlightStyle {
     }
 }
 
+/// Port aperture form derived from a socket's TCP state (ADR-0012 §1). A pure
+/// classifier mirroring [`highlight_style`] — the single source of truth,
+/// unit-tested. Standard-theme renders the form; Minimal keeps the flat torus.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ApertureStyle {
+    /// LISTEN — an open, outward-facing aperture.
+    Open,
+    /// ESTABLISHED — an active flow aperture.
+    Active,
+    /// filtered / gated — a shuttered aperture with a barrier ring. Dormant until
+    /// the D2 firewall source emits a gated state.
+    Shuttered,
+    /// closing (TIME_WAIT/CLOSE_WAIT/FIN_WAIT/…) or transient — a dimming aperture.
+    Closing,
+}
+
+impl ApertureStyle {
+    /// All forms in index order (to build the cached per-state material array).
+    pub const ALL: [ApertureStyle; 4] = [
+        ApertureStyle::Open,
+        ApertureStyle::Active,
+        ApertureStyle::Shuttered,
+        ApertureStyle::Closing,
+    ];
+
+    /// Stable index into the cached per-state aperture material array.
+    pub fn index(self) -> usize {
+        match self {
+            ApertureStyle::Open => 0,
+            ApertureStyle::Active => 1,
+            ApertureStyle::Shuttered => 2,
+            ApertureStyle::Closing => 3,
+        }
+    }
+
+    /// Emissive tint for the aperture form (all from `theme.rs` constants).
+    pub fn tint(self) -> Color {
+        match self {
+            ApertureStyle::Open => theme::APERTURE_OPEN,
+            ApertureStyle::Active => theme::APERTURE_ACTIVE,
+            ApertureStyle::Shuttered => theme::APERTURE_SHUTTERED,
+            ApertureStyle::Closing => theme::APERTURE_CLOSING,
+        }
+    }
+
+    /// Emissive intensity multiplier — open apertures glow brightest, shuttered
+    /// and closing dim down.
+    pub fn intensity(self) -> f32 {
+        match self {
+            ApertureStyle::Open => 4.0,
+            ApertureStyle::Active => 3.0,
+            ApertureStyle::Shuttered => 1.2,
+            ApertureStyle::Closing => 1.0,
+        }
+    }
+}
+
+/// Select the aperture form for a socket `state` string (`Node::Socket.state`).
+pub fn aperture_style(state: &str) -> ApertureStyle {
+    match state {
+        "LISTEN" => ApertureStyle::Open,
+        "ESTABLISHED" => ApertureStyle::Active,
+        // Firewall/gated states arrive only with the D2 firewall source; the form
+        // is defined now so it has a home when that input exists.
+        "FILTERED" | "GATED" | "DROP" | "REJECT" => ApertureStyle::Shuttered,
+        // TIME_WAIT, CLOSE_WAIT, FIN_WAIT1/2, CLOSING, LAST_ACK, CLOSE, SYN_* …
+        _ => ApertureStyle::Closing,
+    }
+}
+
+/// A socket's network reachability, derived from its `local_addr` (ADR-0012 §2).
+/// Drives radial depth — Public on the outer shell, Loopback at the core.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Exposure {
+    Loopback,
+    Lan,
+    Public,
+}
+
+impl Exposure {
+    /// Radial shell factor for layout placement (Public outermost, Loopback core).
+    pub fn shell_factor(self) -> f32 {
+        match self {
+            Exposure::Public => 1.8,
+            Exposure::Lan => 1.25,
+            Exposure::Loopback => 1.0,
+        }
+    }
+
+    /// Informational tint (radial depth is the primary cue).
+    pub fn tint(self) -> Color {
+        match self {
+            Exposure::Loopback => theme::EXPOSURE_LOOPBACK,
+            Exposure::Lan => theme::EXPOSURE_LAN,
+            Exposure::Public => theme::EXPOSURE_PUBLIC,
+        }
+    }
+
+    /// Short label for the inspector tooltip.
+    pub fn label(self) -> &'static str {
+        match self {
+            Exposure::Loopback => "loopback",
+            Exposure::Lan => "LAN",
+            Exposure::Public => "public",
+        }
+    }
+}
+
+/// Classify a socket `local_addr` into an exposure bucket. A wildcard listener
+/// (`0.0.0.0` / `::`) is treated as Public (reachable on every interface); an
+/// unparseable address is conservatively Public.
+pub fn exposure_bucket(local_addr: &str) -> Exposure {
+    use std::net::{IpAddr, Ipv6Addr};
+    fn v6_is_lan(v6: &Ipv6Addr) -> bool {
+        let seg0 = v6.segments()[0];
+        // link-local fe80::/10 or unique-local fc00::/7
+        (seg0 & 0xffc0) == 0xfe80 || (seg0 & 0xfe00) == 0xfc00
+    }
+    match local_addr.parse::<IpAddr>() {
+        Ok(IpAddr::V4(v4)) => {
+            if v4.is_loopback() {
+                Exposure::Loopback
+            } else if v4.is_unspecified() {
+                Exposure::Public // 0.0.0.0 listens on all interfaces
+            } else if v4.is_private() || v4.is_link_local() {
+                Exposure::Lan
+            } else {
+                Exposure::Public
+            }
+        }
+        Ok(IpAddr::V6(v6)) => {
+            if v6.is_loopback() {
+                Exposure::Loopback
+            } else if v6.is_unspecified() {
+                Exposure::Public // :: listens on all interfaces
+            } else if v6_is_lan(&v6) {
+                Exposure::Lan
+            } else {
+                Exposure::Public
+            }
+        }
+        Err(_) => Exposure::Public,
+    }
+}
+
+#[cfg(test)]
+mod perimeter_tests {
+    use super::{aperture_style, exposure_bucket, ApertureStyle, Exposure};
+
+    #[test]
+    fn aperture_style_maps_each_state() {
+        assert_eq!(aperture_style("LISTEN"), ApertureStyle::Open);
+        assert_eq!(aperture_style("ESTABLISHED"), ApertureStyle::Active);
+        assert_eq!(aperture_style("FILTERED"), ApertureStyle::Shuttered);
+        assert_eq!(aperture_style("TIME_WAIT"), ApertureStyle::Closing);
+        assert_eq!(aperture_style("CLOSE_WAIT"), ApertureStyle::Closing);
+        assert_eq!(aperture_style("SYN_SENT"), ApertureStyle::Closing);
+    }
+
+    #[test]
+    fn exposure_bucket_classifies_reachability() {
+        assert_eq!(exposure_bucket("127.0.0.1"), Exposure::Loopback);
+        assert_eq!(exposure_bucket("::1"), Exposure::Loopback);
+        assert_eq!(exposure_bucket("10.0.0.5"), Exposure::Lan);
+        assert_eq!(exposure_bucket("192.168.1.4"), Exposure::Lan);
+        assert_eq!(exposure_bucket("172.16.0.9"), Exposure::Lan);
+        assert_eq!(exposure_bucket("172.31.255.1"), Exposure::Lan);
+        assert_eq!(exposure_bucket("169.254.1.1"), Exposure::Lan);
+        assert_eq!(exposure_bucket("fc00::1"), Exposure::Lan);
+        assert_eq!(exposure_bucket("fe80::1"), Exposure::Lan);
+        assert_eq!(exposure_bucket("8.8.8.8"), Exposure::Public);
+        assert_eq!(exposure_bucket("2606:4700:4700::1111"), Exposure::Public);
+        assert_eq!(exposure_bucket("0.0.0.0"), Exposure::Public);
+        assert_eq!(exposure_bucket("::"), Exposure::Public);
+        // 172.32 is just outside the private 172.16/12 block.
+        assert_eq!(exposure_bucket("172.32.0.1"), Exposure::Public);
+    }
+
+    #[test]
+    fn exposure_shell_factor_orders_by_reachability() {
+        assert!(Exposure::Public.shell_factor() > Exposure::Lan.shell_factor());
+        assert!(Exposure::Lan.shell_factor() > Exposure::Loopback.shell_factor());
+    }
+}
+
 pub fn draw_spatial(mut st: ResMut<GraphState>, mut gizmos: Gizmos, mut contexts: EguiContexts) {
     // Node entities are managed by `sync_node_entities`; this system only draws
     // immediate-mode overlays (tooltips, edge/LOD/tree gizmos) over the visible
@@ -1173,6 +1387,7 @@ mod tests {
             standard: (0..theme::NodeKind::ALL.len())
                 .map(|_| ramp.clone())
                 .collect(),
+            socket_aperture: std::array::from_fn(|i| Handle::weak_from_u128(5000 + i as u128)),
             minimal_normal: Handle::default(),
             minimal_glow: Handle::default(),
         }
@@ -1328,6 +1543,7 @@ mod tests {
             standard: (0..theme::NodeKind::ALL.len())
                 .map(|_| ramp.clone())
                 .collect(),
+            socket_aperture: std::array::from_fn(|_| Handle::default()),
             minimal_normal: Handle::weak_from_u128(11),
             minimal_glow: Handle::weak_from_u128(22),
         };

@@ -16,6 +16,11 @@ struct PostFx {
     aberration: f32,
     grain: f32,
     time: f32,
+    anomaly_intensity: f32,
+    alert_count: u32,
+    _pad: f32,
+    // Each: xy = screen UV of the alert, z = per-alert intensity, w = 0.
+    alerts: array<vec4<f32>, 16>,
 };
 @group(0) @binding(2) var<uniform> settings: PostFx;
 
@@ -50,6 +55,25 @@ fn fragment(in: FullscreenVertexOutput) -> @location(0) vec4<f32> {
     // Film grain: time-seeded noise.
     let n = hash12(uv * 1024.0 + vec2<f32>(settings.time, settings.time * 1.7));
     color = color + (n - 0.5) * settings.grain;
+
+    // Anomaly focus (D0/ADR-0012 §3): localize a ripple/desaturation pull toward
+    // the most severe/recent alerts so the eye is drawn to *where* it is wrong.
+    if (settings.anomaly_intensity > 0.0) {
+        var focus = 0.0;
+        let count = min(settings.alert_count, 16u);
+        for (var i = 0u; i < count; i = i + 1u) {
+            let a = settings.alerts[i];
+            let d = distance(uv, a.xy);
+            let f = clamp(1.0 - d / 0.16, 0.0, 1.0);
+            focus = max(focus, f * f * a.z);
+        }
+        focus = focus * settings.anomaly_intensity;
+        // Desaturate toward a danger-red wash and pulse the brightness.
+        let lum = dot(color, vec3<f32>(0.299, 0.587, 0.114));
+        let wash = vec3<f32>(lum, lum * 0.55, lum * 0.55);
+        let pulse = 1.0 + 0.30 * focus * sin(settings.time * 5.0);
+        color = mix(color, wash, focus * 0.6) * pulse;
+    }
 
     return vec4<f32>(color, 1.0);
 }

@@ -44,14 +44,22 @@ pub fn postfx_active(theme: VisualTheme, enabled: bool) -> bool {
 
 // In its own module so the `dead_code` allow scopes to the `ShaderType` derive's
 // uncalled per-field `check` fns (a derive quirk) without hiding anything else.
+/// Maximum alert-focus points fed to the post-process shader. Uniform-bounded
+/// (a fixed-size array keeps a single uniform binding — no storage buffer).
+pub const MAX_ALERT_FOCUS: usize = 16;
+
 mod settings {
     #![allow(dead_code)]
+    use super::MAX_ALERT_FOCUS;
+    use bevy::math::Vec4;
     use bevy::prelude::Component;
     use bevy::render::extract_component::ExtractComponent;
     use bevy::render::render_resource::ShaderType;
 
     /// Per-view post-process uniform. The intensities mirror `cfg.postfx`; `time`
-    /// drives the grain. (5 × f32; `encase`/WGSL agree on the padded layout.)
+    /// drives the grain. The `anomaly_*` + `alerts` fields localize the post-fx
+    /// around alerted nodes (D0/ADR-0012). Field order + the `_pad` scalar keep
+    /// the `vec4` array 16-byte aligned so `encase`/WGSL layouts agree.
     #[derive(Component, Default, Clone, Copy, ExtractComponent, ShaderType)]
     pub struct PostFxSettings {
         pub scanline: f32,
@@ -59,9 +67,44 @@ mod settings {
         pub aberration: f32,
         pub grain: f32,
         pub time: f32,
+        /// Global anomaly-focus strength (0 = off, including under Minimal).
+        pub anomaly_intensity: f32,
+        /// Number of valid entries in `alerts`.
+        pub alert_count: u32,
+        pub _pad: f32,
+        /// Each: `xy` = screen UV of the alert, `z` = per-alert intensity, `w` = 0.
+        pub alerts: [Vec4; MAX_ALERT_FOCUS],
     }
 }
 use settings::PostFxSettings;
+
+/// Severity ordering weight (higher = more urgent).
+pub fn severity_weight(severity: &str) -> u8 {
+    match severity {
+        "critical" => 4,
+        "high" => 3,
+        "medium" => 2,
+        "low" => 1,
+        _ => 0,
+    }
+}
+
+/// Pick up to `cap` alert indices to focus, ordered by severity then recency
+/// (most severe + most recent first). Input is `(severity_weight, recency_rank)`
+/// where a higher `recency_rank` is more recent. Pure + unit-tested; the GPU look
+/// is documented in RUNLOG (ADR-0012 §3).
+pub fn select_focus_alerts(alerts: &[(u8, u64)], cap: usize) -> Vec<usize> {
+    let mut idx: Vec<usize> = (0..alerts.len()).collect();
+    idx.sort_by(|&a, &b| {
+        alerts[b]
+            .0
+            .cmp(&alerts[a].0) // severity desc
+            .then(alerts[b].1.cmp(&alerts[a].1)) // recency desc
+            .then(a.cmp(&b)) // stable on ties
+    });
+    idx.truncate(cap.min(MAX_ALERT_FOCUS));
+    idx
+}
 
 /// Attach/update/remove the per-camera `PostFxSettings` so the pass runs only
 /// when active (Standard + enabled); removing it disables the pass entirely.
@@ -70,25 +113,82 @@ pub fn sync_postfx(
     st: Res<GraphState>,
     quality: Res<crate::render::quality::QualityState>,
     time: Res<Time>,
-    cam_q: Query<Entity, With<Camera>>,
+    cam_q: Query<(Entity, &Camera, &GlobalTransform)>,
 ) {
     let cfg = st.cfg.postfx;
     // Standard + user-enabled + the active quality tier permits post-FX.
     let active = postfx_active(st.cfg.visual_theme, cfg.enabled)
         && quality.gates(st.cfg.visual_theme).postfx.is_on();
-    for cam in cam_q.iter() {
-        if active {
-            commands.entity(cam).insert(PostFxSettings {
-                scanline: cfg.scanline,
-                vignette: cfg.vignette,
-                aberration: cfg.aberration,
-                grain: cfg.grain,
-                time: time.elapsed_seconds(),
-            });
-        } else {
+    let sd = st.cfg.socket_display;
+    // Alert world positions + per-alert intensity (shared across cameras;
+    // projection is per-camera). Empty when anomaly focus is off / pass inactive.
+    let focus_world: Vec<(Vec3, f32)> = if active && sd.anomaly_focus {
+        collect_focus_alerts(&st)
+    } else {
+        Vec::new()
+    };
+
+    for (cam, camera, cam_tf) in cam_q.iter() {
+        if !active {
             commands.entity(cam).remove::<PostFxSettings>();
+            continue;
+        }
+        let mut s = PostFxSettings {
+            scanline: cfg.scanline,
+            vignette: cfg.vignette,
+            aberration: cfg.aberration,
+            grain: cfg.grain,
+            time: time.elapsed_seconds(),
+            ..Default::default()
+        };
+        if sd.anomaly_focus && !focus_world.is_empty() {
+            s.anomaly_intensity = sd.anomaly_intensity.clamp(0.0, 1.0);
+            let size = camera
+                .logical_viewport_size()
+                .unwrap_or(Vec2::new(1.0, 1.0));
+            let mut count = 0usize;
+            for (wpos, intensity) in &focus_world {
+                if count >= MAX_ALERT_FOCUS {
+                    break;
+                }
+                if let Some(vp) = camera.world_to_viewport(cam_tf, *wpos) {
+                    let uv = vp / size;
+                    s.alerts[count] = Vec4::new(uv.x, uv.y, *intensity, 0.0);
+                    count += 1;
+                }
+            }
+            s.alert_count = count as u32;
+        }
+        commands.entity(cam).insert(s);
+    }
+}
+
+/// Collect the focus alerts' world positions + intensities, ordered by severity
+/// then recency and capped at `MAX_ALERT_FOCUS` (via [`select_focus_alerts`]).
+/// Only placed alert nodes are eligible. HashMap iteration order seeds recency —
+/// adequate for the visual cue (the tested selection uses real recency).
+fn collect_focus_alerts(st: &GraphState) -> Vec<(Vec3, f32)> {
+    let mut sev_rec: Vec<(u8, u64)> = Vec::new();
+    let mut pos: Vec<Vec3> = Vec::new();
+    let mut recency: u64 = 0;
+    for (id, node) in st.model.nodes.iter() {
+        if let spacegraph_core::Node::Alert { severity, .. } = node {
+            if let Some(idx) = st.spatial.index_of(id) {
+                if st.spatial.placed[idx.slot()] {
+                    sev_rec.push((severity_weight(severity), recency));
+                    pos.push(st.spatial.positions[idx.slot()]);
+                    recency += 1;
+                }
+            }
         }
     }
+    select_focus_alerts(&sev_rec, MAX_ALERT_FOCUS)
+        .into_iter()
+        .map(|i| {
+            let intensity = (sev_rec[i].0 as f32 / 4.0).clamp(0.25, 1.0);
+            (pos[i], intensity)
+        })
+        .collect()
 }
 
 pub struct PostFxPlugin;
@@ -257,6 +357,34 @@ mod tests {
         assert!(postfx_active(VisualTheme::Standard, true));
         assert!(!postfx_active(VisualTheme::Standard, false));
         assert!(!postfx_active(VisualTheme::Minimal, true));
+    }
+
+    #[test]
+    fn severity_weight_orders_by_urgency() {
+        assert!(severity_weight("critical") > severity_weight("high"));
+        assert!(severity_weight("high") > severity_weight("medium"));
+        assert!(severity_weight("medium") > severity_weight("low"));
+        assert_eq!(severity_weight("bogus"), 0);
+    }
+
+    #[test]
+    fn select_focus_alerts_orders_by_severity_then_recency() {
+        // (severity_weight, recency_rank)
+        let alerts = [
+            (2u8, 5u64), // medium, recent
+            (4, 1),      // critical, old
+            (4, 9),      // critical, newest
+            (1, 8),      // low, recent
+        ];
+        // critical-newest (2), critical-old (1), then medium (0).
+        assert_eq!(select_focus_alerts(&alerts, 3), vec![2, 1, 0]);
+    }
+
+    #[test]
+    fn select_focus_alerts_is_count_bounded() {
+        let alerts: Vec<(u8, u64)> = (0..40).map(|i| (1u8, i as u64)).collect();
+        assert!(select_focus_alerts(&alerts, 100).len() <= MAX_ALERT_FOCUS);
+        assert_eq!(select_focus_alerts(&alerts, 5).len(), 5);
     }
 
     #[test]

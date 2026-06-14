@@ -62,6 +62,24 @@ pub const EDGE_OWNS_SOCKET: Color = Color::srgb(0.30, 0.60, 0.98); // blue
 pub const EDGE_CONNECTS_TO: Color = Color::srgb(0.40, 0.70, 1.0); // bright blue
 pub const EDGE_LISTENS_ON: Color = Color::srgb(0.30, 0.85, 0.85); // teal
 
+// ---- Perimeter & exposure (D0, ADR-0012) ----
+/// Aperture tint by port state. Open (LISTEN) glows outward; active
+/// (ESTABLISHED) keeps the socket blue; shuttered (gated/filtered) dims behind a
+/// barrier ring; closing dims toward neutral.
+pub const APERTURE_OPEN: Color = Color::srgb(0.45, 0.85, 1.0);
+pub const APERTURE_ACTIVE: Color = SOCKET;
+pub const APERTURE_SHUTTERED: Color = Color::srgb(0.30, 0.34, 0.45);
+pub const APERTURE_CLOSING: Color = Color::srgb(0.26, 0.40, 0.55);
+/// Barrier ring around a shuttered/gated aperture (dormant until the D2 firewall
+/// source emits a gated state).
+pub const BARRIER_RING: Color = Color::srgb(0.95, 0.55, 0.20);
+/// Gateway (default-route `RemoteHost`) accent.
+pub const GATEWAY_ACCENT: Color = Color::srgb(0.55, 0.80, 1.0);
+/// Exposure tints (informational; radial depth is the primary cue).
+pub const EXPOSURE_LOOPBACK: Color = Color::srgb(0.30, 0.85, 0.55);
+pub const EXPOSURE_LAN: Color = Color::srgb(0.40, 0.70, 1.0);
+pub const EXPOSURE_PUBLIC: Color = Color::srgb(1.0, 0.55, 0.25);
+
 // ---- Timeline event-marker colours ----
 pub const TL_NODE_UPSERT: Color = FILE; // green
 pub const TL_NODE_REMOVE: Color = ALERT; // red

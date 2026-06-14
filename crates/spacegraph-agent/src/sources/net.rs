@@ -305,6 +305,45 @@ pub fn build_graph(
     (nodes, edges)
 }
 
+/// Parse `/proc/net/route` and return the default-route gateway IP — the row
+/// whose destination is `00000000` with a non-zero gateway. Both fields are
+/// little-endian hex (the same decoding as the socket tables). Pure; IPv4 routes
+/// only (the IPv6 default route lives in `/proc/net/ipv6_route`).
+pub fn parse_default_gateway(content: &str) -> Option<IpAddr> {
+    for line in content.lines().skip(1) {
+        let f: Vec<&str> = line.split_whitespace().collect();
+        if f.len() < 3 {
+            continue;
+        }
+        if f[1] != "00000000" {
+            continue; // not the default route
+        }
+        let Some(gw) = parse_addr_v4(f[2]) else {
+            continue;
+        };
+        if gw.is_unspecified() {
+            continue;
+        }
+        return Some(gw);
+    }
+    None
+}
+
+/// The default-route gateway as a derived `RemoteHost` — the egress hub
+/// (D0/ADR-0012 §4). Reuses the existing kind; no new node/edge type, no wire
+/// change. At D0 it appears as the hub on the outer shell that outbound
+/// `connects_to` traffic sits near (positional; no synthetic edges).
+pub fn gateway_node(gw: IpAddr, node_id: &str, collapse_loopback: bool) -> (NodeId, Node) {
+    let label = remote_label(gw, collapse_loopback);
+    (
+        id_remote_host(node_id, &label),
+        Node::RemoteHost {
+            addr: label,
+            rdns: None,
+        },
+    )
+}
+
 /// Read procfs and build the current network subgraph (blocking).
 fn collect(node_id: &str, cfg: &NetConfig) -> (HashMap<NodeId, Node>, HashSet<Edge>) {
     let tables = [
@@ -320,7 +359,16 @@ fn collect(node_id: &str, cfg: &NetConfig) -> (HashMap<NodeId, Node>, HashSet<Ed
         }
     }
     let inode_pid = inode_pid_map();
-    build_graph(&rows, &inode_pid, node_id, cfg)
+    let (mut nodes, edges) = build_graph(&rows, &inode_pid, node_id, cfg);
+    // Default-route gateway as the egress hub (D0/ADR-0012): a derived RemoteHost
+    // from a read-only parse of /proc/net/route — no new kind, no wire, no exec.
+    if let Ok(route) = std::fs::read_to_string("/proc/net/route") {
+        if let Some(gw) = parse_default_gateway(&route) {
+            let (id, node) = gateway_node(gw, node_id, cfg.collapse_loopback);
+            nodes.insert(id, node);
+        }
+    }
+    (nodes, edges)
 }
 
 /// Compute the deltas to turn `prev` into `cur` (nodes then edges; upserts
@@ -431,6 +479,55 @@ mod tests {
    0: 0100007F:1F90 00000000:0000 0A 00000000:00000000 00:00000000 00000000  1000        0 100001 1 0000000000000000 100 0 0 10 0
    1: 0100007F:C350 0101A8C0:01BB 01 00000000:00000000 00:00000000 00000000  1000        0 100002 1 0000000000000000 20 0 0 10 0
 ";
+
+    // /proc/net/route: default route (dest 00000000) via 192.168.1.1
+    // (gateway hex 0101A8C0 is little-endian), plus one on-link non-default row.
+    const ROUTE_FIXTURE: &str = "\
+Iface\tDestination\tGateway\tFlags\tRefCnt\tUse\tMetric\tMask\tMTU\tWindow\tIRTT
+eth0\t00000000\t0101A8C0\t0003\t0\t0\t100\t00000000\t0\t0\t0
+eth0\t0002A8C0\t00000000\t0001\t0\t0\t100\t00FFFFFF\t0\t0\t0
+";
+
+    #[test]
+    fn parses_default_gateway_little_endian() {
+        // 0101A8C0 → 192.168.1.1
+        let gw = parse_default_gateway(ROUTE_FIXTURE).unwrap();
+        assert_eq!(gw, IpAddr::V4(Ipv4Addr::new(192, 168, 1, 1)));
+    }
+
+    #[test]
+    fn route_without_default_yields_no_gateway() {
+        let no_default = "\
+Iface\tDestination\tGateway\tFlags
+eth0\t0002A8C0\t00000000\t0001
+";
+        assert_eq!(parse_default_gateway(no_default), None);
+    }
+
+    #[test]
+    fn gateway_node_is_a_remote_host() {
+        let (id, node) = gateway_node(IpAddr::V4(Ipv4Addr::new(192, 168, 1, 1)), "host", true);
+        assert_eq!(id, id_remote_host("host", "192.168.1.1"));
+        match node {
+            Node::RemoteHost { addr, rdns } => {
+                assert_eq!(addr, "192.168.1.1");
+                assert_eq!(rdns, None);
+            }
+            other => panic!("gateway must be a RemoteHost, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn gateway_node_emits_no_wire_change() {
+        // The gateway reuses Node::RemoteHost — no new node/edge kind (O-8). A
+        // stable route table therefore diffs clean once emitted.
+        let (id, node) = gateway_node(IpAddr::V4(Ipv4Addr::new(192, 168, 1, 1)), "host", true);
+        let mut a = HashMap::new();
+        a.insert(id.clone(), node.clone());
+        let mut b = HashMap::new();
+        b.insert(id, node);
+        assert!(diff(&a, &b, &HashSet::new(), &HashSet::new()).is_empty());
+    }
 
     #[test]
     fn parses_socket_inode() {
