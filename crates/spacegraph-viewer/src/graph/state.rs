@@ -16,8 +16,8 @@ use crate::graph::timeline::{BatchSpan, NodeLife, TimelineEvt, TimelineEvtKind};
 use crate::graph::tree;
 use crate::net::{Incoming, IncomingKind, ReaderHandle};
 use crate::util::config::{
-    AgentEndpoint, AgentMode, EdgeLodConfig, LodEdgesMode, NodeDetailConfig, PostFxConfig,
-    QualityConfig, ShellConfig, ViewerConfig, ViewerViewMode, VisualTheme,
+    AgentEndpoint, AgentMode, EdgeLodConfig, FocusConfig, LodEdgesMode, NodeDetailConfig,
+    PostFxConfig, QualityConfig, ShellConfig, ViewerConfig, ViewerViewMode, VisualTheme,
 };
 use crate::util::ids::{node_label_long, node_label_short};
 
@@ -553,6 +553,9 @@ pub struct CfgState {
     /// Edge level-of-detail (v0.5.1): render-side edge dim/cull (overdraw lever).
     pub edge_lod: EdgeLodConfig,
 
+    /// Focus Mode (v0.5.1): background dim / DoF / layout-freeze presentation.
+    pub focus: FocusConfig,
+
     /// IDE-shell layout (v0.5.0): panel open/width + Technician collapse state.
     pub shell: ShellConfig,
 
@@ -733,6 +736,7 @@ impl Default for GraphState {
                 node_detail: NodeDetailConfig::default(),
                 quality: QualityConfig::default(),
                 edge_lod: EdgeLodConfig::default(),
+                focus: FocusConfig::default(),
                 shell: ShellConfig::default(),
                 audio_enabled: true,
                 audio_volume: 0.6,
@@ -1714,6 +1718,7 @@ impl GraphState {
         self.cfg.node_detail = cfg.node_detail.clone();
         self.cfg.quality = cfg.quality.clone();
         self.cfg.edge_lod = cfg.edge_lod;
+        self.cfg.focus = cfg.focus;
         self.cfg.shell = cfg.shell.clone();
         self.cfg.audio_enabled = cfg.audio_enabled;
         self.cfg.audio_volume = cfg.audio_volume.clamp(0.0, 1.0);
@@ -1772,6 +1777,7 @@ impl GraphState {
             node_detail: self.cfg.node_detail.clone(),
             quality: self.cfg.quality.clone(),
             edge_lod: self.cfg.edge_lod,
+            focus: self.cfg.focus,
             shell: self.cfg.shell.clone(),
             audio_enabled: self.cfg.audio_enabled,
             audio_volume: self.cfg.audio_volume,

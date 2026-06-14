@@ -13,9 +13,11 @@ pub fn handle_shortcuts(
     let esc_pressed = ctx.input(|i| i.key_pressed(egui::Key::Escape));
     let wants_keyboard = ctx.wants_keyboard_input();
 
-    // Esc closes the radial HUD first (without also clearing the selection).
+    // Esc closes the radial HUD / exits Focus Mode first (without also clearing the
+    // selection).
     if esc_pressed && radial.0.is_some() {
         radial.0 = None;
+        st.ui.focus_mode = None; // exit Focus Mode with the radial
         st.needs_redraw.store(true, Ordering::Relaxed);
     } else if esc_pressed {
         let mut changed = false;
@@ -37,6 +39,11 @@ pub fn handle_shortcuts(
         }
         if st.ui.focus.is_some() {
             st.ui.focus = None;
+            changed = true;
+        }
+        // Exit Focus Mode (covers Minimal focus, where no radial is open).
+        if st.ui.focus_mode.is_some() {
+            st.ui.focus_mode = None;
             changed = true;
         }
         if st.ui.selected.is_some()
@@ -70,12 +77,12 @@ pub fn handle_shortcuts(
     if ctx.input(|i| i.key_pressed(egui::Key::Questionmark)) {
         st.ui.help_open = !st.ui.help_open;
     }
-    // F opens the radial command HUD on the selected node (its inner-ring "Fly-to"
-    // command performs the lock-on; spec §3.4).
+    // F enters Focus Mode on the selected node (v0.5.1): camera eases to centre it,
+    // background dims, the layout freezes, and the radial command HUD opens (the
+    // in-focus interaction model). Esc exits.
     if ctx.input(|i| i.key_pressed(egui::Key::F)) {
         if let Some(id) = st.ui.selected.clone().or_else(|| st.ui.selected_a.clone()) {
-            radial.0 = Some(crate::ui::context_menu::RadialState::open(id));
-            st.needs_redraw.store(true, Ordering::Relaxed);
+            crate::ui::focus::enter_focus(&mut st, &mut radial, id);
         }
     }
     if ctx.input(|i| i.key_pressed(egui::Key::Space)) && st.ui.view_mode == ViewMode::Timeline {

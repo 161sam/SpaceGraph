@@ -55,6 +55,7 @@ impl Plugin for SpaceGraphViewerPlugin {
             .insert_resource(crate::render::RippleTracker::default())
             .insert_resource(crate::render::PreviewExpand::default())
             .insert_resource(crate::ui::RadialMenu::default())
+            .insert_resource(crate::render::FocusCam::default())
             // Default detail capability + quality tier; `finish` refines both from
             // the real GPU adapter (or config) once the renderer is initialized.
             .insert_resource(crate::render::DetailCapability::Mid)
@@ -98,6 +99,7 @@ impl Plugin for SpaceGraphViewerPlugin {
                 crate::ui::reticle_overlay,
                 crate::ui::context_menu_overlay,
                 crate::ui::radial_hud,
+                crate::ui::focus_overlay,
                 crate::ui::command_palette_overlay,
                 crate::ui::node_preview_overlay,
                 crate::ui::minimap,
@@ -125,6 +127,15 @@ impl Plugin for SpaceGraphViewerPlugin {
                 crate::render::detect_preview_expand,
                 crate::render::apply_quality,
                 crate::render::adaptive_quality,
+            ),
+        )
+        // Focus Mode (v0.5.1): mouse entry + eased camera return (its own group to
+        // stay within the per-`add_systems` tuple limit).
+        .add_systems(
+            Update,
+            (
+                crate::ui::focus_double_click,
+                crate::render::focus_mode_camera,
             ),
         )
         // Render pipeline runs in order: layout publishes the visible set, the

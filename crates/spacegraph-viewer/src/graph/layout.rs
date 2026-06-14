@@ -28,7 +28,12 @@ pub fn update_layout_or_timeline(time: Res<Time>, mut st: ResMut<GraphState>) {
         ViewMode::Spatial => {
             st.progressive_prepare(&vis);
             let dt = time.delta_seconds().min(0.033);
-            st.force_step(&vis, dt);
+            // FM-2: freeze the force layout while a node is focused (Focus Mode) —
+            // calmer + cheaper, the node stays put. Reversible UI state, not graph
+            // truth (determinism-exempt). `force_step` itself is byte-unchanged.
+            if !st.layout_frozen() {
+                st.force_step(&vis, dt);
+            }
         }
         ViewMode::Tree => {
             st.apply_tree_layout(&vis);
@@ -42,6 +47,14 @@ pub fn update_layout_or_timeline(time: Res<Time>, mut st: ResMut<GraphState>) {
 }
 
 impl GraphState {
+    /// Whether the force layout is frozen this frame — true while a node is focused
+    /// (Focus Mode) and `focus.freeze_layout` is on. Reversible UI state; resumes
+    /// the instant focus clears. `force_step` is bypassed by the caller, never
+    /// modified (determinism guard unaffected).
+    pub fn layout_frozen(&self) -> bool {
+        self.ui.focus_mode.is_some() && self.cfg.focus.freeze_layout
+    }
+
     pub(crate) fn mark_dirty_all(&mut self) {
         self.spatial.dirty_layout = true;
         self.spatial.springs_dirty = true;
@@ -953,6 +966,23 @@ mod tests {
         );
         assert_eq!(p1, p2);
         assert_eq!(a1, a2, "layout with a pinned node is deterministic");
+    }
+
+    #[test]
+    fn layout_freezes_on_focus_and_resumes_on_exit() {
+        let mut st = state_with_synthetic(200, 10_000);
+        // Not focused → not frozen.
+        assert!(!st.layout_frozen());
+        // Enter Focus Mode → frozen (force_step is bypassed by the caller).
+        st.ui.focus_mode = Some(NodeId("n".to_string()));
+        assert!(st.layout_frozen(), "focus freezes the layout");
+        // Disabling the config knob un-freezes even while focused.
+        st.cfg.focus.freeze_layout = false;
+        assert!(!st.layout_frozen());
+        st.cfg.focus.freeze_layout = true;
+        // Exit Focus Mode → resumes (reversible).
+        st.ui.focus_mode = None;
+        assert!(!st.layout_frozen(), "exiting focus resumes the layout");
     }
 
     #[test]
