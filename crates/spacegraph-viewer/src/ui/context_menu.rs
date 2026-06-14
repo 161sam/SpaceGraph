@@ -332,6 +332,15 @@ fn render_radial(
     let inner_r = 58.0_f32;
     let outer_r = 104.0_f32;
 
+    // Dim backing disc + soft vignette ring so the gate labels read against a busy
+    // graph (the v0.5.1 radial-HUD legibility pass). Drawn first → sits behind.
+    painter.circle_filled(
+        c,
+        outer_r + 16.0,
+        egui::Color32::from_rgba_unmultiplied(4, 10, 18, 170),
+    );
+    painter.circle_stroke(c, outer_r + 16.0, egui::Stroke::new(1.0, dim));
+
     painter.circle_stroke(
         c,
         inner_r,
