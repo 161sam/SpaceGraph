@@ -30,8 +30,8 @@ pub use edges::{setup_edge_mesh, update_edge_mesh, EdgeMesh};
 pub use freefly::{fly_camera, FlyCam};
 pub use gameplay::{mission_tick, reveal_tick, scan_pulse, Mission, ScanPulse};
 pub use interaction::{
-    detect_preview_expand, setup_ripple_resources, trigger_focus_ripple, update_focus_ripples,
-    PreviewExpand, RippleTracker,
+    detect_preview_expand, setup_ripple_resources, trigger_alert_ripple, trigger_focus_ripple,
+    update_focus_ripples, PreviewExpand, RippleTracker,
 };
 pub use node_glyph::{
     setup_node_glyph_resources, sync_node_glyphs, NodeGlyphMarker, NodeGlyphResources, NodeGlyphs,
