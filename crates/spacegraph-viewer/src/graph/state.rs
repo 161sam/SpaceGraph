@@ -16,8 +16,8 @@ use crate::graph::timeline::{BatchSpan, NodeLife, TimelineEvt, TimelineEvtKind};
 use crate::graph::tree;
 use crate::net::{Incoming, IncomingKind, ReaderHandle};
 use crate::util::config::{
-    AgentEndpoint, AgentMode, LodEdgesMode, NodeDetailConfig, PostFxConfig, QualityConfig,
-    ShellConfig, ViewerConfig, ViewerViewMode, VisualTheme,
+    AgentEndpoint, AgentMode, EdgeLodConfig, LodEdgesMode, NodeDetailConfig, PostFxConfig,
+    QualityConfig, ShellConfig, ViewerConfig, ViewerViewMode, VisualTheme,
 };
 use crate::util::ids::{node_label_long, node_label_short};
 
@@ -263,6 +263,10 @@ pub struct UiState {
 
     pub focus: Option<NodeId>,
     pub focus_hops: usize,
+    /// Focus Mode (v0.5.1) subject: the node currently centred + foregrounded.
+    /// `Some` ⇒ background dim, layout freeze, and focus-mode edge culling are
+    /// active. Reversible UI state (determinism-exempt), not graph truth.
+    pub focus_mode: Option<NodeId>,
 
     pub hovered: Option<NodeId>,
     pub selected: Option<NodeId>,
@@ -546,6 +550,9 @@ pub struct CfgState {
     /// effective tier lives in the `QualityState` resource.
     pub quality: QualityConfig,
 
+    /// Edge level-of-detail (v0.5.1): render-side edge dim/cull (overdraw lever).
+    pub edge_lod: EdgeLodConfig,
+
     /// IDE-shell layout (v0.5.0): panel open/width + Technician collapse state.
     pub shell: ShellConfig,
 
@@ -638,6 +645,7 @@ impl Default for GraphState {
                 agent_command: AgentCommandDraft::default(),
                 focus: None,
                 focus_hops: 2,
+                focus_mode: None,
                 hovered: None,
                 selected: None,
                 selected_a: None,
@@ -724,6 +732,7 @@ impl Default for GraphState {
                 postfx: PostFxConfig::default(),
                 node_detail: NodeDetailConfig::default(),
                 quality: QualityConfig::default(),
+                edge_lod: EdgeLodConfig::default(),
                 shell: ShellConfig::default(),
                 audio_enabled: true,
                 audio_volume: 0.6,
@@ -1704,6 +1713,7 @@ impl GraphState {
         self.cfg.postfx = cfg.postfx;
         self.cfg.node_detail = cfg.node_detail.clone();
         self.cfg.quality = cfg.quality.clone();
+        self.cfg.edge_lod = cfg.edge_lod;
         self.cfg.shell = cfg.shell.clone();
         self.cfg.audio_enabled = cfg.audio_enabled;
         self.cfg.audio_volume = cfg.audio_volume.clamp(0.0, 1.0);
@@ -1761,6 +1771,7 @@ impl GraphState {
             postfx: self.cfg.postfx,
             node_detail: self.cfg.node_detail.clone(),
             quality: self.cfg.quality.clone(),
+            edge_lod: self.cfg.edge_lod,
             shell: self.cfg.shell.clone(),
             audio_enabled: self.cfg.audio_enabled,
             audio_volume: self.cfg.audio_volume,

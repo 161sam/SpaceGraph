@@ -23,6 +23,61 @@ use crate::graph::{GraphState, ViewMode};
 use crate::render::theme;
 use crate::util::config::{LodEdgesMode, VisualTheme};
 
+/// Camera-position quantization cell (world units) for the edge-LOD fingerprint:
+/// the mesh rebuilds only when the camera crosses a cell boundary, not on every
+/// micro-move — so the "settled → cheap" property is preserved while distance LOD
+/// stays responsive.
+const EDGE_LOD_CELL: f32 = 12.0;
+
+/// Edge render level-of-detail by camera distance + focus state.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EdgeLod {
+    /// Draw at full brightness.
+    Full,
+    /// Draw dimmed (less HDR → less bloom + overdraw).
+    Dim,
+    /// Do not draw (fewer vertices, less overdraw).
+    Cull,
+}
+
+/// Classify an edge for rendering — the v0.5.1 edge-perf lever. In **Focus Mode**
+/// (`focus_cull` on), edges not incident to the focused node are culled (the strong
+/// reduction that makes the focused subgraph the subject); incident edges stay
+/// Full. Outside Focus Mode, edges **dim** past `near` and **cull** past `far`
+/// (discrete distance bands, so a small camera move doesn't reclassify). Pure +
+/// unit-tested. `force_step` (layout truth) is untouched — this is render-side only.
+pub fn edge_lod(
+    mid_dist: f32,
+    near: f32,
+    far: f32,
+    focus_incident: bool,
+    focus_cull: bool,
+) -> EdgeLod {
+    if focus_cull {
+        return if focus_incident {
+            EdgeLod::Full
+        } else {
+            EdgeLod::Cull
+        };
+    }
+    if mid_dist <= near {
+        EdgeLod::Full
+    } else if mid_dist <= far {
+        EdgeLod::Dim
+    } else {
+        EdgeLod::Cull
+    }
+}
+
+/// Quantize a camera position into an integer cell for the rebuild fingerprint.
+fn cam_cell(pos: Vec3) -> (i32, i32, i32) {
+    (
+        (pos.x / EDGE_LOD_CELL).floor() as i32,
+        (pos.y / EDGE_LOD_CELL).floor() as i32,
+        (pos.z / EDGE_LOD_CELL).floor() as i32,
+    )
+}
+
 /// Everything (besides moving node positions) that changes the edge mesh. When
 /// the layout is settled and this is unchanged, the rebuild is skipped.
 #[derive(PartialEq)]
@@ -41,6 +96,10 @@ struct EdgeFingerprint {
     sel_b: Option<NodeId>,
     // Only affects rendering (via `is_visible_rendered`) while fog is on.
     hovered: Option<NodeId>,
+    // Focus Mode subject (drives focus-mode edge culling) + the quantized camera
+    // cell (drives distance LOD) — v0.5.1 edge-perf inputs.
+    focus_mode: Option<NodeId>,
+    cam_quant: (i32, i32, i32),
 }
 
 /// Handle to the shared edge line mesh plus reusable scratch buffers and the
@@ -94,9 +153,11 @@ pub fn update_edge_mesh(
     st: Res<GraphState>,
     mut edge_mesh: ResMut<EdgeMesh>,
     mut meshes: ResMut<Assets<Mesh>>,
+    cam_q: Query<&GlobalTransform, With<Camera>>,
 ) {
     let vis = &st.spatial.vis_cache;
     let lod_active = st.cfg.lod_active(vis.len());
+    let cam_pos = cam_q.get_single().ok().map(|t| t.translation());
     let fp = EdgeFingerprint {
         spatial: st.ui.view_mode == ViewMode::Spatial,
         show: st.ui.show_edges && st.cfg.show_agg_edges,
@@ -111,6 +172,8 @@ pub fn update_edge_mesh(
         sel_a: st.ui.selected_a.clone(),
         sel_b: st.ui.selected_b.clone(),
         hovered: st.cfg.fog_of_war.then(|| st.ui.hovered.clone()).flatten(),
+        focus_mode: st.ui.focus_mode.clone(),
+        cam_quant: cam_pos.map(cam_cell).unwrap_or_default(),
     };
 
     // While the force layout is moving, node positions change every frame and the
@@ -133,6 +196,12 @@ pub fn update_edge_mesh(
     } = &mut *edge_mesh;
     positions.clear();
     colors.clear();
+
+    // Edge-LOD inputs (v0.5.1): focus-mode culling vs distance dim/cull bands.
+    let focus_cull_active = fp.focus_mode.is_some() && st.cfg.edge_lod.focus_cull;
+    let near = st.cfg.edge_lod.near_dist;
+    let far = st.cfg.edge_lod.far_dist;
+    let dim_factor = st.cfg.edge_lod.far_dim;
 
     if fp.spatial && fp.show && edges_mode != LodEdgesMode::Off {
         // Focus-only restricts to edges incident to the focus/selection; a full
@@ -179,8 +248,27 @@ pub fn update_edge_mesh(
                 ) else {
                     continue;
                 };
+                // Edge LOD: cull distant / non-focused edges, dim the mid band.
+                let lod = {
+                    let mid = (a + b) * 0.5;
+                    let mid_dist = cam_pos.map(|cp| mid.distance(cp)).unwrap_or(0.0);
+                    let incident = fp
+                        .focus_mode
+                        .as_ref()
+                        .is_some_and(|f| &edge.from == f || &edge.to == f);
+                    edge_lod(mid_dist, near, far, incident, focus_cull_active)
+                };
+                if lod == EdgeLod::Cull {
+                    continue;
+                }
+                let bright = if lod == EdgeLod::Dim { dim_factor } else { 1.0 };
                 let c = theme::edge_color(EdgeKindClass::from_kind(&edge.kind)).to_linear();
-                let col = [c.red * mul, c.green * mul, c.blue * mul, 1.0];
+                let col = [
+                    c.red * mul * bright,
+                    c.green * mul * bright,
+                    c.blue * mul * bright,
+                    1.0,
+                ];
                 positions.push(a.to_array());
                 positions.push(b.to_array());
                 colors.push(col);
@@ -207,4 +295,46 @@ pub fn update_edge_mesh(
     }
 
     edge_mesh.last = Some(fp);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn edge_lod_distance_bands() {
+        let (near, far) = (70.0, 160.0);
+        // Not focus mode: near → Full, mid band → Dim, far → Cull.
+        assert_eq!(edge_lod(10.0, near, far, false, false), EdgeLod::Full);
+        assert_eq!(edge_lod(70.0, near, far, false, false), EdgeLod::Full); // inclusive
+        assert_eq!(edge_lod(120.0, near, far, false, false), EdgeLod::Dim);
+        assert_eq!(edge_lod(200.0, near, far, false, false), EdgeLod::Cull);
+    }
+
+    #[test]
+    fn edge_lod_focus_mode_culls_non_incident() {
+        let (near, far) = (70.0, 160.0);
+        // Focus-cull on: incident stays Full regardless of distance; others culled.
+        assert_eq!(edge_lod(5.0, near, far, true, true), EdgeLod::Full);
+        assert_eq!(edge_lod(5.0, near, far, false, true), EdgeLod::Cull);
+        assert_eq!(
+            edge_lod(300.0, near, far, true, true),
+            EdgeLod::Full,
+            "an incident edge is never distance-culled in focus mode"
+        );
+    }
+
+    #[test]
+    fn cam_cell_quantizes_position() {
+        // Nearby points share a cell; crossing a boundary changes it (so the
+        // rebuild fingerprint is stable under small camera moves).
+        assert_eq!(
+            cam_cell(Vec3::new(1.0, 1.0, 1.0)),
+            cam_cell(Vec3::new(5.0, 2.0, 3.0))
+        );
+        assert_ne!(
+            cam_cell(Vec3::ZERO),
+            cam_cell(Vec3::new(EDGE_LOD_CELL + 0.1, 0.0, 0.0))
+        );
+    }
 }
