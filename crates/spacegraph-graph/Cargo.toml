@@ -1,0 +1,7 @@
+[package]
+name = "spacegraph-graph"
+version = "0.1.0"
+edition = "2021"
+description = "Headless canonical-state graph core for SpaceGraph — graph model, agent-UDS ingest, the D1/D3/D5 pipeline, and read-only queries. No Bevy / render / GUI dependency (ADR-0001)."
+
+[dependencies]

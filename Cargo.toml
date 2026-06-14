@@ -2,6 +2,7 @@
 resolver = "2"
 members = [
   "crates/spacegraph-core",
+  "crates/spacegraph-graph",
   "crates/spacegraph-agent",
   "crates/spacegraph-viewer",
 ]

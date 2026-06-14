@@ -1843,3 +1843,28 @@ review-gated and never auto-merged (external ESN contract).
   live-smoke against the hub, auth path. **Never auto-merged.**
 
 ---
+
+## v0.6.0 — MCP provider, Phase 1 (`spacegraph-graph` skeleton) — AUTO
+
+Branch: `feat/mcp-provider`. **Merge policy amended (Sam, 2026-06-14):** the
+"never auto-merged" carve-out for v0.6.0 is superseded — auto-merge-on-green now
+applies to all phases P1–P6 (local `--no-ff` merge to `main` per phase; `v0.6.0`
+tag on `main`; no push). Technical invariants unchanged (O-7'/O-8/agent/behavior).
+Recorded in ADR-0001 + MP-v0.6.0-P1 + memory.
+
+### What changed
+
+* New headless crate `crates/spacegraph-graph` (no Bevy / render / GUI deps),
+  added to the workspace `members`. Skeleton only — `lib.rs` is a module-doc
+  placeholder; nothing moved yet (the pipeline/ingest/`GraphCore` land in P2–P4).
+
+### Gates
+
+* Baseline (pre-P1): `cargo test --workspace` = **275 passed**, 0 failed.
+* P1: `cargo fmt --check` OK · `cargo clippy --workspace --all-targets -D warnings`
+  clean · `cargo build --workspace` OK · `cargo test --workspace` = **275 passed**
+  (48 agent + 6 core + 221 viewer + 0 new), 0 failed.
+* Audited negatives: `PROTOCOL_VERSION` still 4 · `spacegraph-agent` untouched ·
+  no MCP tools yet (read-only surface lands in P5) · no scanner/AdminBot.
+
+---
