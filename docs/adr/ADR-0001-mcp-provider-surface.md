@@ -95,7 +95,41 @@ JWT bearer where used). RS256/JWKS (L3) is out of scope.
   deployments). Larger P1 refactor: `GraphState`/pipeline are currently
   Bevy-coupled (the extraction is the bulk of v0.6.0).
 - D4's AI-fabric MCP tap and the Cockpit embed build on the same core + surface.
-- Read-only, no egress, no wire bump — O-7'/O-8 preserved. **Never auto-merged.**
+- Read-only, no egress, no wire bump — O-7'/O-8 preserved.
+
+## Implementation (v0.6.0, MP-v0.6.0-P1..P6)
+
+The decision was executed as a compile-green, behavior-preserving extraction
+(branch `feat/mcp-provider`):
+
+- **`crates/spacegraph-graph`** (new, **headless** — no Bevy in its dep tree): the
+  canonical-state core. Holds `GraphModel`, the agent-UDS ingest (`net/`), the
+  D1/D3/D5 pipeline (`rules`/`correlation`/`coverage`/`posture`/`explain`),
+  exposure classification, and **`GraphCore`** — graph + alert ledger + ingest
+  (`apply_snapshot`/`apply_delta`) + detection pipeline + the read-only queries
+  (`topology_stats`, `node_detail`, `alerts`, `campaigns`, `coverage`, `posture`,
+  `explain_path`, `alert_severity_counts`). Unit-tested headless.
+- **Viewer** (`crates/spacegraph-viewer`): `GraphState` is now a thin Bevy
+  `Resource` wrapping a `GraphCore` + render/ui fields; it renders *over* the core
+  and delegates the queries + alert plumbing to it. Behavior preserved (all viewer
+  tests green); the GUI extraction turned out shallower than feared (`GraphState`
+  was largely Bevy-free already), so the viewer-tied fallback was not needed.
+- **`crates/spacegraph-mcp`** (new): the standalone read-only **stdio** binary the
+  hub spawns. Hosts a `GraphCore`, ingests from one agent over UDS independently of
+  the viewer, and serves the 7 read-only tools over JSON-RPC 2.0
+  (`initialize`/`tools/list`/`tools/call`/`ping`). Per-tool contract tests + an
+  end-to-end stdio smoke. **No action tools** (O-7').
+- **Admission:** `CONSUMERS.md` provider entry + `docs/INTERFACE_INVENTORY.md`
+  Tier-3 row; live-smoke against the hub (`esn_mcp_server_register` →
+  `esn_mcp_server_list` → `esn_mcp_server_remove`, documented).
+- **Auth posture L1** as decided — hub-spawned stdio, no network listener, loopback
+  UDS to the agent; RS256/JWKS (L3) out of scope.
+- **Invariants held:** `PROTOCOL_VERSION` still **4** (O-8); `spacegraph-agent`
+  untouched; MCP **read-only only** (O-7'); no scanner/AdminBot/exploitation.
+
+> **Merge policy:** the original "Never auto-merged" stance was superseded by Sam
+> on 2026-06-14 (see the Merge policy note in the header) — v0.6.0 phases
+> auto-merged to `main` on green, tag `v0.6.0` on `main`.
 
 ## References
 

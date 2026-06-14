@@ -402,6 +402,34 @@ wird zum Node.
 
 ---
 
+## v0.6.0 — MCP-Provider + Headless-Core (ADR-0001, Track B)
+
+- **Headless-Core:** neues Crate `spacegraph-graph` (kein Bevy im Dep-Tree) mit
+  `GraphCore` — Graph-Modell, Alert-Ledger, Agent-UDS-Ingest, D1/D3/D5-Pipeline und
+  **read-only** Queries (`topology_stats`, `node_detail`, `alerts`, `campaigns`,
+  `coverage`, `posture`, `explain_path`). Headless unit-getestet (Fixture → typed).
+- **Viewer:** `GraphState` ist ein dünner Bevy-`Resource`-Wrapper um `GraphCore`
+  (+ Render/UI-Felder); rendert *über* den Core, delegiert Queries/Alert-Plumbing.
+  **Verhalten unverändert** (alle Viewer-Tests grün; D0–D5 unberührt). Ein Live-
+  GPU-Capture braucht eine Display-Session (Build-Env ist headless).
+- **MCP-Provider:** neues Crate `spacegraph-mcp` — standalone **stdio**-Binary, das
+  der Hub per `command` spawnt; hostet `GraphCore` headless, ingestet vom Agent
+  über UDS unabhängig vom Viewer, bietet die 7 read-only Tools über JSON-RPC 2.0.
+  Per-Tool-Contract-Tests + End-to-End-stdio-Smoke (`initialize`/`tools/list`/
+  `tools/call`). **Keine Action-/Mutating-Tools** (O-7').
+- **Admission (O-5):** `CONSUMERS.md` Provider-Eintrag + `docs/INTERFACE_INVENTORY.md`
+  Tier-3-Row; Hub-Live-Smoke dokumentiert (`esn_mcp_server_register` →
+  `_list` → `_remove`). Auth **L1** (loopback/UDS, hub-spawned stdio; kein Network-
+  Listener; RS256/JWKS = L3, out of scope).
+- **Gates / Audited Negatives:** `fmt`/`clippy --workspace -D`/`test --workspace`
+  grün (**294 Tests**); `PROTOCOL_VERSION` weiterhin **4** (O-8); `spacegraph-agent`
+  unberührt; MCP **read-only only** (O-7', Audit-Test); `spacegraph-graph` +
+  `spacegraph-mcp` ohne Bevy (`cargo tree` verifiziert); kein
+  Scanner/AdminBot/Exploitation. **Auto-merge-on-green** (Sam-Override 2026-06-14);
+  Tag `v0.6.0`.
+
+---
+
 ## Definition „Release-fähig“
 
 Ein Release gilt als fertig, wenn:

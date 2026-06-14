@@ -2044,3 +2044,42 @@ serves the read-only tools over newline-delimited JSON-RPC 2.0.
   (O-8) · `spacegraph-agent` untouched · no scanner/AdminBot/exploitation.
 
 ---
+
+## v0.6.0 — MCP provider, Phase 6 (admission + close-out, tag) — AUTO
+
+Branch: `feat/mcp-provider`. ESN admission docs, the live hub smoke, auth L1, and
+the v0.6.0 close-out. Docs-only (no code change since P5) → workspace stays green.
+
+### What changed
+
+* **Admission docs:** new `CONSUMERS.md` (provider entry §3: the `mcp__spacegraph__*`
+  read-only surface, the agent-UDS upstream, L1 auth) + new
+  `docs/INTERFACE_INVENTORY.md` (SpaceGraph's **Tier-3** row for the shared ESN
+  inventory — which is org-level, not in this repo). `ADR-0001` amended with the
+  implementation section. `ACCEPTANCE.md` v0.6.0 section + `CODE_INVENTORY.md`
+  two-new-crates addendum (workspace now 5 crates; `PROTOCOL_VERSION` corrected
+  to 4 in the addendum).
+* **Live hub smoke (documented):** `esn_mcp_server_list` (4 servers) →
+  `esn_mcp_server_register` (`server_id: spacegraph`, stdio, `command:
+  …/spacegraph-mcp`, dormant: `is_default_active=false`) → `esn_mcp_server_list`
+  (count 4 → 5, row present with the read-only surface) → `esn_mcp_server_remove`
+  (`removed: true`). **Transient smoke** — permanent registration awaits Sam's
+  review of the branch.
+* **Auth L1:** hub-spawned stdio, **no network listener** (the binary opens no
+  TCP/HTTP port; its only outbound socket is the loopback UDS to the local agent);
+  JWT bearer where the hub injects it. RS256/JWKS (L3) out of scope. Recorded in
+  `CONSUMERS.md` / `INTERFACE_INVENTORY.md` / ADR-0001.
+
+### Gates (close-out)
+
+* `cargo fmt --check` OK · `cargo clippy --workspace --all-targets -D warnings`
+  clean · `cargo test --workspace` = **294 passed**, 0 failed.
+* Audited negatives (final): `PROTOCOL_VERSION` **4** (O-8) · MCP **read-only only**
+  (O-7') · `spacegraph-agent` untouched · `spacegraph-graph` + `spacegraph-mcp`
+  have **no Bevy** (`cargo tree`) · no scanner/AdminBot/exploitation.
+* **Tag `v0.6.0`** on `main` (annotated).
+
+> **v0.6.0 done.** Headless `spacegraph-graph` core + read-only `spacegraph-mcp`
+> provider; viewer renders over the core (behavior preserved). Per the Sam-override
+> (2026-06-14) all phases auto-merged to `main` on green. The offensive/mutating
+> boundary (Track C / E / D4 / D6 / F) remains untouched.
