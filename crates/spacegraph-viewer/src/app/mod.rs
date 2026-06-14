@@ -146,6 +146,9 @@ impl Plugin for SpaceGraphViewerPlugin {
             Update,
             (
                 crate::graph::update_layout_or_timeline,
+                // D1: budgeted graph-native detection after layout (ADR-0005);
+                // emits spacegraph-rule alerts on its interval cadence.
+                crate::graph::rules::run_detection_rules,
                 crate::render::sync_node_entities,
                 crate::render::sync_node_rings,
                 crate::render::sync_node_icons,
@@ -160,6 +163,9 @@ impl Plugin for SpaceGraphViewerPlugin {
         // Runs after every Update system so it sees all redraw requests made
         // this frame before deciding whether the next frame can be skipped.
         .add_systems(Last, crate::render::update_frame_pacing);
+
+        // D1 detection engine state (registry + active-set for de-dup/re-arm).
+        app.init_resource::<crate::graph::rules::DetectionState>();
 
         // Opt-in UI sound effects (DefaultPlugins includes AudioPlugin when the
         // `audio` feature enables bevy_audio).

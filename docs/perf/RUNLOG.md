@@ -1661,3 +1661,47 @@ Branch: `feat/perimeter-exposure-visual`. Viewer-side + one read-only
   documented here, not a CI gate (headless has no display), per the MP test posture.
 * MP-D0 Phase 0 (place staged governance docs) was already satisfied (docs in
   `docs/*`; no `docs/files(23)/` staging folder existed).
+
+## D1 — Detection rule engine + ATT&CK (ADR-0005/0006, AUTO, no wire)
+
+Branch: `feat/detection-rule-engine`. Viewer-side; reads `GraphModel`; emits
+`spacegraph-rule` alerts through the existing plumbing. No collector, no wire, no
+exec/egress.
+
+### Changed
+
+* **New `graph/rules.rs`:** the `Rule` trait, `Tactic` (14) + `Severity`, the
+  vendored `TECHNIQUES` table (T1021/T1071/T1571/T1041), `Detection`,
+  `RuleRegistry`, the 3 rules, pure `evaluate_rules(&GraphModel)`, the `attack_tag`
+  formatter, and the budgeted `run_detection_rules` system + `DetectionState`.
+* **Rules (existing data only):** lateral-movement (`T1021`: process execs shell +
+  owns socket → remote + correlated alert), suspicious-listener (`T1571`: LISTEN on
+  a non-common port owned by a process), beaconing (`T1071`: `connects_to` the same
+  remote ≥ `BEACON_MIN_COUNT` via `EdgeStats.count`).
+* **Emission:** `GraphState::{emit_detection, clear_detection, apply_detections}` —
+  `Node::Alert` (`source="spacegraph-rule"`) + `alerts_on` edge via `note_alert`;
+  stable `id_alert` de-dup; `apply_detections` reconciles the active set (re-arm on
+  clear). `app/mod.rs` schedules the system after `update_layout_or_timeline` +
+  inits `DetectionState`. `[detection_*]` config (enabled/budget/interval, 4-way).
+* **UI:** `attack_tag` line added to the inspector tooltip for rule alerts
+  (`node_tooltip_lines`, render-only). Click→focus reuses the existing alert jump.
+
+### Gate results
+
+* `fmt --check` clean · `clippy --workspace --all-targets -D warnings` clean ·
+  `test --workspace` green — core **6**, agent **44**, viewer **202** + 3 (12 new
+  D1 tests). Positive + negative fixture per rule; combined graph fires exactly 3
+  distinct detections; de-dup stable across ticks; re-arm clears on match-clear;
+  every registry technique is vendored.
+
+### Perf / deviations
+
+* **No per-frame full rescan:** `run_detection_rules` gates on
+  `detection_interval_ms` (default 1000 ms) and evaluates O(nodes + agg-edges) over
+  the prebuilt indices. Budget note per ADR-0005.
+* **In-code fixtures** (built via `GraphModel::load_snapshot`/`upsert`), not a
+  `fixtures/` dir — `GraphModel` is not a parse target, so the established
+  `model.rs`/`explain.rs` in-code test pattern is the natural fit.
+* Beaconing cadence uses the aggregated event `count` as the proxy; true
+  jitter/regularity would need per-interval samples the model does not retain (a
+  model change deferred — not made unilaterally, O-8).

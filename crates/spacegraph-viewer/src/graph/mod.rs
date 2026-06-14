@@ -7,6 +7,7 @@ pub mod metrics;
 pub mod model;
 pub mod namespace;
 pub mod query;
+pub mod rules;
 pub mod state;
 pub mod synthetic;
 pub mod timeline;
