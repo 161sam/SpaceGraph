@@ -907,3 +907,27 @@ cargo run --release -p spacegraph-viewer -- --demo-load 1200
 v0.4.1 gates green: fmt / clippy -D / **151 tests**; structural perf proxies
 (single shared atlas; O(focused) previews; off-thread decode; caps; no churn) all
 asserted; layout benchmark code unchanged.
+
+---
+
+# v0.5.0 — GitS UX-Shell, Radial Command HUD & Quality Tiers
+
+Pure execution over `docs/spec_v0.5.0.md`. New spine: a `QualityTier
+{Potato,Low,Medium,High}` axis orthogonal to `VisualTheme`, auto-detected +
+runtime-adaptive, gating only expensive GPU effects so the GitS read survives on
+a Raspberry Pi (Potato). Plus: design tokens + egui reskin + native-panel IDE
+shell, gate-glyph node LOD, radial command HUD, dive ripples + rand-frame,
+command palette + query-DSL. Track-A, viewer-local — no ESN.
+
+## Phase 0 — Commit spec + baseline
+
+* `docs/spec_v0.5.0.md` already tracked (committed during the v0.4.1 run as
+  `docs(spec): track v0.5.0 spec`); the MP's "commit the spec" deliverable is
+  therefore already satisfied — no duplicate commit.
+* Baseline: `origin/main` synced at `v0.4.1` (77bf70c); `fmt`/`clippy -D`/`test`
+  green — **151 tests**.
+* Interplay note: v0.4.1 added `render::capability::DetailCapability {Low,Mid,High}`
+  (the documented QualityTier precursor) driving node-detail. v0.5.0 introduces the
+  authoritative `QualityTier {Potato,Low,Medium,High}`; `DetailCapability` will be
+  derived from the effective tier so the v0.4.1 face-icon/preview systems follow
+  the tier (the v0.4.1 face icon is the *centre* of WP-2's gate-glyph unit).
