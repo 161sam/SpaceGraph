@@ -127,6 +127,8 @@ async fn main() -> Result<()> {
         ebpf: false,
         cloud: false,
         windows: false,
+        // v4: this agent serves filesystem search/materialise requests.
+        fs_search: true,
     };
     let identity_msg = Msg::Identity { ident, caps };
 

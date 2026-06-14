@@ -379,6 +379,10 @@ pub struct NetStreamState {
     pub msg_rate: f32,
     pub msg_window: VecDeque<Instant>,
     pub last_error: Option<String>,
+    /// Whether the agent on this stream advertised the `fs_search` capability
+    /// (protocol v4). Negotiated from the `Identity` message; a v3 agent leaves
+    /// this `false` so FS search is disabled for the stream. (Spec §3.)
+    pub fs_search: bool,
 }
 
 pub struct NetState {
@@ -414,6 +418,7 @@ impl NetStreamState {
             msg_rate: 0.0,
             msg_window: VecDeque::new(),
             last_error: None,
+            fs_search: false,
         }
     }
 }
@@ -1029,9 +1034,13 @@ impl GraphState {
             IncomingKind::Identity(msg) => {
                 self.on_message();
                 self.net_on_message(&inc.stream);
-                if let Msg::Identity { ident, .. } = &msg {
+                if let Msg::Identity { ident, caps } = &msg {
                     if let Some(s) = self.net.streams.get_mut(&inc.stream) {
                         s.origin_host = Some(ident.hostname.clone());
+                        // FS-search capability negotiation (spec §3): a v3 agent's
+                        // caps decode `fs_search` to false, disabling FS search
+                        // for this stream without breaking the connection.
+                        s.fs_search = caps.fs_search;
                     }
                 }
             }
@@ -1539,6 +1548,17 @@ impl GraphState {
         self.ui.jump_to = Some(id);
     }
 
+    /// Whether any connected stream's agent advertised the `fs_search`
+    /// capability — i.e. whether the viewer may offer filesystem (`ON DISK`)
+    /// search. When false (e.g. only v3 agents connected), the search surface
+    /// stays graph-only. (Spec §3 handshake negotiation.)
+    pub fn fs_search_available(&self) -> bool {
+        self.net
+            .streams
+            .values()
+            .any(|s| s.fs_search && matches!(s.status, NetStreamStatus::Connected))
+    }
+
     // ---- Glow checks ----
     pub fn node_is_glowing(&self, id: &NodeId) -> bool {
         self.spatial.is_glowing(id)
@@ -1830,6 +1850,55 @@ mod tests {
             .map(|id| namespace::origin(id))
             .collect();
         assert!(origins.contains(&Some("a")) && origins.contains(&Some("b")));
+    }
+
+    /// An `Identity` Incoming whose agent advertises `fs_search = caps`.
+    fn identity_with(stream: &str, fs_search: bool) -> Incoming {
+        Incoming::identity(
+            stream.to_string(),
+            Msg::Identity {
+                ident: spacegraph_core::NodeIdentity {
+                    node_id: stream.to_string(),
+                    hostname: "host".to_string(),
+                    platform: "linux".to_string(),
+                    arch: "x86_64".to_string(),
+                },
+                caps: spacegraph_core::Capabilities {
+                    procfs: true,
+                    fd_edges: true,
+                    fs_notify: true,
+                    proc_poll: true,
+                    ebpf: false,
+                    cloud: false,
+                    windows: false,
+                    fs_search,
+                },
+            },
+        )
+    }
+
+    #[test]
+    fn v3_agent_handshake_disables_fs_search_without_panic() {
+        // A v3 agent advertises no fs_search capability (decodes to false). The
+        // viewer must accept the connection (no panic) and report FS search
+        // unavailable — graph-only search still works. (Gate 1 / spec §3.)
+        let mut st = GraphState::default();
+        st.net.endpoints = vec![endpoint("legacy")];
+        st.net.ensure_stream("legacy");
+        st.apply(identity_with("legacy", false));
+        assert!(
+            !st.fs_search_available(),
+            "a v3 agent (fs_search=false) must disable FS search"
+        );
+
+        // A v4 agent on a second stream flips availability on.
+        st.net.endpoints.push(endpoint("modern"));
+        st.net.ensure_stream("modern");
+        st.apply(identity_with("modern", true));
+        assert!(
+            st.fs_search_available(),
+            "a v4 agent advertising fs_search enables FS search"
+        );
     }
 
     #[test]
@@ -2165,6 +2234,7 @@ mod tests {
                 msg_rate: 0.0,
                 msg_window: VecDeque::new(),
                 last_error: None,
+                fs_search: false,
             },
         );
 
@@ -2198,6 +2268,7 @@ mod tests {
                 msg_rate: 0.0,
                 msg_window: VecDeque::new(),
                 last_error: None,
+                fs_search: false,
             },
         );
 
