@@ -1243,3 +1243,29 @@ Branch verified off `v0.5.0` (`main` tip `ee863b9`). Workspace green at baseline
 clean. Both invariants green at start (registered-systems empty; determinism gate
 green). No stray docs committed (the pending `docs/spec_fs_search_index.md` is the
 FS-Search run's — left untouched).
+
+### Phase 1 — Bugfixes (`v0.5.1/phase1-bugfixes`, merged `--no-ff`)
+
+* **[icon] face-icon billboards rendered as solid squares ("big green blocks")** —
+  the committed atlas is correct white-on-transparent (alpha bimodal 0/255), so the
+  `AlphaMode::Mask` cutout failed at the sampler/edge level, not in the data. **Fix:**
+  attach an explicit **nearest** `ImageSampler` to the atlas so every fragment's
+  alpha is exactly 0 or 1 and the opaque-pass mask cuts a crisp glyph instead of a
+  linear-blended haze that reads as a filled quad. (GPU confirmation is a local step
+  in this headless env; asserted structurally below.)
+* **[icon] billboard clamped to node scale** — the quad was a fixed `0.26` half-extent
+  (0.52 wide), overhanging most cores. **Fix:** unit quad + per-kind
+  `icon_half_extent(kind)` = `node_envelope(kind) * 0.9` clamped to `[0.14, 0.26]`,
+  applied via the entity `Transform.scale`, so the glyph sits *on* the node face and
+  never exceeds the core envelope.
+* **[ui] egui ScrollArea ID collision in the Paths dialog** — `render_path_list` runs
+  twice (Includes/Excludes) inside `ui.columns(2, …)`; both un-ID'd `ScrollArea`s
+  shared one auto-id ("First/Second use of ScrollArea ID 32BF"). **Fix:**
+  `.id_source(path_list_scroll_source(title))` per column.
+* **Tests (+4 → 192 total):** `atlas_alpha_is_a_cutout_mask` (asset alpha-path),
+  `glyph_material_is_alpha_masked_with_nearest_atlas` (mask mode + explicit sampler),
+  `icon_half_extent_is_clamped_to_node_scale` (pure-fn clamp ≤ envelope),
+  `path_list_scroll_ids_are_unique_and_stable`.
+* **Gate 1 green:** fmt clean · clippy `-D warnings` clean · `cargo test --workspace`
+  192 pass · determinism guard green · no per-frame entity churn (icons keep the
+  persistent-entity path; only `Transform.scale` added).
