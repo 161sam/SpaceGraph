@@ -305,3 +305,39 @@ Module map + bug repro (code-level) recorded ✓ · baseline green ✓ · no cod
   `afterp2-view.png` / `afterp2-settings.png` (GitS HUD panels),
   `afterp2-minimal*.png` (flat Minimal parity). Compare vs `before-default.png`
   (old left sidebar).
+
+---
+
+## P3 — Focused-node detail
+
+### (a) Layered core
+`ui/focus.rs::draw_centerpiece` is now a **layered-core schematic** (Standard):
+concentric core rings (outer accent + green mid + faint inner) with tick marks
+(longer every 90°), a faint **wireframe octagon** with vertex nodes (the device-
+schematic motif), a `◤ FOCUS ◥` tag, and the radial kind/links/identity labels —
+keyed off `render::theme` + `tokens` colours. Static (no per-frame animation → no
+FPS cost). Minimal degrades to the plain dim (unchanged gate).
+
+**Scope decision (Stop-and-Show, recorded):** the layered core is a *screen-space
+schematic over the projected node* — the same paradigm as the existing
+centerpiece / reticle / node-glyph — **not** new 3D scene geometry. The MP's
+out-of-scope guard says to stop if the focus detail needs a scene/geometry change
+beyond an overlay; it does not, so no new entities / `RebuildNodeEntities` churn
+were introduced. If Sam wants depth-true 3D core meshes that is a separate
+render-architecture decision.
+
+### (b) Entity card
+New `ui/entity_card.rs` — a framed GitS **entity card** shown in Focus Mode,
+corner-anchored **bottom-right** (clear of the centered node, the minimap top-
+right and the focus preview bottom-left — uses the P1 layer model, never overlaps
+the node). Shows a per-kind **type silhouette** glyph, the identity fields
+(path/inode/pid/exe… via `node_tooltip_lines`), `origin` (namespace) and
+`connections` (degree), plus **Fly-to (F)** and **Pin compare / Unpin** actions.
+Standard = GitS frame + corner brackets; Minimal = the plain flat card.
+
+### Gate
+- `fmt --check` ✓ · `clippy --workspace --all-targets -D warnings` ✓ ·
+  `test --workspace` ✓ (196 viewer tests; existing inspector/focus tests green).
+- No core/graph/agent/wire change.
+- Screenshots: `afterp3-focus.png` (layered core + entity card),
+  `afterp3-minimal-focus.png` (flat degrade). Compare vs `before-focus.png`.

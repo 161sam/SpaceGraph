@@ -118,7 +118,7 @@ impl Plugin for SpaceGraphViewerPlugin {
                 crate::ui::reticle_overlay,
                 crate::ui::context_menu_overlay,
                 crate::ui::radial_hud,
-                crate::ui::focus_overlay,
+                (crate::ui::focus_overlay, crate::ui::entity_card_overlay),
                 crate::ui::command_palette_overlay,
                 crate::ui::node_preview_overlay,
                 crate::ui::minimap,

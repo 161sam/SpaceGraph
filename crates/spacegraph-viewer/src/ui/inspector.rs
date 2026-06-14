@@ -27,7 +27,9 @@ enum Act {
 }
 
 pub fn inspector_overlay(mut contexts: EguiContexts, mut st: ResMut<GraphState>) {
-    if !st.ui.inspector_open {
+    // In Focus Mode the framed entity card (P3) is the detail surface; suppress
+    // the docked inspector so the two don't duplicate / crowd the right edge.
+    if !st.ui.inspector_open || st.ui.focus_mode.is_some() {
         return;
     }
     let Some(id) = st.ui.selected.clone().or_else(|| st.ui.focus.clone()) else {

@@ -1,5 +1,6 @@
 pub mod command_palette;
 pub mod context_menu;
+pub mod entity_card;
 pub mod focus;
 pub mod gits;
 pub mod help;
@@ -25,6 +26,7 @@ pub const HUD_EDGE_PADDING: f32 = 10.0;
 
 pub use command_palette::command_palette_overlay;
 pub use context_menu::{context_menu_overlay, radial_hud, RadialMenu, RadialState};
+pub use entity_card::entity_card_overlay;
 pub use focus::{enter_focus, exit_focus, focus_double_click, focus_overlay};
 pub use help::help_overlay;
 pub use hud::{hud_frame_overlay, hud_overlay};

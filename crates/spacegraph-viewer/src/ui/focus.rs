@@ -126,8 +126,11 @@ pub fn focus_overlay(
     draw_centerpiece(&painter, c, &label, degree, kind);
 }
 
-/// The node centerpiece arcs (Standard): a prominent gate ring + identity labels
-/// (kind / connections / id) arranged around the focused node.
+/// The focused-node **layered core** (Standard, P3): concentric rings + tick
+/// marks + a wireframe schematic polygon + radial technical labels around the
+/// focused node (the "KOSHIKI core" look). Screen-space over the projected node
+/// (the established centerpiece/reticle/glyph paradigm — no new scene geometry,
+/// per the MP out-of-scope guard). Static (no per-frame animation → no FPS cost).
 fn draw_centerpiece(
     painter: &egui::Painter,
     c: egui::Pos2,
@@ -135,12 +138,53 @@ fn draw_centerpiece(
     degree: usize,
     kind: Option<theme::NodeKind>,
 ) {
+    use std::f32::consts::TAU;
     let accent = color::ACCENT;
-    let r = 148.0_f32;
-    painter.circle_stroke(c, r, egui::Stroke::new(1.5, accent));
-    painter.circle_stroke(c, r + 9.0, egui::Stroke::new(0.6, color::LINE));
+    let faint = egui::Color32::from_rgba_unmultiplied(accent.r(), accent.g(), accent.b(), 90);
+    let r = 150.0_f32;
+
+    // Concentric core rings.
+    painter.circle_stroke(c, r + 8.0, egui::Stroke::new(0.6, color::LINE));
+    painter.circle_stroke(c, r, egui::Stroke::new(1.6, accent));
+    painter.circle_stroke(c, r * 0.72, egui::Stroke::new(1.0, color::ACCENT_GREEN));
+    painter.circle_stroke(c, r * 0.46, egui::Stroke::new(0.8, color::LINE));
+
+    // Tick marks around the outer ring (longer every 90°).
+    let ticks = 24;
+    for i in 0..ticks {
+        let a = (i as f32 / ticks as f32) * TAU;
+        let (sin, cos) = (a.sin(), a.cos());
+        let len = if i % 6 == 0 { 11.0 } else { 5.0 };
+        painter.line_segment(
+            [
+                egui::pos2(c.x + cos * (r - len), c.y + sin * (r - len)),
+                egui::pos2(c.x + cos * r, c.y + sin * r),
+            ],
+            egui::Stroke::new(1.0, color::LINE),
+        );
+    }
+
+    // Wireframe schematic: a faint octagon with vertex nodes (device-schematic motif).
+    let poly_r = r * 0.9;
+    let sides = 8;
+    let vert = |i: usize| {
+        let a = (i as f32 / sides as f32) * TAU + TAU / 16.0;
+        egui::pos2(c.x + a.cos() * poly_r, c.y + a.sin() * poly_r)
+    };
+    for i in 0..sides {
+        painter.line_segment([vert(i), vert(i + 1)], egui::Stroke::new(0.7, faint));
+        painter.circle_filled(vert(i), 2.0, accent);
+    }
 
     let kind_name = kind.map(kind_label).unwrap_or("node");
+    // Focus tag above the kind.
+    painter.text(
+        egui::pos2(c.x, c.y - r - 30.0),
+        egui::Align2::CENTER_BOTTOM,
+        "◤ FOCUS ◥",
+        egui::FontId::monospace(11.0),
+        accent,
+    );
     // Top arc: kind / status.
     painter.text(
         egui::pos2(c.x, c.y - r - 14.0),
