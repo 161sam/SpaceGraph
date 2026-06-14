@@ -95,15 +95,17 @@ pub fn inspector_overlay(mut contexts: EguiContexts, mut st: ResMut<GraphState>)
     };
     let pinned_self = pin.as_ref() == Some(&id);
 
-    // --- render ---
-    let mut open = st.ui.inspector_open;
+    // --- render (docked right panel, spec §3.2) ---
+    if !st.cfg.shell.right_open {
+        return;
+    }
     let mut act: Option<Act> = None;
-    egui::Window::new(format!("🔍 {title}"))
-        .id(egui::Id::new("node_inspector"))
-        .open(&mut open)
-        .default_width(320.0)
+    let right_width = st.cfg.shell.right_width;
+    egui::SidePanel::right("node_inspector")
         .resizable(true)
+        .default_width(right_width)
         .show(contexts.ctx_mut(), |ui| {
+            ui.heading(format!("🔍 {title}"));
             for line in &detail {
                 ui.label(line);
             }
@@ -167,10 +169,6 @@ pub fn inspector_overlay(mut contexts: EguiContexts, mut st: ResMut<GraphState>)
 
     // --- apply deferred state changes ---
     let mut changed = false;
-    if open != st.ui.inspector_open {
-        st.ui.inspector_open = open;
-        changed = true;
-    }
     match act {
         Some(Act::Select(nid)) => {
             st.reveal(&nid);

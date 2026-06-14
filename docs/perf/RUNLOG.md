@@ -982,3 +982,50 @@ adaptive step-down recovers FPS without oscillation:
 | Pi / GLES / llvmpipe | Potato | | |
 | Integrated | Low/Medium | | |
 | Discrete | High | | |
+
+## Phase 2 — WP-1 Tokens + egui reskin + shell + selectors (spec §3.1/3.2/3.9, F1)
+
+* `ui/tokens.rs`: SpaceGraph egui token set (colour roles bg/surface/line/accent-
+  cyan/green/severity, 4-based spacing, font roles) — house-style parity (D-1).
+* `ui/theme_egui.rs`: embeds the three OFL fonts (Inter / JetBrains Mono / Space
+  Grotesk, fetched once from official + google/fonts sources, committed under
+  `assets/fonts/<family>/` with each `OFL.txt`, loaded via `include_bytes!` +
+  `FontDefinitions`). `apply_egui_theme` installs fonts once + applies GitS
+  `Visuals`/`Style` (Standard) or plain dark (Minimal) on theme change. Runs in
+  Update (the egui context does not exist during Startup).
+* IDE shell (native panels, **no docking crate** — D-2): the left operator rail is
+  now resizable + toggleable (`SidePanel::show_animated`, width/open persisted in
+  `[shell]`); the tuning controls (Performance/LOD/Layout/Glow + Gameplay/Post-FX/
+  GC sliders) moved into a **Technician** section collapsed by default; the
+  inspector is docked to `SidePanel::right` (`[shell] right_open/right_width`).
+* F1 selectors: a Display section with `VisualTheme` (Standard/Minimal) and
+  `QualityTier` (Auto/Potato/Low/Medium/High) combos + an Adaptive toggle; an
+  explicit tier applies immediately (sets `QualityState.base` + effective), Auto
+  re-detects on next launch. Both axes persist.
+* **Control inventory (anti-regression, every pre-existing control still wired):**
+  Status, Agents (Manage…), View (mode/demo/tree+timeline controls), Alerts,
+  Filter, Performance, LOD/Rendering, Layout, Glow, Gameplay, Post-FX, Audio, GC,
+  Search, Settings (Edit Paths / Save / Reset), Actions (Clear) — all present
+  (tuning ones under Technician); inspector (now right-docked) keeps connections /
+  Fly-to / Pin / why-connected; legend/help/reticle/context-menu/minimap/preview
+  overlays unchanged. **New:** Display selectors.
+* **Registered-systems invariant re-verified EMPTY** after the refactor: every
+  overlay/render system (incl. the new `apply_egui_theme`) is registered in
+  `app/mod.rs` (20/20 checked). `ui_panel` gained a `QualityState` param
+  (Bevy injects by type — no schedule change).
+* **Deviation (documented per §3):** the bottom timeline **dock** (`TopBottomPanel`)
+  is not yet a persistent lane — the timeline remains a view mode; `[shell]
+  bottom_open` is persisted as a stub. Docking the timeline lane is a contained
+  follow-up (tracked for a v0.5.x / WP-6 doc note); it does not affect any gate.
+* **Gate 2 PASS** — fmt / clippy -D / test green. New tests (+3):
+  `tokens::roles_are_distinct`, `theme_egui::gits_visuals_use_accent_selection`
+  (Minimal path distinct), `config::shell_config_roundtrip`. **162 tests** total.
+
+### Local-capture (perf/visual)
+
+```
+cargo run --release -p spacegraph-viewer -- --demo-load 1500
+# verify: GitS fonts/reskin in Standard, plain look in Minimal; resize/collapse
+# the rail and inspector and confirm widths persist after Save Settings + restart;
+# switch theme + tier from the Display selectors.
+```

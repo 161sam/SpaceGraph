@@ -17,7 +17,7 @@ use crate::graph::tree;
 use crate::net::{Incoming, IncomingKind, ReaderHandle};
 use crate::util::config::{
     AgentEndpoint, AgentMode, LodEdgesMode, NodeDetailConfig, PostFxConfig, QualityConfig,
-    ViewerConfig, ViewerViewMode, VisualTheme,
+    ShellConfig, ViewerConfig, ViewerViewMode, VisualTheme,
 };
 use crate::util::ids::{node_label_long, node_label_short};
 
@@ -539,6 +539,9 @@ pub struct CfgState {
     /// effective tier lives in the `QualityState` resource.
     pub quality: QualityConfig,
 
+    /// IDE-shell layout (v0.5.0): panel open/width + Technician collapse state.
+    pub shell: ShellConfig,
+
     /// UI sound effects (effective only in builds with the `audio` feature).
     pub audio_enabled: bool,
     pub audio_volume: f32,
@@ -711,6 +714,7 @@ impl Default for GraphState {
                 postfx: PostFxConfig::default(),
                 node_detail: NodeDetailConfig::default(),
                 quality: QualityConfig::default(),
+                shell: ShellConfig::default(),
                 audio_enabled: true,
                 audio_volume: 0.6,
             },
@@ -1690,6 +1694,7 @@ impl GraphState {
         self.cfg.postfx = cfg.postfx;
         self.cfg.node_detail = cfg.node_detail.clone();
         self.cfg.quality = cfg.quality.clone();
+        self.cfg.shell = cfg.shell.clone();
         self.cfg.audio_enabled = cfg.audio_enabled;
         self.cfg.audio_volume = cfg.audio_volume.clamp(0.0, 1.0);
         self.sync_agent_endpoints(cfg.agents.clone());
@@ -1746,6 +1751,7 @@ impl GraphState {
             postfx: self.cfg.postfx,
             node_detail: self.cfg.node_detail.clone(),
             quality: self.cfg.quality.clone(),
+            shell: self.cfg.shell.clone(),
             audio_enabled: self.cfg.audio_enabled,
             audio_volume: self.cfg.audio_volume,
             agents: self.net.endpoints.clone(),

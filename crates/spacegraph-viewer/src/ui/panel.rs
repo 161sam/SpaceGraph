@@ -9,451 +9,534 @@ pub fn ui_panel(
     mut contexts: EguiContexts,
     mut st: ResMut<GraphState>,
     mut layout: ResMut<UiLayout>,
+    mut quality: bevy::prelude::ResMut<crate::render::quality::QualityState>,
     mission: bevy::prelude::Res<crate::render::Mission>,
 ) {
     let ctx = contexts.ctx_mut();
-    let resp = egui::SidePanel::left("panel").show(ctx, |ui| {
-        egui::ScrollArea::vertical().show(ui, |ui| {
-            ui.heading("SpaceGraph");
-            ui.vertical(|ui| {
-                section_header(ui, "Status");
-                ui.label(format!("nodes: {}", st.model.nodes.len()));
-                ui.label(format!(
-                    "edges: raw {} / agg {}",
-                    st.model.edges.len(),
-                    st.model.agg_edge_count()
-                ));
-            });
+    // IDE shell (spec §3.2): a resizable, toggleable left operator rail. Width +
+    // open state persist in `[shell]`.
+    let left_open = st.cfg.shell.left_open;
+    let left_width = st.cfg.shell.left_width;
+    let resp = egui::SidePanel::left("panel")
+        .resizable(true)
+        .default_width(left_width)
+        .show_animated(ctx, left_open, |ui| {
+            egui::ScrollArea::vertical().show(ui, |ui| {
+                ui.heading("SpaceGraph");
+                ui.vertical(|ui| {
+                    section_header(ui, "Status");
+                    ui.label(format!("nodes: {}", st.model.nodes.len()));
+                    ui.label(format!(
+                        "edges: raw {} / agg {}",
+                        st.model.edges.len(),
+                        st.model.agg_edge_count()
+                    ));
+                });
 
-            ui.separator();
-            ui.vertical(|ui| {
-                section_header(ui, "Agents");
-                let active = st.net.active_connection_count();
-                if active == 0 {
-                    ui.label("0 Agents connected");
-                } else if active == 1 {
-                    ui.label("1 Agent connected");
-                } else {
-                    ui.label(format!("{active} Agents connected"));
-                }
-                if ui.button("Manage Agents…").clicked() {
-                    st.ui.show_agent_manager = true;
-                }
-            });
-
-            ui.separator();
-            ui.vertical(|ui| {
-                section_header(ui, "View");
-                ui.horizontal(|ui| {
-                    ui.label("Mode:");
-                    let mut changed = false;
-                    changed |= ui
-                        .selectable_value(&mut st.ui.view_mode, ViewMode::Spatial, "Spatial")
-                        .clicked();
-                    changed |= ui
-                        .selectable_value(&mut st.ui.view_mode, ViewMode::Tree, "Tree")
-                        .clicked();
-                    changed |= ui
-                        .selectable_value(&mut st.ui.view_mode, ViewMode::Timeline, "Timeline")
-                        .clicked();
-                    if changed {
-                        st.spatial.dirty_layout = true;
-                        st.needs_redraw.store(true, Ordering::Relaxed);
+                ui.separator();
+                ui.vertical(|ui| {
+                    section_header(ui, "Agents");
+                    let active = st.net.active_connection_count();
+                    if active == 0 {
+                        ui.label("0 Agents connected");
+                    } else if active == 1 {
+                        ui.label("1 Agent connected");
+                    } else {
+                        ui.label(format!("{active} Agents connected"));
+                    }
+                    if ui.button("Manage Agents…").clicked() {
+                        st.ui.show_agent_manager = true;
                     }
                 });
-                if st.ui.view_mode == ViewMode::Tree && ui.button("Fit to view").clicked() {
-                    st.ui.fit_to_view = true;
-                }
-                if st.ui.view_mode == ViewMode::Tree {
-                    ui.add_space(6.0);
-                    ui.label(egui::RichText::new("Tree").strong());
-                    let mut show_files = st.ui.tree_show_files;
-                    if ui.checkbox(&mut show_files, "Show files").changed() {
-                        st.ui.tree_show_files = show_files;
-                        st.spatial.dirty_layout = true;
-                        st.needs_redraw.store(true, Ordering::Relaxed);
-                    }
-                    ui.label(format!(
-                        "Files auto-show when zoom ≥ {:.3}",
-                        st.ui.tree_file_zoom_threshold
-                    ));
-                }
-                let demo_allowed = st.net.active_connection_count() == 0
-                    && (st.model.nodes.is_empty() || st.demo_loaded);
-                let mut demo_mode = st.cfg.demo_mode;
-                if ui
-                    .add_enabled(
-                        demo_allowed || demo_mode,
-                        egui::Checkbox::new(&mut demo_mode, "Demo Mode"),
-                    )
-                    .changed()
-                {
-                    st.set_demo_mode(demo_mode);
-                }
-                if !demo_allowed && !demo_mode {
-                    ui.label("Demo mode requires no active agents and an empty graph.");
-                }
 
-                if st.ui.view_mode == ViewMode::Timeline {
-                    ui.add_space(6.0);
-                    ui.label(egui::RichText::new("Timeline / Feynman").strong());
-                    let mut paused = st.timeline.pause;
-                    ui.checkbox(&mut paused, "Pause");
-                    if paused != st.timeline.pause {
-                        st.set_timeline_pause(paused);
-                    }
-
-                    let mut w = st.timeline.window.as_secs() as i32;
+                ui.separator();
+                ui.vertical(|ui| {
+                    section_header(ui, "View");
                     ui.horizontal(|ui| {
-                        ui.label("Window (s)");
-                        ui.add(egui::Slider::new(&mut w, 5..=240));
+                        ui.label("Mode:");
+                        let mut changed = false;
+                        changed |= ui
+                            .selectable_value(&mut st.ui.view_mode, ViewMode::Spatial, "Spatial")
+                            .clicked();
+                        changed |= ui
+                            .selectable_value(&mut st.ui.view_mode, ViewMode::Tree, "Tree")
+                            .clicked();
+                        changed |= ui
+                            .selectable_value(&mut st.ui.view_mode, ViewMode::Timeline, "Timeline")
+                            .clicked();
+                        if changed {
+                            st.spatial.dirty_layout = true;
+                            st.needs_redraw.store(true, Ordering::Relaxed);
+                        }
                     });
-                    st.timeline.window = std::time::Duration::from_secs(w as u64);
-
-                    ui.horizontal(|ui| {
-                        ui.label("X scale");
-                        ui.add(egui::Slider::new(&mut st.timeline.scale, 0.05..=1.5));
-                    });
-                    let mut show_connectors = st.timeline.show_connectors;
+                    if st.ui.view_mode == ViewMode::Tree && ui.button("Fit to view").clicked() {
+                        st.ui.fit_to_view = true;
+                    }
+                    if st.ui.view_mode == ViewMode::Tree {
+                        ui.add_space(6.0);
+                        ui.label(egui::RichText::new("Tree").strong());
+                        let mut show_files = st.ui.tree_show_files;
+                        if ui.checkbox(&mut show_files, "Show files").changed() {
+                            st.ui.tree_show_files = show_files;
+                            st.spatial.dirty_layout = true;
+                            st.needs_redraw.store(true, Ordering::Relaxed);
+                        }
+                        ui.label(format!(
+                            "Files auto-show when zoom ≥ {:.3}",
+                            st.ui.tree_file_zoom_threshold
+                        ));
+                    }
+                    let demo_allowed = st.net.active_connection_count() == 0
+                        && (st.model.nodes.is_empty() || st.demo_loaded);
+                    let mut demo_mode = st.cfg.demo_mode;
                     if ui
-                        .checkbox(&mut show_connectors, "Show connectors")
+                        .add_enabled(
+                            demo_allowed || demo_mode,
+                            egui::Checkbox::new(&mut demo_mode, "Demo Mode"),
+                        )
                         .changed()
                     {
-                        st.timeline.show_connectors = show_connectors;
-                        st.needs_redraw.store(true, Ordering::Relaxed);
+                        st.set_demo_mode(demo_mode);
                     }
-                    if paused {
-                        let window_secs = st.timeline.window.as_secs_f32().max(0.1);
+                    if !demo_allowed && !demo_mode {
+                        ui.label("Demo mode requires no active agents and an empty graph.");
+                    }
+
+                    if st.ui.view_mode == ViewMode::Timeline {
+                        ui.add_space(6.0);
+                        ui.label(egui::RichText::new("Timeline / Feynman").strong());
+                        let mut paused = st.timeline.pause;
+                        ui.checkbox(&mut paused, "Pause");
+                        if paused != st.timeline.pause {
+                            st.set_timeline_pause(paused);
+                        }
+
+                        let mut w = st.timeline.window.as_secs() as i32;
                         ui.horizontal(|ui| {
-                            ui.label("Scrub (s)");
-                            ui.add(egui::Slider::new(
-                                &mut st.timeline.scrub_seconds,
-                                0.0..=window_secs,
-                            ));
+                            ui.label("Window (s)");
+                            ui.add(egui::Slider::new(&mut w, 5..=240));
                         });
-                        if ui.button("Reset scrub").clicked() {
-                            st.timeline.scrub_seconds = 0.0;
-                        }
-                        st.timeline.scrub_seconds =
-                            st.timeline.scrub_seconds.clamp(0.0, window_secs);
-                    }
-                    ui.label(format!("events buffered: {}", st.timeline.events.len()));
-                    ui.label("Lanes: grouped by entity (pid/path).");
-                    ui.label("Hover an event point → tooltip.");
+                        st.timeline.window = std::time::Duration::from_secs(w as u64);
 
-                    ui.add_space(6.0);
-                    ui.label(egui::RichText::new("Legend").strong());
-                    ui.horizontal_wrapped(|ui| {
-                        ui.label(
-                            egui::RichText::new("Node upsert")
-                                .color(egui::Color32::from_rgb(51, 217, 77)),
-                        );
-                        ui.label(
-                            egui::RichText::new("Node remove")
-                                .color(egui::Color32::from_rgb(230, 51, 51)),
-                        );
-                        ui.label(
-                            egui::RichText::new("Edge upsert")
-                                .color(egui::Color32::from_rgb(51, 140, 230)),
-                        );
-                        ui.label(
-                            egui::RichText::new("Edge remove")
-                                .color(egui::Color32::from_rgb(230, 140, 51)),
-                        );
-                        ui.label(
-                            egui::RichText::new("Batch span")
-                                .color(egui::Color32::from_rgb(191, 191, 191)),
-                        );
-                    });
-
-                    ui.add_space(6.0);
-                    ui.label(egui::RichText::new("Selection").strong());
-                    if let Some(id) = st.ui.selected_a.as_ref() {
-                        ui.label(format!("A: {}", st.node_label_with_id(id)));
-                    } else {
-                        ui.label("A: (none)");
-                    }
-                    if let Some(id) = st.ui.selected_b.as_ref() {
-                        ui.label(format!("B: {}", st.node_label_with_id(id)));
-                    } else {
-                        ui.label("B: (none)");
-                    }
-                    let jump_enabled = st.ui.selected_a.is_some();
-                    if ui
-                        .add_enabled(jump_enabled, egui::Button::new("Jump to Spatial"))
-                        .clicked()
-                    {
-                        if let Some(id) = st.ui.selected_a.clone() {
-                            st.ui.view_mode = ViewMode::Spatial;
-                            st.request_jump(id);
-                        }
-                    }
-                }
-
-                ui.add_space(6.0);
-                ui.horizontal(|ui| {
-                    ui.checkbox(&mut st.ui.show_3d, "3D");
-                    ui.checkbox(&mut st.ui.show_edges, "Edges");
-                });
-                ui.horizontal(|ui| {
-                    ui.checkbox(&mut st.cfg.show_agg_edges, "Agg edges");
-                    ui.checkbox(&mut st.cfg.show_raw_edges, "Raw edges");
-                });
-            });
-
-            ui.separator();
-            ui.vertical(|ui| {
-                section_header(ui, "Incident Hunt");
-                ui.label(format!("Score: {}", mission.score));
-                if mission.active {
-                    ui.label(
-                        egui::RichText::new(format!("▶ {}", mission.signature))
-                            .color(egui::Color32::from_rgb(255, 120, 60)),
-                    );
-                }
-                if !mission.last_message.is_empty() {
-                    ui.label(&mission.last_message);
-                }
-                ui.label("Press M to investigate the next alert.");
-            });
-
-            ui.separator();
-            ui.vertical(|ui| {
-                section_header(ui, "Alerts");
-                let (low, med, high) = st.alert_severity_counts();
-                ui.horizontal(|ui| {
-                    ui.colored_label(egui::Color32::from_rgb(250, 190, 60), format!("low {low}"));
-                    ui.colored_label(egui::Color32::from_rgb(252, 128, 40), format!("med {med}"));
-                    ui.colored_label(egui::Color32::from_rgb(255, 46, 51), format!("high {high}"));
-                });
-                if low + med + high == 0 {
-                    ui.label("no alerts");
-                } else {
-                    let recent: Vec<(spacegraph_core::NodeId, String, String)> = st
-                        .alerts_newest_first()
-                        .take(10)
-                        .filter_map(|id| match st.model.nodes.get(id) {
-                            Some(spacegraph_core::Node::Alert {
-                                signature,
-                                severity,
-                                ..
-                            }) => Some((id.clone(), severity.clone(), signature.clone())),
-                            _ => None,
-                        })
-                        .collect();
-                    let mut jump_to = None;
-                    for (id, sev, sig) in recent {
+                        ui.horizontal(|ui| {
+                            ui.label("X scale");
+                            ui.add(egui::Slider::new(&mut st.timeline.scale, 0.05..=1.5));
+                        });
+                        let mut show_connectors = st.timeline.show_connectors;
                         if ui
-                            .selectable_label(false, format!("[{sev}] {sig}"))
+                            .checkbox(&mut show_connectors, "Show connectors")
+                            .changed()
+                        {
+                            st.timeline.show_connectors = show_connectors;
+                            st.needs_redraw.store(true, Ordering::Relaxed);
+                        }
+                        if paused {
+                            let window_secs = st.timeline.window.as_secs_f32().max(0.1);
+                            ui.horizontal(|ui| {
+                                ui.label("Scrub (s)");
+                                ui.add(egui::Slider::new(
+                                    &mut st.timeline.scrub_seconds,
+                                    0.0..=window_secs,
+                                ));
+                            });
+                            if ui.button("Reset scrub").clicked() {
+                                st.timeline.scrub_seconds = 0.0;
+                            }
+                            st.timeline.scrub_seconds =
+                                st.timeline.scrub_seconds.clamp(0.0, window_secs);
+                        }
+                        ui.label(format!("events buffered: {}", st.timeline.events.len()));
+                        ui.label("Lanes: grouped by entity (pid/path).");
+                        ui.label("Hover an event point → tooltip.");
+
+                        ui.add_space(6.0);
+                        ui.label(egui::RichText::new("Legend").strong());
+                        ui.horizontal_wrapped(|ui| {
+                            ui.label(
+                                egui::RichText::new("Node upsert")
+                                    .color(egui::Color32::from_rgb(51, 217, 77)),
+                            );
+                            ui.label(
+                                egui::RichText::new("Node remove")
+                                    .color(egui::Color32::from_rgb(230, 51, 51)),
+                            );
+                            ui.label(
+                                egui::RichText::new("Edge upsert")
+                                    .color(egui::Color32::from_rgb(51, 140, 230)),
+                            );
+                            ui.label(
+                                egui::RichText::new("Edge remove")
+                                    .color(egui::Color32::from_rgb(230, 140, 51)),
+                            );
+                            ui.label(
+                                egui::RichText::new("Batch span")
+                                    .color(egui::Color32::from_rgb(191, 191, 191)),
+                            );
+                        });
+
+                        ui.add_space(6.0);
+                        ui.label(egui::RichText::new("Selection").strong());
+                        if let Some(id) = st.ui.selected_a.as_ref() {
+                            ui.label(format!("A: {}", st.node_label_with_id(id)));
+                        } else {
+                            ui.label("A: (none)");
+                        }
+                        if let Some(id) = st.ui.selected_b.as_ref() {
+                            ui.label(format!("B: {}", st.node_label_with_id(id)));
+                        } else {
+                            ui.label("B: (none)");
+                        }
+                        let jump_enabled = st.ui.selected_a.is_some();
+                        if ui
+                            .add_enabled(jump_enabled, egui::Button::new("Jump to Spatial"))
                             .clicked()
                         {
-                            jump_to = Some(id);
+                            if let Some(id) = st.ui.selected_a.clone() {
+                                st.ui.view_mode = ViewMode::Spatial;
+                                st.request_jump(id);
+                            }
                         }
                     }
-                    if let Some(id) = jump_to {
-                        st.ui.focus = Some(id.clone());
-                        st.ui.selected = Some(id.clone());
-                        st.ui.view_mode = ViewMode::Spatial;
-                        st.request_jump(id);
-                        st.needs_redraw.store(true, Ordering::Relaxed);
-                    }
-                }
-            });
 
-            ui.separator();
-            ui.vertical(|ui| {
-                section_header(ui, "Filtering");
-                ui.label("Filter (substring):");
-                ui.text_edit_singleline(&mut st.ui.filter);
-
-                ui.add_space(6.0);
-                ui.horizontal(|ui| {
-                    ui.label("Focus hops:");
-                    ui.add(egui::Slider::new(&mut st.ui.focus_hops, 1..=10));
+                    ui.add_space(6.0);
+                    ui.horizontal(|ui| {
+                        ui.checkbox(&mut st.ui.show_3d, "3D");
+                        ui.checkbox(&mut st.ui.show_edges, "Edges");
+                    });
+                    ui.horizontal(|ui| {
+                        ui.checkbox(&mut st.cfg.show_agg_edges, "Agg edges");
+                        ui.checkbox(&mut st.cfg.show_raw_edges, "Raw edges");
+                    });
                 });
 
-                if let Some(f) = &st.ui.focus {
-                    ui.label(format!("Focus: {}", f.0));
-                    if ui.button("Clear focus").clicked() {
-                        st.ui.focus = None;
-                        st.needs_redraw.store(true, Ordering::Relaxed);
-                    }
-                } else {
-                    ui.label("Focus: (none) — click a node");
-                }
-            });
-
-            ui.separator();
-            ui.vertical(|ui| {
-                section_header(ui, "Performance");
-                ui.add(
-                    egui::Slider::new(&mut st.cfg.max_visible_nodes, 200..=10_000)
-                        .text("max visible nodes"),
-                );
-                ui.add(
-                    egui::Slider::new(&mut st.cfg.progressive_nodes_per_frame, 50..=4000)
-                        .text("progressive/frame"),
-                );
-            });
-
-            ui.separator();
-            ui.vertical(|ui| {
-                section_header(ui, "LOD / Rendering");
-                ui.checkbox(&mut st.cfg.lod_enabled, "Enable LOD");
-                ui.add(
-                    egui::Slider::new(&mut st.cfg.lod_threshold_nodes, 500..=20_000)
-                        .text("LOD threshold"),
-                );
-                egui::ComboBox::from_label("LOD edges")
-                    .selected_text(match st.cfg.lod_edges_mode {
-                        LodEdgesMode::Off => "Off",
-                        LodEdgesMode::FocusOnly => "Focus only",
-                        LodEdgesMode::All => "All",
-                    })
-                    .show_ui(ui, |ui| {
-                        ui.selectable_value(&mut st.cfg.lod_edges_mode, LodEdgesMode::Off, "Off");
-                        ui.selectable_value(
-                            &mut st.cfg.lod_edges_mode,
-                            LodEdgesMode::FocusOnly,
-                            "Focus only",
+                ui.separator();
+                ui.vertical(|ui| {
+                    section_header(ui, "Incident Hunt");
+                    ui.label(format!("Score: {}", mission.score));
+                    if mission.active {
+                        ui.label(
+                            egui::RichText::new(format!("▶ {}", mission.signature))
+                                .color(egui::Color32::from_rgb(255, 120, 60)),
                         );
-                        ui.selectable_value(&mut st.cfg.lod_edges_mode, LodEdgesMode::All, "All");
-                    });
-            });
-
-            ui.separator();
-            ui.vertical(|ui| {
-                section_header(ui, "Layout (Spatial)");
-                // A settled force layout freezes; if any parameter changes it must
-                // be woken so the new value actually takes effect.
-                let mut changed = false;
-                changed |= ui
-                    .checkbox(&mut st.cfg.layout_force, "Force layout")
-                    .changed();
-                changed |= ui
-                    .add(egui::Slider::new(&mut st.cfg.link_distance, 1.0..=20.0).text("link dist"))
-                    .changed();
-                changed |= ui
-                    .add(egui::Slider::new(&mut st.cfg.repulsion, 0.0..=120.0).text("repulsion"))
-                    .changed();
-                changed |= ui
-                    .add(egui::Slider::new(&mut st.cfg.damping, 0.80..=0.999).text("damping"))
-                    .changed();
-                changed |= ui
-                    .add(egui::Slider::new(&mut st.cfg.max_step, 0.05..=2.0).text("max step"))
-                    .changed();
-                if changed {
-                    st.spatial.layout_settled = false;
-                    st.spatial.settle_streak = 0;
-                    st.needs_redraw.store(true, Ordering::Relaxed);
-                }
-            });
-
-            ui.separator();
-            ui.vertical(|ui| {
-                section_header(ui, "Glow");
-                let mut ms = st.cfg.glow_duration.as_millis() as i32;
-                ui.add(egui::Slider::new(&mut ms, 100..=3000).text("glow ms"));
-                st.cfg.glow_duration = std::time::Duration::from_millis(ms as u64);
-            });
-
-            ui.separator();
-            ui.vertical(|ui| {
-                section_header(ui, "Gameplay");
-                ui.checkbox(&mut st.cfg.fog_of_war, "Fog of war (O)");
-                ui.add(
-                    egui::Slider::new(&mut st.cfg.reveal_radius, 10.0..=200.0)
-                        .text("reveal radius"),
-                );
-                ui.add(egui::Slider::new(&mut st.cfg.scan_speed, 10.0..=300.0).text("scan speed"));
-                ui.add(egui::Slider::new(&mut st.cfg.scan_max, 50.0..=1500.0).text("scan range"));
-                ui.add(egui::Slider::new(&mut st.cfg.fly_speed, 2.0..=120.0).text("fly speed"));
-                ui.add(egui::Slider::new(&mut st.cfg.fly_boost, 1.0..=12.0).text("fly boost"));
-                ui.add(
-                    egui::Slider::new(&mut st.cfg.fly_sensitivity, 0.0005..=0.01).text("look sens"),
-                );
-                ui.checkbox(&mut st.cfg.micro_tags, "Micro-tags (Standard)");
-                ui.add(egui::Slider::new(&mut st.cfg.micro_tag_max, 0..=128).text("micro-tag max"));
-                ui.checkbox(&mut st.cfg.node_rings, "Orbital rings (Standard)");
-                ui.add(
-                    egui::Slider::new(&mut st.cfg.ring_min_degree, 1..=20).text("ring min degree"),
-                );
-                ui.add(
-                    egui::Slider::new(&mut st.cfg.edge_pick_threshold, 0.05..=0.6)
-                        .text("edge pick dist"),
-                );
-            });
-
-            ui.separator();
-            ui.vertical(|ui| {
-                section_header(ui, "Post-FX (Standard)");
-                ui.checkbox(&mut st.cfg.postfx.enabled, "Enabled");
-                ui.add(egui::Slider::new(&mut st.cfg.postfx.scanline, 0.0..=0.5).text("scanline"));
-                ui.add(egui::Slider::new(&mut st.cfg.postfx.vignette, 0.0..=1.0).text("vignette"));
-                ui.add(
-                    egui::Slider::new(&mut st.cfg.postfx.aberration, 0.0..=2.0).text("aberration"),
-                );
-                ui.add(egui::Slider::new(&mut st.cfg.postfx.grain, 0.0..=0.3).text("grain"));
-            });
-
-            ui.separator();
-            ui.vertical(|ui| {
-                section_header(ui, "Audio");
-                ui.checkbox(&mut st.cfg.audio_enabled, "Enabled");
-                ui.add(egui::Slider::new(&mut st.cfg.audio_volume, 0.0..=1.0).text("volume"));
-                if cfg!(not(feature = "audio")) {
-                    ui.label(egui::RichText::new("(build with --features audio)").weak());
-                }
-            });
-
-            ui.separator();
-            ui.vertical(|ui| {
-                section_header(ui, "GC");
-                ui.checkbox(&mut st.cfg.gc_enabled, "enabled");
-                let mut ttl = st.cfg.gc_ttl.as_secs() as i32;
-                ui.add(egui::Slider::new(&mut ttl, 1..=600).text("orphan TTL (s)"));
-                st.cfg.gc_ttl = std::time::Duration::from_secs(ttl as u64);
-            });
-
-            ui.separator();
-            ui.vertical(|ui| {
-                section_header(ui, "Search");
-                ui.label("Ctrl+P opens search overlay. ? toggles help.");
-                if ui.button("Open Search (Ctrl+P)").clicked() {
-                    st.ui.search_open = true;
-                }
-            });
-
-            ui.separator();
-            ui.vertical(|ui| {
-                section_header(ui, "Settings");
-                if ui.button("Edit Paths…").clicked() {
-                    st.open_path_editor();
-                }
-                if ui.button("Save Settings").clicked() {
-                    let cfg = st.viewer_config();
-                    if let Err(err) = config::save(&cfg) {
-                        eprintln!("failed to save settings: {err}");
                     }
-                }
-                if ui.button("Reset Defaults").clicked() {
-                    let defaults = ViewerConfig::default();
-                    st.apply_viewer_config(&defaults);
-                }
-            });
+                    if !mission.last_message.is_empty() {
+                        ui.label(&mission.last_message);
+                    }
+                    ui.label("Press M to investigate the next alert.");
+                });
 
-            ui.separator();
-            ui.vertical(|ui| {
-                section_header(ui, "Actions");
-                if ui.button("Clear graph").clicked() {
-                    st.clear();
-                }
+                ui.separator();
+                ui.vertical(|ui| {
+                    section_header(ui, "Alerts");
+                    let (low, med, high) = st.alert_severity_counts();
+                    ui.horizontal(|ui| {
+                        ui.colored_label(
+                            egui::Color32::from_rgb(250, 190, 60),
+                            format!("low {low}"),
+                        );
+                        ui.colored_label(
+                            egui::Color32::from_rgb(252, 128, 40),
+                            format!("med {med}"),
+                        );
+                        ui.colored_label(
+                            egui::Color32::from_rgb(255, 46, 51),
+                            format!("high {high}"),
+                        );
+                    });
+                    if low + med + high == 0 {
+                        ui.label("no alerts");
+                    } else {
+                        let recent: Vec<(spacegraph_core::NodeId, String, String)> = st
+                            .alerts_newest_first()
+                            .take(10)
+                            .filter_map(|id| match st.model.nodes.get(id) {
+                                Some(spacegraph_core::Node::Alert {
+                                    signature,
+                                    severity,
+                                    ..
+                                }) => Some((id.clone(), severity.clone(), signature.clone())),
+                                _ => None,
+                            })
+                            .collect();
+                        let mut jump_to = None;
+                        for (id, sev, sig) in recent {
+                            if ui
+                                .selectable_label(false, format!("[{sev}] {sig}"))
+                                .clicked()
+                            {
+                                jump_to = Some(id);
+                            }
+                        }
+                        if let Some(id) = jump_to {
+                            st.ui.focus = Some(id.clone());
+                            st.ui.selected = Some(id.clone());
+                            st.ui.view_mode = ViewMode::Spatial;
+                            st.request_jump(id);
+                            st.needs_redraw.store(true, Ordering::Relaxed);
+                        }
+                    }
+                });
+
+                ui.separator();
+                ui.vertical(|ui| {
+                    section_header(ui, "Filtering");
+                    ui.label("Filter (substring):");
+                    ui.text_edit_singleline(&mut st.ui.filter);
+
+                    ui.add_space(6.0);
+                    ui.horizontal(|ui| {
+                        ui.label("Focus hops:");
+                        ui.add(egui::Slider::new(&mut st.ui.focus_hops, 1..=10));
+                    });
+
+                    if let Some(f) = &st.ui.focus {
+                        ui.label(format!("Focus: {}", f.0));
+                        if ui.button("Clear focus").clicked() {
+                            st.ui.focus = None;
+                            st.needs_redraw.store(true, Ordering::Relaxed);
+                        }
+                    } else {
+                        ui.label("Focus: (none) — click a node");
+                    }
+                });
+
+                // ---- Display: theme + quality-tier selectors (F1, spec §3.9) ----
+                ui.separator();
+                ui.vertical(|ui| {
+                    section_header(ui, "Display");
+                    theme_tier_selectors(ui, &mut st, &mut quality);
+                });
+
+                // ---- Technician: tuning controls, collapsed by default (spec §3.2) ----
+                ui.separator();
+                let mut tech_open = st.cfg.shell.technician_open;
+                ui.checkbox(&mut tech_open, "⚙ Technician (tuning)");
+                st.cfg.shell.technician_open = tech_open;
+                if tech_open {
+                    ui.vertical(|ui| {
+                        section_header(ui, "Performance");
+                        ui.add(
+                            egui::Slider::new(&mut st.cfg.max_visible_nodes, 200..=10_000)
+                                .text("max visible nodes"),
+                        );
+                        ui.add(
+                            egui::Slider::new(&mut st.cfg.progressive_nodes_per_frame, 50..=4000)
+                                .text("progressive/frame"),
+                        );
+                    });
+
+                    ui.separator();
+                    ui.vertical(|ui| {
+                        section_header(ui, "LOD / Rendering");
+                        ui.checkbox(&mut st.cfg.lod_enabled, "Enable LOD");
+                        ui.add(
+                            egui::Slider::new(&mut st.cfg.lod_threshold_nodes, 500..=20_000)
+                                .text("LOD threshold"),
+                        );
+                        egui::ComboBox::from_label("LOD edges")
+                            .selected_text(match st.cfg.lod_edges_mode {
+                                LodEdgesMode::Off => "Off",
+                                LodEdgesMode::FocusOnly => "Focus only",
+                                LodEdgesMode::All => "All",
+                            })
+                            .show_ui(ui, |ui| {
+                                ui.selectable_value(
+                                    &mut st.cfg.lod_edges_mode,
+                                    LodEdgesMode::Off,
+                                    "Off",
+                                );
+                                ui.selectable_value(
+                                    &mut st.cfg.lod_edges_mode,
+                                    LodEdgesMode::FocusOnly,
+                                    "Focus only",
+                                );
+                                ui.selectable_value(
+                                    &mut st.cfg.lod_edges_mode,
+                                    LodEdgesMode::All,
+                                    "All",
+                                );
+                            });
+                    });
+
+                    ui.separator();
+                    ui.vertical(|ui| {
+                        section_header(ui, "Layout (Spatial)");
+                        // A settled force layout freezes; if any parameter changes it must
+                        // be woken so the new value actually takes effect.
+                        let mut changed = false;
+                        changed |= ui
+                            .checkbox(&mut st.cfg.layout_force, "Force layout")
+                            .changed();
+                        changed |= ui
+                            .add(
+                                egui::Slider::new(&mut st.cfg.link_distance, 1.0..=20.0)
+                                    .text("link dist"),
+                            )
+                            .changed();
+                        changed |= ui
+                            .add(
+                                egui::Slider::new(&mut st.cfg.repulsion, 0.0..=120.0)
+                                    .text("repulsion"),
+                            )
+                            .changed();
+                        changed |= ui
+                            .add(
+                                egui::Slider::new(&mut st.cfg.damping, 0.80..=0.999)
+                                    .text("damping"),
+                            )
+                            .changed();
+                        changed |= ui
+                            .add(
+                                egui::Slider::new(&mut st.cfg.max_step, 0.05..=2.0)
+                                    .text("max step"),
+                            )
+                            .changed();
+                        if changed {
+                            st.spatial.layout_settled = false;
+                            st.spatial.settle_streak = 0;
+                            st.needs_redraw.store(true, Ordering::Relaxed);
+                        }
+                    });
+
+                    ui.separator();
+                    ui.vertical(|ui| {
+                        section_header(ui, "Glow");
+                        let mut ms = st.cfg.glow_duration.as_millis() as i32;
+                        ui.add(egui::Slider::new(&mut ms, 100..=3000).text("glow ms"));
+                        st.cfg.glow_duration = std::time::Duration::from_millis(ms as u64);
+                    });
+
+                    ui.separator();
+                    ui.vertical(|ui| {
+                        section_header(ui, "Gameplay");
+                        ui.checkbox(&mut st.cfg.fog_of_war, "Fog of war (O)");
+                        ui.add(
+                            egui::Slider::new(&mut st.cfg.reveal_radius, 10.0..=200.0)
+                                .text("reveal radius"),
+                        );
+                        ui.add(
+                            egui::Slider::new(&mut st.cfg.scan_speed, 10.0..=300.0)
+                                .text("scan speed"),
+                        );
+                        ui.add(
+                            egui::Slider::new(&mut st.cfg.scan_max, 50.0..=1500.0)
+                                .text("scan range"),
+                        );
+                        ui.add(
+                            egui::Slider::new(&mut st.cfg.fly_speed, 2.0..=120.0).text("fly speed"),
+                        );
+                        ui.add(
+                            egui::Slider::new(&mut st.cfg.fly_boost, 1.0..=12.0).text("fly boost"),
+                        );
+                        ui.add(
+                            egui::Slider::new(&mut st.cfg.fly_sensitivity, 0.0005..=0.01)
+                                .text("look sens"),
+                        );
+                        ui.checkbox(&mut st.cfg.micro_tags, "Micro-tags (Standard)");
+                        ui.add(
+                            egui::Slider::new(&mut st.cfg.micro_tag_max, 0..=128)
+                                .text("micro-tag max"),
+                        );
+                        ui.checkbox(&mut st.cfg.node_rings, "Orbital rings (Standard)");
+                        ui.add(
+                            egui::Slider::new(&mut st.cfg.ring_min_degree, 1..=20)
+                                .text("ring min degree"),
+                        );
+                        ui.add(
+                            egui::Slider::new(&mut st.cfg.edge_pick_threshold, 0.05..=0.6)
+                                .text("edge pick dist"),
+                        );
+                    });
+
+                    ui.separator();
+                    ui.vertical(|ui| {
+                        section_header(ui, "Post-FX (Standard)");
+                        ui.checkbox(&mut st.cfg.postfx.enabled, "Enabled");
+                        ui.add(
+                            egui::Slider::new(&mut st.cfg.postfx.scanline, 0.0..=0.5)
+                                .text("scanline"),
+                        );
+                        ui.add(
+                            egui::Slider::new(&mut st.cfg.postfx.vignette, 0.0..=1.0)
+                                .text("vignette"),
+                        );
+                        ui.add(
+                            egui::Slider::new(&mut st.cfg.postfx.aberration, 0.0..=2.0)
+                                .text("aberration"),
+                        );
+                        ui.add(
+                            egui::Slider::new(&mut st.cfg.postfx.grain, 0.0..=0.3).text("grain"),
+                        );
+                    });
+
+                    ui.separator();
+                    ui.vertical(|ui| {
+                        section_header(ui, "Audio");
+                        ui.checkbox(&mut st.cfg.audio_enabled, "Enabled");
+                        ui.add(
+                            egui::Slider::new(&mut st.cfg.audio_volume, 0.0..=1.0).text("volume"),
+                        );
+                        if cfg!(not(feature = "audio")) {
+                            ui.label(egui::RichText::new("(build with --features audio)").weak());
+                        }
+                    });
+
+                    ui.separator();
+                    ui.vertical(|ui| {
+                        section_header(ui, "GC");
+                        ui.checkbox(&mut st.cfg.gc_enabled, "enabled");
+                        let mut ttl = st.cfg.gc_ttl.as_secs() as i32;
+                        ui.add(egui::Slider::new(&mut ttl, 1..=600).text("orphan TTL (s)"));
+                        st.cfg.gc_ttl = std::time::Duration::from_secs(ttl as u64);
+                    });
+                } // end Technician section
+
+                ui.separator();
+                ui.vertical(|ui| {
+                    section_header(ui, "Search");
+                    ui.label("Ctrl+P opens search overlay. ? toggles help.");
+                    if ui.button("Open Search (Ctrl+P)").clicked() {
+                        st.ui.search_open = true;
+                    }
+                });
+
+                ui.separator();
+                ui.vertical(|ui| {
+                    section_header(ui, "Settings");
+                    if ui.button("Edit Paths…").clicked() {
+                        st.open_path_editor();
+                    }
+                    if ui.button("Save Settings").clicked() {
+                        let cfg = st.viewer_config();
+                        if let Err(err) = config::save(&cfg) {
+                            eprintln!("failed to save settings: {err}");
+                        }
+                    }
+                    if ui.button("Reset Defaults").clicked() {
+                        let defaults = ViewerConfig::default();
+                        st.apply_viewer_config(&defaults);
+                    }
+                });
+
+                ui.separator();
+                ui.vertical(|ui| {
+                    section_header(ui, "Actions");
+                    if ui.button("Clear graph").clicked() {
+                        st.clear();
+                    }
+                });
             });
         });
-    });
 
-    let panel_rect = resp.response.rect;
     let screen = ctx.screen_rect();
+    // Persist the (possibly resized) rail width; when collapsed the rail has no
+    // rect, so the content starts at the screen's left edge.
+    let panel_rect = if let Some(resp) = &resp {
+        st.cfg.shell.left_width = resp.response.rect.width();
+        resp.response.rect
+    } else {
+        egui::Rect::from_min_max(screen.min, egui::pos2(screen.min.x, screen.max.y))
+    };
     let content_rect = egui::Rect::from_min_max(
         egui::pos2(panel_rect.max.x, screen.min.y),
         egui::pos2(screen.max.x, screen.max.y),
@@ -471,4 +554,62 @@ pub fn ui_panel(
 fn section_header(ui: &mut egui::Ui, title: &str) {
     ui.add_space(6.0);
     ui.label(egui::RichText::new(title).strong());
+}
+
+/// In-app selectors for the two axes (F1): `VisualTheme` (aesthetic) and
+/// `QualityTier` (cost). Both persist; an explicit tier applies immediately.
+fn theme_tier_selectors(
+    ui: &mut egui::Ui,
+    st: &mut GraphState,
+    quality: &mut crate::render::quality::QualityState,
+) {
+    use crate::render::quality::{parse_tier, QualityTier};
+    use crate::util::config::VisualTheme;
+
+    egui::ComboBox::from_label("Theme")
+        .selected_text(match st.cfg.visual_theme {
+            VisualTheme::Standard => "Standard",
+            VisualTheme::Minimal => "Minimal",
+        })
+        .show_ui(ui, |ui| {
+            ui.selectable_value(&mut st.cfg.visual_theme, VisualTheme::Standard, "Standard");
+            ui.selectable_value(&mut st.cfg.visual_theme, VisualTheme::Minimal, "Minimal");
+        });
+
+    let tier_label = if st.cfg.quality.tier == "auto" {
+        format!("Auto ({})", quality.effective.as_str())
+    } else {
+        st.cfg.quality.tier.clone()
+    };
+    egui::ComboBox::from_label("Quality")
+        .selected_text(tier_label)
+        .show_ui(ui, |ui| {
+            for (label, val) in [
+                ("Auto (detect)", "auto"),
+                ("Potato", "potato"),
+                ("Low", "low"),
+                ("Medium", "medium"),
+                ("High", "high"),
+            ] {
+                if ui
+                    .selectable_label(st.cfg.quality.tier == val, label)
+                    .clicked()
+                {
+                    st.cfg.quality.tier = val.to_string();
+                    // Explicit tier applies now; "auto" re-detects on next launch.
+                    if let Some(t) = parse_tier(val) {
+                        quality.base = t;
+                        quality.set_effective(t);
+                    }
+                }
+            }
+        });
+
+    if ui
+        .checkbox(&mut st.cfg.quality.adaptive, "Adaptive quality")
+        .changed()
+    {
+        quality.adaptive_on = st.cfg.quality.adaptive;
+    }
+    let _ = QualityTier::ALL; // (kept for the selector vocabulary)
 }
