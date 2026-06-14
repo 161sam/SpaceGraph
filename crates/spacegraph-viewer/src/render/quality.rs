@@ -373,18 +373,29 @@ impl Default for QualityState {
 /// MSAA, the node budget, and the derived `DetailCapability`. Post-FX and orbital
 /// rings are gated at their own systems (`sync_postfx` / `sync_node_rings`) which
 /// read `QualityState` each frame. No per-frame churn — guarded by `take_dirty`.
+#[allow(clippy::too_many_arguments)]
 pub fn apply_quality(
     mut quality: ResMut<QualityState>,
     mut st: ResMut<GraphState>,
     mut bloom_q: Query<&mut BloomSettings>,
     mut msaa: ResMut<Msaa>,
     mut cap: ResMut<DetailCapability>,
+    mut rebuild: ResMut<crate::render::RebuildNodeEntities>,
+    mut last_silhouettes: Local<Option<bool>>,
 ) {
     quality.note_theme(st.cfg.visual_theme);
     if !quality.take_dirty() {
         return;
     }
     let gates = quality.gates(st.cfg.visual_theme);
+
+    // A flip of the silhouette gate (Potato/Low ⇄ Medium/High, or theme) needs
+    // one node-entity rebuild so cores/shells swap (the v0.4.0 theme-switch
+    // pattern) — no per-frame churn.
+    if last_silhouettes.is_some() && *last_silhouettes != Some(gates.silhouettes) {
+        rebuild.0 = true;
+    }
+    *last_silhouettes = Some(gates.silhouettes);
 
     for mut bloom in bloom_q.iter_mut() {
         let want = if gates.hdr_bloom { BLOOM_ON } else { 0.0 };

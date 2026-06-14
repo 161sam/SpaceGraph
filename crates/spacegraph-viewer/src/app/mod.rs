@@ -50,6 +50,7 @@ impl Plugin for SpaceGraphViewerPlugin {
             .insert_resource(crate::render::Mission::default())
             .insert_resource(crate::render::FramePacing::default())
             .insert_resource(crate::render::NodeIcons::default())
+            .insert_resource(crate::render::NodeGlyphs::default())
             .insert_resource(crate::ui::PreviewState::default())
             .insert_resource(crate::render::RippleTracker::default())
             .insert_resource(crate::render::PreviewExpand::default())
@@ -74,6 +75,7 @@ impl Plugin for SpaceGraphViewerPlugin {
                 crate::render::setup_scene,
                 crate::render::setup_node_render_resources,
                 crate::render::setup_node_icon_resources,
+                crate::render::setup_node_glyph_resources,
                 crate::render::setup_ripple_resources,
                 crate::render::setup_edge_mesh,
             ),
@@ -129,6 +131,7 @@ impl Plugin for SpaceGraphViewerPlugin {
                 crate::render::sync_node_entities,
                 crate::render::sync_node_rings,
                 crate::render::sync_node_icons,
+                crate::render::sync_node_glyphs,
                 crate::render::update_edge_mesh,
                 crate::render::draw_scene,
                 crate::render::draw_node_labels,
