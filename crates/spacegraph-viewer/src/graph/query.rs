@@ -149,14 +149,19 @@ fn parse_recent(v: &str) -> Result<Pred, QueryError> {
     let n: u64 = num
         .parse()
         .map_err(|_| err(format!("recent value '{v}' is not a number+unit")))?;
-    let secs = match unit {
-        "s" => n,
-        "m" => n * 60,
-        "h" => n * 3600,
-        "d" => n * 86_400,
+    let mult: u64 = match unit {
+        "s" => 1,
+        "m" => 60,
+        "h" => 3600,
+        "d" => 86_400,
         "" => return Err(err("recent needs a unit (s, m, h, d)".into())),
         u => return Err(err(format!("recent unit '{u}' is invalid"))),
     };
+    // Checked: a huge-but-valid literal (e.g. `recent:9999999999999999d`) must
+    // return an error, not panic (debug) / wrap (release) — this is live UI input.
+    let secs = n
+        .checked_mul(mult)
+        .ok_or_else(|| err(format!("recent value '{v}' is too large")))?;
     Ok(Pred::Recent(secs))
 }
 
@@ -276,6 +281,8 @@ mod tests {
         assert!(parse_query("recent:5").is_err(), "recent needs a unit");
         assert!(parse_query("foo:bar").is_err(), "unknown key");
         assert!(parse_query("sev:urgent").is_err());
+        // Huge-but-valid literal must error, not panic/overflow (live UI input).
+        assert!(parse_query("recent:9999999999999999d").is_err());
     }
 
     fn view<'a>(kind: &'a str, label: &'a str, degree: u32) -> NodeView<'a> {

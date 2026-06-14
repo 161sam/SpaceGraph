@@ -118,6 +118,16 @@ impl GraphState {
         q.matches(&view)
     }
 
+    /// Effective node budget = the user's `max_visible_nodes` capped by the active
+    /// quality tier (`tier_max_nodes`). Non-destructive: the persisted user value
+    /// is preserved, so raising the tier restores it.
+    pub fn effective_max_nodes(&self) -> usize {
+        self.cfg
+            .max_visible_nodes
+            .min(self.cfg.tier_max_nodes)
+            .max(1)
+    }
+
     pub fn visible_set_capped(&mut self) -> HashSet<NodeId> {
         // Parse the query-DSL filter once (not per node). Malformed → None (the
         // filter chip shows the error; everything stays visible).
@@ -152,11 +162,11 @@ impl GraphState {
                         vis.insert(nb.clone());
                         q.push_back((nb, d + 1));
                     }
-                    if vis.len() >= self.cfg.max_visible_nodes {
+                    if vis.len() >= self.effective_max_nodes() {
                         break;
                     }
                 }
-                if vis.len() >= self.cfg.max_visible_nodes {
+                if vis.len() >= self.effective_max_nodes() {
                     break;
                 }
             }
@@ -168,13 +178,13 @@ impl GraphState {
             base = self.tree_visible_set(&base);
         }
 
-        let mut result = if base.len() > self.cfg.max_visible_nodes {
+        let mut result = if base.len() > self.effective_max_nodes() {
             if self.ui.view_mode == ViewMode::Tree {
                 // File paths sort hierarchically, so a lexicographic slice keeps
                 // subtrees contiguous — the right cap for the tree view.
                 let mut v: Vec<NodeId> = base.into_iter().collect();
                 v.sort_by(|a, b| a.0.cmp(&b.0));
-                v.truncate(self.cfg.max_visible_nodes);
+                v.truncate(self.effective_max_nodes());
                 v.into_iter().collect()
             } else {
                 self.cap_visible_set_connected(base)
@@ -204,7 +214,7 @@ impl GraphState {
     /// adjacency, pulling connected neighbours in together. Determinism: seed
     /// order and per-node neighbour order are both sorted by ID.
     fn cap_visible_set_connected(&self, base: HashSet<NodeId>) -> HashSet<NodeId> {
-        let cap = self.cfg.max_visible_nodes.max(1);
+        let cap = self.effective_max_nodes().max(1);
         if base.len() <= cap {
             return base;
         }

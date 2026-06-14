@@ -484,6 +484,10 @@ pub struct CfgState {
     pub glow_duration: Duration,
 
     pub max_visible_nodes: usize,
+    /// Runtime upper bound on the node budget imposed by the active quality tier
+    /// (v0.5.0). Not persisted; the effective cap is `min(max_visible_nodes,
+    /// tier_max_nodes)`. Default `usize::MAX` (no tier cap).
+    pub tier_max_nodes: usize,
     pub progressive_nodes_per_frame: usize,
     /// Cap on retained alert nodes; oldest evicted past this (default 200).
     pub max_visible_alerts: usize,
@@ -683,6 +687,7 @@ impl Default for GraphState {
                 y_spread: 6.0,
                 glow_duration: Duration::from_millis(900),
                 max_visible_nodes: 3000,
+                tier_max_nodes: usize::MAX,
                 progressive_nodes_per_frame: 250,
                 max_visible_alerts: 200,
                 gc_enabled: true,
