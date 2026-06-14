@@ -1,5 +1,5 @@
 use anyhow::Result;
-use spacegraph_core::{Msg, PROTOCOL_VERSION};
+use spacegraph_core::{protocol_compatible, Msg, PROTOCOL_VERSION};
 
 #[cfg(unix)]
 use anyhow::Context;
@@ -46,14 +46,15 @@ pub async fn run(
         // Per-connection receiver
         let mut bus_rx = bus_tx.subscribe();
 
-        // Expect optional hello/request; reject a protocol mismatch.
+        // Expect optional hello/request; reject only an *incompatible* peer.
+        // A v3 viewer stays compatible (graph-only) — never break it silently.
         if let Some(Ok(bytes)) = framed.next().await {
             if let Ok(Msg::Hello { protocol, .. }) = serde_json::from_slice::<Msg>(&bytes) {
-                if protocol != PROTOCOL_VERSION {
+                if !protocol_compatible(protocol) {
                     tracing::warn!(
                         client_protocol = protocol,
                         expected = PROTOCOL_VERSION,
-                        "protocol_mismatch: closing client"
+                        "protocol_incompatible: closing client"
                     );
                     active_clients.fetch_sub(1, Ordering::SeqCst);
                     continue;

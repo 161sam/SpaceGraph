@@ -1,7 +1,7 @@
 use crate::net::Incoming;
 use crossbeam_channel::Sender;
 use futures_util::{SinkExt, StreamExt};
-use spacegraph_core::{Msg, PROTOCOL_VERSION};
+use spacegraph_core::{protocol_compatible, Msg, PROTOCOL_VERSION};
 use tokio::net::UnixStream;
 use tokio::sync::watch;
 use tokio_util::codec::{Framed, LengthDelimitedCodec};
@@ -94,11 +94,11 @@ async fn run(
                         match serde_json::from_slice::<Msg>(&bytes) {
                             Ok(m) => {
                                 let inc = match &m {
-                                    Msg::Hello { protocol, .. } if *protocol != PROTOCOL_VERSION => {
+                                    Msg::Hello { protocol, .. } if !protocol_compatible(*protocol) => {
                                         let _ = tx.send(Incoming::error(
                                             stream_name.clone(),
                                             format!(
-                                                "protocol mismatch: agent v{protocol}, viewer v{PROTOCOL_VERSION}"
+                                                "protocol incompatible: agent v{protocol}, viewer v{PROTOCOL_VERSION}"
                                             ),
                                         ));
                                         let _ = tx.send(Incoming::disconnected(stream_name.clone()));
