@@ -1744,4 +1744,35 @@ log source. No wire, no exec, no egress.
 * Per-tactic **motion animation** and red-team **styling** are the visual layer
   (documented, not a CI gate); the classifiers are the tested cores.
 
+## D3 — Multi-stage correlation / campaigns (ADR-0007, AUTO, viewer-internal)
+
+Branch: `feat/multi-stage-correlation`. Viewer-internal aggregation over D1
+detections; no wire, no new kind.
+
+### Changed
+
+* **`graph/correlation.rs` (new):** `correlate(&GraphModel) -> Vec<Campaign>` (pure)
+  + `Campaign`. Links `spacegraph-rule` detections by shared/graph-adjacent subject
+  (union-find) spanning ≥2 distinct ATT&CK tactics (kill-chain order); stable
+  de-dup `key`. `GraphState::campaigns()` accessor; campaign membership surfaced in
+  the inspector tooltip.
+* **ADR-0007** authored (campaign model); ROADMAP ledger updated.
+
+### Gate results
+
+* `fmt --check` clean · `clippy -D warnings` clean · `test --workspace` green —
+  core **6**, agent **48**, viewer **212** + 3 (6 new D3 tests: one-campaign,
+  cross-host adjacency, single-tactic→none, unconnected→none, key-stability,
+  non-rule-ignored).
+
+### Notes
+
+* **Viewer-internal, no wire (O-8):** campaigns derive from existing alerts; a
+  first-class `Campaign` node/wire type is deferred behind a wire bump.
+* **Highlighted-path render + timeline lane** are the visual layer (not a CI gate);
+  `correlate` is the tested source of truth.
+* Correlation keys on subject/adjacency + tactic progression (not time): viewer
+  detections carry no reliable wire timestamp; a temporal window can refine later
+  with no model change.
+
 ---

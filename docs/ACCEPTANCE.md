@@ -371,6 +371,20 @@ wird zum Node.
   **clean** (kein `Command::new`/Egress); kein neuer Node/Edge-Kind; Nebula nur
   beobachtet (O-9).
 
+## D3 — Multi-stage correlation / campaigns (ADR-0007, AUTO, viewer-internal)
+
+- **Aggregation core:** `correlate(&GraphModel) -> Vec<Campaign>` reine Funktion.
+  Campaign = ≥2 `spacegraph-rule`-Detections auf gleichem/graph-benachbartem Subjekt
+  über ≥2 distinkte ATT&CK-Taktiken (Kill-Chain-Progression).
+- **Tests:** verlinkte Multi-Taktik → **eine** Campaign (nicht N); gleiche Taktik →
+  keine; unverbundene Subjekte → keine Kette; Cross-Host über Adjazenz verlinkt;
+  stabiler `key` über Ticks (De-dup); nur `spacegraph-rule`-Alerts korrelieren.
+- **Viewer-internal:** **kein neuer Wire-Typ, kein `Campaign`-Core-Kind** (O-8;
+  deferred hinter Wire-Bump). Campaign-Mitgliedschaft im Inspector-Tooltip;
+  Highlight-Pfad + Timeline-Lane sind die visuelle Schicht.
+- **Gates / Audited Negatives:** `fmt`/`clippy -D`/`test --workspace` grün; **kein
+  `spacegraph-core`-Change / PROTOCOL_VERSION 4**; kein exec/egress.
+
 ---
 
 ## Definition „Release-fähig“

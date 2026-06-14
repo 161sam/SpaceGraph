@@ -1325,6 +1325,13 @@ impl GraphState {
         (low, med, high)
     }
 
+    /// Multi-stage campaigns correlated from the current detections (D3,
+    /// ADR-0007). Pure read of the model; the highlighted-path render + timeline
+    /// lane consume this, and the inspector notes campaign membership.
+    pub fn campaigns(&self) -> Vec<crate::graph::correlation::Campaign> {
+        crate::graph::correlation::correlate(&self.model)
+    }
+
     /// Alert node ids, newest first (for the Alerts panel list).
     pub fn alerts_newest_first(&self) -> impl Iterator<Item = &NodeId> {
         self.alert_order.iter().rev()
@@ -1664,9 +1671,22 @@ impl GraphState {
             ));
         }
         // D1/ADR-0006: surface the ATT&CK technique/tactic on a rule detection.
-        if let Node::Alert { signature, .. } = n {
+        if let Node::Alert {
+            signature, source, ..
+        } = n
+        {
             if let Some(tag) = crate::graph::rules::attack_tag(signature) {
                 out.push(tag);
+            }
+            // D3/ADR-0007: note multi-stage campaign membership for a detection.
+            if source == "spacegraph-rule" {
+                if let Some(c) = self.campaigns().into_iter().find(|c| c.alerts.contains(id)) {
+                    out.push(format!(
+                        "campaign: {} stages, {} subjects",
+                        c.tactics.len(),
+                        c.subjects.len()
+                    ));
+                }
             }
         }
         if let Some(stream) = namespace::origin(id) {
