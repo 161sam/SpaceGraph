@@ -4,12 +4,20 @@ use std::sync::atomic::Ordering;
 
 use crate::graph::{GraphState, ViewMode};
 
-pub fn handle_shortcuts(mut contexts: EguiContexts, mut st: ResMut<GraphState>) {
+pub fn handle_shortcuts(
+    mut contexts: EguiContexts,
+    mut st: ResMut<GraphState>,
+    mut radial: ResMut<crate::ui::context_menu::RadialMenu>,
+) {
     let ctx = contexts.ctx_mut();
     let esc_pressed = ctx.input(|i| i.key_pressed(egui::Key::Escape));
     let wants_keyboard = ctx.wants_keyboard_input();
 
-    if esc_pressed {
+    // Esc closes the radial HUD first (without also clearing the selection).
+    if esc_pressed && radial.0.is_some() {
+        radial.0 = None;
+        st.needs_redraw.store(true, Ordering::Relaxed);
+    } else if esc_pressed {
         let mut changed = false;
         if st.ui.search_open {
             st.ui.search_open = false;
@@ -61,10 +69,11 @@ pub fn handle_shortcuts(mut contexts: EguiContexts, mut st: ResMut<GraphState>) 
     if ctx.input(|i| i.key_pressed(egui::Key::Questionmark)) {
         st.ui.help_open = !st.ui.help_open;
     }
+    // F opens the radial command HUD on the selected node (its inner-ring "Fly-to"
+    // command performs the lock-on; spec §3.4).
     if ctx.input(|i| i.key_pressed(egui::Key::F)) {
         if let Some(id) = st.ui.selected.clone().or_else(|| st.ui.selected_a.clone()) {
-            st.ui.focus = Some(id.clone());
-            st.request_jump(id); // lock-on: ease the camera to the node
+            radial.0 = Some(crate::ui::context_menu::RadialState::open(id));
             st.needs_redraw.store(true, Ordering::Relaxed);
         }
     }

@@ -54,6 +54,7 @@ impl Plugin for SpaceGraphViewerPlugin {
             .insert_resource(crate::ui::PreviewState::default())
             .insert_resource(crate::render::RippleTracker::default())
             .insert_resource(crate::render::PreviewExpand::default())
+            .insert_resource(crate::ui::RadialMenu::default())
             // Default detail capability + quality tier; `finish` refines both from
             // the real GPU adapter (or config) once the renderer is initialized.
             .insert_resource(crate::render::DetailCapability::Mid)
@@ -95,6 +96,7 @@ impl Plugin for SpaceGraphViewerPlugin {
                 crate::ui::legend_overlay,
                 crate::ui::reticle_overlay,
                 crate::ui::context_menu_overlay,
+                crate::ui::radial_hud,
                 crate::ui::node_preview_overlay,
                 crate::ui::minimap,
             ),
