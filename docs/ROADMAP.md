@@ -29,12 +29,13 @@ dokumentierte Begründung in `docs/adr/`.
 - A **visualization catalog** (§0.3) is adopted: the full set of what SpaceGraph
   renders and how, each item tagged with its data source and roadmap home.
 - **D4 expanded** from "AI-fabric viz" into the **node-model extension + boundary
-  phase** — one sanctioned wire bump (`PROTOCOL_VERSION` 3→4) opens: the
+  phase** — the node-model extension (over `PROTOCOL_VERSION` 4) opens: the
   closed-core + open-extension node model, the **boundary/containment render
   primitive** (which serves the internet membrane *and* VM/Container *and* trust
   zones — one primitive), AI-fabric (Agent/Model), virtualization (VM/Container),
   and **telemetric state & vitals** (per-process CPU/RSS + system load/mem/disk).
-  After this bump, new node classes are *data*, not wire changes.
+  The 3→4 bump was spent by v0.5.2 FS-search (ratified ADR-0016); after that,
+  new node classes are *data* and further wire changes are governed (O-8).
 - New near-term phase **D0 — Perimeter & exposure visual pass** (AUTO, no wire):
   port-state-as-aperture, exposure-as-depth, anomaly-as-scene-distortion — all
   derived from data already collected. Does **not** wait behind v0.6.0.
@@ -205,12 +206,14 @@ per-frame churn). Multi-agent endpoint management (`ui/settings_agents.rs`).
 **Agent (`crates/spacegraph-agent`).** Strictly **read-only** collectors behind
 the `EventSource` trait (`sources/mod.rs`): `fs`, `proc`, `net` (procfs sockets),
 `suricata_eve` (alerts). `AgentMode::{User, Privileged}` governs *which paths are
-read*, never write/execute. UDS transport, `PROTOCOL_VERSION = 3`. Hard rule: no
-`child_process`/exec anywhere in the tree (audited).
+read*, never write/execute. UDS transport, `PROTOCOL_VERSION = 4`
+(`MIN_COMPATIBLE_PROTOCOL = 3`; the 3→4 bump was spent by v0.5.2 FS-search). Hard
+rule: no `child_process`/exec anywhere in the tree (audited).
 
 **Core (`crates/spacegraph-core`).** `Node::{Process, File, User, Socket,
 RemoteHost, Alert}`; `EdgeKind::{Opens, Execs, RunsAs, OwnsSocket, ConnectsTo,
-ListensOn, AlertsOn}`; `Msg`/`Delta` wire protocol, `PROTOCOL_VERSION = 3`.
+ListensOn, AlertsOn}`; `Msg`/`Delta` wire protocol, `PROTOCOL_VERSION = 4`
+(ratified, ADR-0016).
 
 **Gaps that define this roadmap:**
 1. The viewer has **no detection of its own** — alerts arrive only from external
@@ -367,12 +370,14 @@ This is also the persistence backend for the D6 incident/case object.)*
 Promoted from a parallel feature-bag into explicit phases. **D0, D1, D2, D3, D5
 are AUTO and need no `spacegraph-core` wire change** (detections reuse
 `Node::Alert`; perimeter/exposure, purple-team origin and ATT&CK tags ride as
-viewer-side fields / source strings; new collectors emit existing kinds). **D4 is
-the one phase that crosses the wire boundary** — a single `PROTOCOL_VERSION` 3→4
-bump that opens the closed-core + open-extension node model, the boundary
-primitive, AI-fabric (Agent/Model), virtualization (VM/Container), and telemetric
-vitals — and is therefore **deferred behind v0.6.0 (O-8)**; after it, new node
-classes are *data*, never further bumps. **D6 depends on v0.9.0** for persistence.
+viewer-side fields / source strings; new collectors emit existing kinds). The
+3→4 wire bump is already spent (v0.5.2 FS-search, ratified ADR-0016), so
+`PROTOCOL_VERSION = 4` is the baseline. **D4 — the node-model extension phase** —
+opens the closed-core + open-extension node model, the boundary primitive,
+AI-fabric (Agent/Model), virtualization (VM/Container), and telemetric vitals; it
+stays **deferred behind v0.6.0** because the AI-fabric tap needs the MCP surface,
+and any further wire change its schema needs is **governed** (O-8). **D6 depends
+on v0.9.0** for persistence.
 Detections are advisory until published; any remediation is deferred to Track C
 (`v0.7.x`) under the approval spine.
 
@@ -454,17 +459,18 @@ a published campaign object is needed (then it follows O-8).
 not chain; de-dup/re-arm across ticks; headless gates green.
 **Notes:** AUTO, viewer-side. **ADR-0007** (correlation model).
 
-#### D4 — Node-model extension + boundary primitive + AI-fabric + vitals  ← the one wire bump, behind v0.6.0
+#### D4 — Node-model extension + boundary primitive + AI-fabric + vitals  ← rides protocol 4, behind v0.6.0
 **Goal:** open the node model once so it can represent anything (VM, Container,
 Agent, Model, and classes not yet imagined), render boundaries/containment as
-space, make AI activity recognizable, and carry live telemetric state — all on a
-*single* `PROTOCOL_VERSION` 3→4 bump, after which new classes are data, not wire
-changes (O-10).
+space, make AI activity recognizable, and carry live telemetric state — over the
+established `PROTOCOL_VERSION` 4 (the 3→4 bump was spent by v0.5.2 FS-search,
+ratified ADR-0016), after which new classes are data, not wire changes (O-10).
 **Reality-Check-Gate:** confirm the orchestrator hub re-exports tool-call traffic
-in a tappable, payload-opaque shape (`mcp__<server>__*`); confirm the migration
-keeps the `Hello`-mismatch reject intact (legacy decodes to 0 and is rejected).
-**Architecture (one coherent wire change, designed together to avoid 3→4→5→6
-churn — O-8):**
+in a tappable, payload-opaque shape (`mcp__<server>__*`). The protocol-4 migration
+(v0.5.2 FS-search) already proves the `Hello`-mismatch reject works (a v3 peer
+decodes to 0 and is rejected).
+**Architecture (one coherent node-model extension over protocol 4, designed
+together to avoid piecemeal churn — O-8):**
 - **Closed-core + open-extension node model.** Core kinds
   (`Process/File/User/Socket/RemoteHost/Alert`) stay first-class and
   hand-designed; a generic **`Node::Entity { class, attrs }`** + a class-
@@ -499,11 +505,13 @@ churn — O-8):**
 **Gate:** fixture MCP tool-call stream → rendered agent→model→target; fixture
 `virt` topology → nested boundary regions; a derived class fixture → a
 deterministic, Minimal-degrading visual; vitals fixture → vitality encoding +
-correct readout numbers; `PROTOCOL_VERSION = 4` handshake-checked end to end;
-schema migration documented; headless gates green.
-**Notes:** **deferred behind v0.6.0 (O-8)** — the wire bump and the MCP tap both
-presuppose the provider surface. Large phase (L–XL); the boundary primitive alone
-is layout + render work. **ADR-0008** (node-model extension + boundary + vitals).
+correct readout numbers; `PROTOCOL_VERSION = 4` handshake-checked end to end; any
+D4 schema migration documented; headless gates green.
+**Notes:** **deferred behind v0.6.0** — the MCP tap presupposes the provider
+surface (the wire is already at protocol 4; the 3→4 bump was spent by v0.5.2
+FS-search, ratified ADR-0016). Any further wire change D4's schema needs is
+governed (O-8). Large phase (L–XL); the boundary primitive alone is layout +
+render work. **ADR-0008** (node-model extension + boundary + vitals).
 
 #### D5 — ATT&CK coverage heatmap + posture score (AUTO)
 **Goal:** "how well am I covered / how exposed am I."
@@ -616,8 +624,9 @@ Track D (security analytics & visualization), parallel overlay:
   D2 threat-motion + Nebula      │ AUTO, no wire     → after/with D1
      + firewall + flow sources   ─┤ AUTO, no wire     → sibling MPs (passive, no exec)
   D3 multi-stage correlation     ─┘ AUTO, no wire    → after D1
-  D4 extension model + boundary  ─── ONE wire 3→4    → DEFERRED behind v0.6.0 (O-8)
-     + AI-fabric + virt + vitals      then data-only      one bump opens all of it
+  D4 extension model + boundary  ─── rides proto 4   → DEFERRED behind v0.6.0 (MCP tap)
+     + AI-fabric + virt + vitals      3→4 spent by      further bumps governed (O-8)
+                                      v0.5.2 FS-search
   D5 ATT&CK coverage + posture   ─── AUTO            → after a rule corpus exists
   D6 incident/case object        ─── needs persist   → after v0.9.0 (OceanData)
 
@@ -656,11 +665,14 @@ in CI/dev.**
   modes are supported; every scan is audited (what/when/scope/authorization). The
   scanner gathers — it does not exploit. CI/dev scans target only loopback /
   RFC5737 documentation ranges.
-- **Wire-stability (O-8).** No `spacegraph-core` schema/`PROTOCOL_VERSION` change
-  until the `v0.6.0` MCP surface stands. Track-D work until then reuses existing
-  node/edge kinds (detections → `Node::Alert`; ATT&CK + origin = viewer-side
-  fields). The D4 bump (3→4) is the first sanctioned change and ships with a
-  documented migration and an intact `Hello`-mismatch reject.
+- **Wire-stability (O-8).** The single sanctioned 3→4 bump is **spent** — v0.5.2
+  FS-search took it for the search/materialise messages (ratified ADR-0016), so
+  `PROTOCOL_VERSION = 4` is the baseline (`MIN_COMPATIBLE_PROTOCOL = 3`; a v3 peer
+  is still rejected by the `Hello` handshake). No further `spacegraph-core`
+  schema/`PROTOCOL_VERSION` change without governance review. Track-D work
+  (D0/D1/D2/D3/D5) reuses existing node/edge kinds (detections → `Node::Alert`;
+  ATT&CK + origin = viewer-side fields) and **adds no wire change**; D4's own
+  extension schema is evaluated when D4 is designed (behind v0.6.0).
 - **Passive-until-gated (O-9).** No scan/probe/exploit *triggering* from
   SpaceGraph until the `v0.7.0` AdminBot approval layer; until then external
   tools run independently and SpaceGraph ingests their output (the `suricata_eve`
@@ -717,9 +729,9 @@ in CI/dev.**
 | **O-6** | Kickstarter coupling | **None** — chronological version ladder (§4) |
 | **O-7** | ~~Egress / enrichment ownership~~ | **SUPERSEDED by ADR-0013 / O-7'.** (Was: Smolit-side only, SpaceGraph never gains egress.) |
 | **O-7'** | Egress ownership (revised) | **The `spacegraph-agent` stays egress-free / no-exec; egress + active probing live only in the dedicated scope-gated `spacegraph-scanner` crate.** The two-plane line moves to intelligence/recon (SpaceGraph) vs system-action (Smolit). The agent's read-only guarantee is preserved. (ADR-0013) |
-| **O-8** | `spacegraph-core` wire-bump timing | **Deferred behind `v0.6.0`.** No schema/`PROTOCOL_VERSION` change until the MCP surface stands. D4 (3→4) is the **single** sanctioned bump and opens extension model + boundary + AI-fabric + vitals together. The **scanner has its own contract** (not the agent wire); discovered infra is `Entity`-class (rides D4). |
+| **O-8** | `spacegraph-core` wire-bump governance | **The 3→4 bump is spent** (v0.5.2 FS-search; ratified ADR-0016) — `PROTOCOL_VERSION = 4` is the baseline, `MIN_COMPATIBLE_PROTOCOL = 3`. No further `spacegraph-core` schema/`PROTOCOL_VERSION` change without governance review. D4's node-model-extension schema (`Entity`, new `EdgeKind`s, vitals) is evaluated at D4 — additively over protocol 4 where the `MIN_COMPATIBLE` scheme allows, else a governed bump; D4 stays gated behind `v0.6.0` (MCP tap). The **scanner has its own contract** (not the agent wire); discovered infra is `Entity`-class. |
 | **O-9** | Scan/probe trigger posture | **Re-scoped.** *AdminBot-driven* system actions stay passive until `v0.7.0` (unchanged). *Reconnaissance scanning* is now a first-class SpaceGraph capability via the scope-gated scanner (Track E, O-11) — distinct from system-action triggering. |
-| **O-10** | Node-model extensibility | **Closed-core + open-extension.** Core kinds stay first-class/hand-designed; a generic `Entity{class,attrs}` + class registration carries the long tail as *data*; visuals for extension classes are *derived* within design envelopes (deterministic, semantic, Minimal-degrading). One wire bump (D4, behind `v0.6.0`); thereafter new classes need no further bump. |
+| **O-10** | Node-model extensibility | **Closed-core + open-extension.** Core kinds stay first-class/hand-designed; a generic `Entity{class,attrs}` + class registration carries the long tail as *data*; visuals for extension classes are *derived* within design envelopes (deterministic, semantic, Minimal-degrading). Carried over protocol 4 (the baseline since v0.5.2); D4 implements the extension model behind `v0.6.0`, thereafter new classes need no further bump. |
 | **O-11** | Scanner scope / authorization | **Both modes, scope-gated (ADR-0013).** A first-class `Scope` (CIDR sets + RoE + mode + rate); the scanner **refuses to run without an explicit scope**; own/authorized is the default, internet-wide is an explicit operator-owned **audited** mode; every scan is audited. The scanner **gathers, does not exploit** (exploitation deferred). CI/dev scans only loopback/RFC5737. |
 
 **Still open — non-blocking:**
@@ -745,7 +757,7 @@ at their phase's master-prompt (with the Reality-Check), per §5.
 | ADR-0002 | Actions via AdminBot, not a native channel | reserved — author at `v0.7.0` (+ ADR per onboarded action) |
 | ADR-0003-abrain | ABrain reasoning adapter (MCP vs HTTP) | reserved — author at `v0.8.0` |
 | ADR-0003-oceandata | OceanData history sink + context SPI | reserved — author at `v0.9.0` |
-| **ADR-0004** | Security-analytics two-plane architecture | **PARTLY SUPERSEDED by ADR-0013** (§O-7); the two-plane discipline + agent read-only guarantee are retained/re-scoped |
+| **ADR-0004** | Security-analytics two-plane architecture | **PARTLY SUPERSEDED by ADR-0013** (§O-7); **§O-8 amended by ADR-0016** (protocol-4 ratification); the two-plane discipline + agent read-only guarantee are retained/re-scoped |
 | **ADR-0005** | **Graph-native detection rule engine** | authored |
 | **ADR-0006** | **MITRE ATT&CK detection & coverage dimension** | authored |
 | ADR-0007 | Multi-stage correlation / campaign model | reserved — author at D3 |
@@ -757,6 +769,7 @@ at their phase's master-prompt (with the Reality-Check), per §5.
 | **ADR-0013** | **Active reconnaissance plane** (supersedes ADR-0004 §O-7; locks O-7'/O-11; `spacegraph-scanner`) | **authored (this cycle)** — implemented across Track E |
 | ADR-0014 | `spacegraph-scanner` technical architecture (engine, scope object, native-vs-wrap, data contract) | reserved — author at E1 |
 | ADR-0015 | Licensing (dual-license AGPL+Commercial) + authorized-use EULA | reserved — **release-blocking** for the commercial product (Sam/Johanna) |
+| **ADR-0016** | **FS-search baseline reconciliation** (ratify `PROTOCOL_VERSION 4`; restore agent no-exec) | **authored (this cycle)** — amends ADR-0004 §O-8; reaffirms O-7' |
 
 ---
 

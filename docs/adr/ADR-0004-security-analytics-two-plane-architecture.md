@@ -52,16 +52,22 @@ viewer is rejected by review. Rationale: a sink/lookup is an exfiltration and
 attack surface; keeping SpaceGraph egress-free is the core safety guarantee of an
 admin tool that watches a production host.
 
-### O-8 — Wire-stability: no `spacegraph-core` bump until the v0.6.0 MCP surface
-No `spacegraph-core` schema or `PROTOCOL_VERSION` change until the `v0.6.0`
-provider surface stands. Until then, security-analytics work **reuses existing
+### O-8 — Wire-stability: governed `spacegraph-core` bumps
+**Updated by ADR-0016.** The single sanctioned `PROTOCOL_VERSION` bump (3→4) was
+spent by **v0.5.2 (FS-search, commit `ed2f5ce`)** for the search/materialise
+messages — *not* by D4 as originally planned here. `PROTOCOL_VERSION = 4` is now
+the baseline (`MIN_COMPATIBLE_PROTOCOL = 3`; the `Hello`-mismatch reject is
+intact). No further `spacegraph-core` schema or `PROTOCOL_VERSION` change without
+governance review. Security-analytics work (Track D, pre-D4) **reuses existing
 node/edge kinds**: detections emit as `Node::Alert`; ATT&CK technique/tactic and
 purple-team origin ride as **viewer-side fields / source strings**, not wire
-types. The first sanctioned bump is D4 (`Agent`/`Model` kinds, `PROTOCOL_VERSION`
-3→4), shipped with a documented migration and an intact `Hello`-mismatch reject.
+types. D4's node-model extension (`Entity`, new `EdgeKind`s, vitals) is evaluated
+when D4 is designed — additively over protocol 4 where the `MIN_COMPATIBLE` scheme
+allows, else a governed bump.
 Rationale: a wire change couples agent and viewer versions and crosses the
-agent/viewer privilege boundary; deferring it keeps Track D auto-safe and avoids
-schema churn before the fabric's read shape is fixed.
+agent/viewer privilege boundary; governing bumps (rather than forbidding them)
+keeps Track D auto-safe and avoids unintentional schema churn before the fabric's
+read shape is fixed.
 
 ### O-9 — Passive-until-gated: no scan/probe trigger before v0.7.0
 SpaceGraph does not *trigger* scans, probes, or exploitation before the `v0.7.0`
