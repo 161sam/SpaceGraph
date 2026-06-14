@@ -141,6 +141,27 @@ Zwei-Ebenen-Modell — reich *und* billig (bis Raspberry Pi):
   (Icons als Farb-Variante, Vorschau text-only, kein Bild-Decode). Vorläufer des
   v0.5.0-`QualityTier`-Systems.
 
+### GitS UX-Shell & Quality-Tiers (v0.5.0)
+- **Quality-Tiers** (`QualityTier {Potato,Low,Medium,High}`): GPU-Kostenachse
+  *orthogonal* zum `VisualTheme`. Auto-erkannt, laufzeit-adaptiv (FPS-Feedback
+  mit Hysterese), manuell überschreibbar. Nur teure GPU-Effekte (Bloom/Post-FX/
+  MSAA/3D-Silhouetten/Ringe/Node-Budget) sind tier-gegated; die GitS-Identität
+  (Neon, Gate-Glyphs, Reticle, Radial-HUD, Ripples, Rand-Frame) ist
+  tier-unabhängig → läuft bis Raspberry Pi (Potato). `[quality]` in `viewer.toml`.
+- **GitS-egui-Reskin + IDE-Shell:** Design-Tokens + eingebettete OFL-Fonts (Inter/
+  JetBrains Mono/Space Grotesk), resizable/togglebare linke Operator-Leiste (Tuning
+  in einer eingeklappten **Technician**-Sektion), rechts angedockter Inspector
+  (`[shell]` persistiert). In-App-Selektoren für Theme **und** Quality-Tier.
+- **Gate-Glyph-Knoten:** billboardeter konzentrischer Ring (+ v0.4.1-Face-Icon =
+  Gate-Einheit); primär auf Potato/Low, Fern-LOD auf Medium/High.
+- **Radial-Command-HUD (`F`):** tastaturgesteuerter Ring — innen Befehle, außen
+  Nachbarpfade (Tab/Pfeile/`[ ]`/1–9/Enter/Esc); ein Pfad-Dive re-zentriert den Fokus.
+- **Dive-Ripples + Rand-Frame:** abklingende Ripples bei Fokus/Alert; Eck-Brackets
+  mit Live-Status (Agents/Alerts/Mode/FPS/Tier).
+- **Command-Palette (`Ctrl/Cmd+P`):** Fuzzy über Aktionen + Navigation + Knoten.
+- **Query-DSL-Filter:** `type:process deg:>3 -name:bash recent:5m` → entfernbare
+  Chips (rotes Fehler-Chip bei ungültiger Eingabe).
+
 ### UX & Analyse
 - Ctrl+P Search & Jump
 - HUD (FPS, Eventrate, Visible Nodes)

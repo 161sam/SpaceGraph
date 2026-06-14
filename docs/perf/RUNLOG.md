@@ -1163,3 +1163,66 @@ cargo run --release -p spacegraph-viewer -- --demo-load 1500
 # `type:process deg:>3 -name:bash` → chips + live filtering; a malformed term
 # (e.g. deg:abc) shows a red error chip and stops filtering.
 ```
+
+## Phase 7 — WP-6 Docs reconcile + tag (closeout)
+
+* **Docs reconciled:** `docs/DESIGN_LANGUAGE.md` (v0.5.0 section — quality tiers +
+  GitS split, tokens/reskin/shell, gate-glyphs, radial HUD, ripples/rand-frame,
+  palette/query-DSL, controls), `README.md` ("GitS UX-Shell & Quality-Tiers"
+  features + controls + the two axes), `docs/ACCEPTANCE.md` (per-WP v0.5.0 gates
+  **and** the F3 lane-timeline / Tree-view criteria), this RUNLOG.
+* **force_step benchmark — no layout regression (code unchanged).** `git diff
+  v0.4.1 HEAD` shows `force_step`'s body byte-unchanged (the only `layout.rs`
+  edits are the new `query_passes`/`node_kind_str`/`effective_max_nodes` and the
+  filter parse in `visible_set_capped`); `benches/layout.rs` unchanged. With an
+  empty filter (the bench default) the query path is `None` → a cheap immediate
+  pass, so `visible_set_capped` is equivalent. Render-side pass; gate intent met.
+
+### Adversarial review (multi-agent) + fixes
+
+A 5-dimension adversarial review (12 agents, per-finding verification) of the full
+v0.5.0 surfaced **6 confirmed** findings (1 dismissed); the three behavioural bugs
++ the recoverability fix landed before tagging:
+
+* **[tier] `apply_quality` discarded the `[node_detail] level` override** — it set
+  `*cap = tier.detail_capability()` unconditionally, clobbering the explicit
+  override `finish()` had honoured. **Fix:** `apply_quality` now re-applies
+  `parse_override(level)` first (tier-derived only as the fallback).
+* **[ripple] alert ripple missed new alerts once the buffer was full** —
+  `trigger_alert_ripple` used a count delta, but `alert_order` is a capped ring
+  buffer whose length pins at the cap. **Fix:** track the newest alert by
+  **identity** (`alert_order.back()` vs a `Local<Option<NodeId>>`) so each new
+  alert fires even at constant length (new test
+  `alert_ripple_fires_on_new_identity_at_constant_length`).
+* **[query] `recent:<huge>d` overflow** — `n * 86_400` could panic (debug,
+  overflow-checks) / wrap (release) on live filter input. **Fix:** `checked_mul` →
+  `QueryError` (covered in `malformed_inputs_error`).
+* **[tier] node-budget clobber made the user's `max_visible_nodes` unrecoverable**
+  (LOW) — the tier overwrote it; raising the tier didn't restore it. **Fix:**
+  non-destructive — the tier now sets a runtime `tier_max_nodes`; the effective
+  cap is `min(max_visible_nodes, tier_max_nodes)` (`effective_max_nodes`), so the
+  persisted user value is preserved and restored when the tier rises.
+* **Left documented (LOW, no behavioural bug):** the gate-glyph *distance* far-LOD
+  band (already deferred in Phase 3 — the pure fn exists, tier-driven wiring used);
+  the palette's `take(NODE_SCAN_CAP)` over an unordered HashMap (UI-only,
+  determinism-exempt; ranked results still surface the best matches scanned).
+* Dismissed (1): a claim the verifier found already covered.
+
+### Three-class FPS local-capture (perf — required, no GPU/Pi in CI)
+
+```
+cargo run --release -p spacegraph-viewer -- --demo-load 1500
+```
+Per class: auto-detected tier, steady FPS at each tier, that an adaptive step-down
+recovers FPS without oscillation, and that the GitS read (gate-glyphs/neon/HUD)
+survives at Potato:
+
+| Class | Auto tier | FPS Potato/Low/Medium/High | Adaptive verified |
+|---|---|---|---|
+| Pi / GLES / llvmpipe | Potato | | |
+| Integrated | Low/Medium | | |
+| Discrete | High | | |
+
+v0.5.0 gates green: fmt / clippy -D / **188 tests**; both invariants held
+(registered-systems empty after the shell refactor; determinism gate green); all
+structural perf proxies asserted; layout benchmark code unchanged.
