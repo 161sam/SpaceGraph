@@ -160,7 +160,7 @@ Inline `#[cfg(test)]` unit tests only (no `tests/` dirs, no `#[tokio::test]`/
 
 > **This inventory is the v0.4.0 baseline snapshot.** Current state (post v0.5.x +
 > the auto-safe band) is tracked in `RECON_REPORT-2026-06-14-auto-safe-band.md`.
-> Workspace total is now **243** (core 6, agent 44, viewer 190 + 3 main).
+> Workspace total is now **255** (core 6, agent 44, viewer 202 + 3 main).
 >
 > **D0 additions (ADR-0012):** `render::spatial::{aperture_style, exposure_bucket,
 > ApertureStyle, Exposure}` (+ `NodeRenderResources.socket_aperture`);
@@ -168,4 +168,11 @@ Inline `#[cfg(test)]` unit tests only (no `tests/` dirs, no `#[tokio::test]`/
 > anomaly fields on `PostFxSettings`); `sources/net::{parse_default_gateway,
 > gateway_node}`; `SocketDisplayConfig` (`[socket_display]`) wired through
 > `ViewerConfig`/`CfgState`. No new `Node`/`EdgeKind`; `PROTOCOL_VERSION` unchanged.
+>
+> **D1 additions (ADR-0005/0006):** new `graph/rules.rs` (`Rule` trait, `Tactic`,
+> `Severity`, `TECHNIQUES`, `Detection`, `RuleRegistry`, 3 rules, `evaluate_rules`,
+> `attack_tag`, `run_detection_rules` + `DetectionState`);
+> `GraphState::{emit_detection, clear_detection, apply_detections}`; `[detection_*]`
+> config; detection system scheduled in `app/mod.rs`. Detections reuse
+> `Node::Alert` — no new kind, no wire change.
 </content>

@@ -330,6 +330,29 @@ wird zum Node.
   (243 Tests); **kein `spacegraph-core`-Change / PROTOCOL_VERSION bleibt 4**;
   **kein `child_process`/exec, kein Egress im Agent**; Minimal-Äquivalenz gewahrt.
 
+## D1 — Detection rule engine + ATT&CK (ADR-0005/0006, AUTO, no wire)
+
+- **Engine (P1):** `Rule` trait + `RuleRegistry`; `Tactic` (14-Enum) + `Severity`;
+  vendierte `TECHNIQUES`-Tabelle (kein Fetch, O-7); reine
+  `evaluate_rules(&GraphModel)`. Test: jede Registry-Regel-Technik ist vendiert.
+- **Regeln (P2/P3):** lateral-movement (`T1021`, LateralMovement), suspicious
+  listener (`T1571`, CommandAndControl), beaconing (`T1071`, CommandAndControl) —
+  je positive/negative Fixture; kombinierter Graph feuert genau 3 distinkte
+  Detections mit korrekter Technik/Taktik.
+- **Emission/De-dup/Re-arm (P4):** Detection → `Node::Alert`
+  (`source="spacegraph-rule"`, Signatur `spacegraph-rule:{rule}:{technique}`) +
+  `alerts_on`-Edge, über bestehende `note_alert`/`alert_order`-Plumbing; stabile
+  `id_alert`-De-dup; Re-arm beim Clear; **kein Wire-Bump, keine neue Art** (O-8).
+  Budgeted `Update`-System nach `update_layout_or_timeline`, Intervall-Kadenz, kein
+  Per-Frame-Full-Rescan; `detection_enabled`-Flag abschaltbar (entfernt aktive).
+- **UI (P5):** ATT&CK-Tag (`attack_tag`) im Inspector-Tooltip eines
+  `spacegraph-rule`-Alerts; Click→Focus über bestehenden Alert-Jump.
+- **Config:** `detection_enabled`/`detection_budget_ms`/`detection_interval_ms`
+  (4-way, round-trip).
+- **Gates / Audited Negatives:** `fmt`/`clippy -D`/`test --workspace` grün; **kein
+  `spacegraph-core`-Change / PROTOCOL_VERSION 4**; **kein exec/egress** (rein
+  viewer-seitig, liest `GraphModel`); kein neuer Collector; kein Publish.
+
 ---
 
 ## Definition „Release-fähig“

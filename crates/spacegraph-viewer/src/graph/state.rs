@@ -548,6 +548,9 @@ pub struct CfgState {
     pub max_step: f32,
     /// Per-frame layout time budget in ms; ≤ 0 means unbounded (full step).
     pub layout_budget_ms: f32,
+    pub detection_enabled: bool,
+    pub detection_budget_ms: f32,
+    pub detection_interval_ms: u64,
 
     pub radius: f32,
     pub y_spread: f32,
@@ -768,6 +771,9 @@ impl Default for GraphState {
                 damping: 0.92,
                 max_step: 0.35,
                 layout_budget_ms: 6.0,
+                detection_enabled: true,
+                detection_budget_ms: 4.0,
+                detection_interval_ms: 1000,
                 radius: 25.0,
                 y_spread: 6.0,
                 glow_duration: Duration::from_millis(900),
@@ -1242,6 +1248,68 @@ impl GraphState {
         }
     }
 
+    /// Emit a rule detection (ADR-0005) as a first-class `Node::Alert`
+    /// (`source = "spacegraph-rule"`) + an `alerts_on` edge to its subject, via
+    /// the existing alert plumbing. Idempotent on the stable id (re-emitting the
+    /// same detection does not duplicate it). No wire change (O-8).
+    pub fn emit_detection(&mut self, det: &crate::graph::rules::Detection) -> NodeId {
+        let now = Instant::now();
+        let alert_id = spacegraph_core::id_alert(&det.subject.0, &det.dedup_key());
+        self.model.upsert_node(
+            alert_id.clone(),
+            Node::Alert {
+                source: "spacegraph-rule".to_string(),
+                signature: det.signature(),
+                severity: det.severity.as_str().to_string(),
+                ts: String::new(),
+            },
+            now,
+        );
+        self.model.upsert_edge(
+            spacegraph_core::Edge {
+                from: alert_id.clone(),
+                to: det.subject.clone(),
+                kind: spacegraph_core::EdgeKind::AlertsOn,
+            },
+            now,
+        );
+        self.note_alert(alert_id.clone());
+        self.spatial.dirty_layout = true;
+        self.needs_redraw.store(true, Ordering::Relaxed);
+        alert_id
+    }
+
+    /// Clear a detection alert (re-arm): remove the node + its order entry so a
+    /// later recurrence emits a fresh alert.
+    pub fn clear_detection(&mut self, alert_id: &NodeId) {
+        self.model.remove_node(alert_id);
+        self.spatial.release(alert_id);
+        self.alert_order.retain(|id| id != alert_id);
+        self.needs_redraw.store(true, Ordering::Relaxed);
+    }
+
+    /// Reconcile the active detection set to `detections`: emit new alerts, clear
+    /// the ones that cleared (re-arm), and return the new active id set.
+    /// Deterministic (no `Time`) so de-dup/re-arm is unit-testable; the budgeted
+    /// system wraps it with the interval cadence (ADR-0005).
+    pub fn apply_detections(
+        &mut self,
+        detections: &[crate::graph::rules::Detection],
+        active: &std::collections::HashSet<NodeId>,
+    ) -> std::collections::HashSet<NodeId> {
+        let mut current = std::collections::HashSet::new();
+        for det in detections {
+            let alert_id = spacegraph_core::id_alert(&det.subject.0, &det.dedup_key());
+            if current.insert(alert_id) {
+                self.emit_detection(det);
+            }
+        }
+        for id in active.difference(&current) {
+            self.clear_detection(id);
+        }
+        current
+    }
+
     /// Count current alerts by severity (for the Alerts panel).
     pub fn alert_severity_counts(&self) -> (usize, usize, usize) {
         let (mut low, mut med, mut high) = (0, 0, 0);
@@ -1595,6 +1663,12 @@ impl GraphState {
                 crate::render::spatial::exposure_bucket(local_addr).label()
             ));
         }
+        // D1/ADR-0006: surface the ATT&CK technique/tactic on a rule detection.
+        if let Node::Alert { signature, .. } = n {
+            if let Some(tag) = crate::graph::rules::attack_tag(signature) {
+                out.push(tag);
+            }
+        }
         if let Some(stream) = namespace::origin(id) {
             match self
                 .net
@@ -1940,6 +2014,9 @@ impl GraphState {
         self.cfg.damping = cfg.damping;
         self.cfg.max_step = cfg.max_step;
         self.cfg.layout_budget_ms = cfg.layout_budget_ms;
+        self.cfg.detection_enabled = cfg.detection_enabled;
+        self.cfg.detection_budget_ms = cfg.detection_budget_ms;
+        self.cfg.detection_interval_ms = cfg.detection_interval_ms.max(1);
         self.timeline.window = Duration::from_secs(cfg.timeline_window_secs.max(1));
         self.timeline.scale = cfg.timeline_scale.max(0.01);
         self.cfg.lod_enabled = cfg.lod_enabled;
@@ -2004,6 +2081,9 @@ impl GraphState {
             damping: self.cfg.damping,
             max_step: self.cfg.max_step,
             layout_budget_ms: self.cfg.layout_budget_ms,
+            detection_enabled: self.cfg.detection_enabled,
+            detection_budget_ms: self.cfg.detection_budget_ms,
+            detection_interval_ms: self.cfg.detection_interval_ms,
             timeline_window_secs: self.timeline.window.as_secs(),
             timeline_scale: self.timeline.scale,
             lod_enabled: self.cfg.lod_enabled,

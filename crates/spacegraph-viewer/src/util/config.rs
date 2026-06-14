@@ -311,6 +311,11 @@ pub struct ViewerConfig {
     pub damping: f32,
     pub max_step: f32,
     pub layout_budget_ms: f32,
+    /// Graph-native detection engine (D1): on/off, per-run time budget, and the
+    /// minimum interval between evaluations (the budgeted cadence, ADR-0005).
+    pub detection_enabled: bool,
+    pub detection_budget_ms: f32,
+    pub detection_interval_ms: u64,
     pub timeline_window_secs: u64,
     pub timeline_scale: f32,
     pub lod_enabled: bool,
@@ -406,6 +411,9 @@ impl Default for ViewerConfig {
             damping: 0.92,
             max_step: 0.35,
             layout_budget_ms: 6.0,
+            detection_enabled: true,
+            detection_budget_ms: 4.0,
+            detection_interval_ms: 1000,
             timeline_window_secs: 60,
             timeline_scale: 0.35,
             lod_enabled: true,
