@@ -77,3 +77,38 @@ impl Incoming {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use spacegraph_core::Msg;
+
+    #[test]
+    fn incoming_constructors_set_stream_and_kind() {
+        assert!(matches!(
+            Incoming::connected("a".into()).kind,
+            IncomingKind::Connected
+        ));
+        assert!(matches!(
+            Incoming::disconnected("a".into()).kind,
+            IncomingKind::Disconnected
+        ));
+        assert!(matches!(
+            Incoming::error("a".into(), "boom".into()).kind,
+            IncomingKind::Error(_)
+        ));
+        let inc = Incoming::event("agent".into(), Msg::RequestSnapshot);
+        assert_eq!(inc.stream, "agent");
+        assert!(matches!(inc.kind, IncomingKind::Event(_)));
+    }
+
+    #[test]
+    fn wire_msg_roundtrips_through_the_codec_serde() {
+        // The UDS reader frames serde_json bytes; a Msg must survive the
+        // encode -> decode the ingest performs (PROTOCOL_VERSION 4, no wire change).
+        let m = Msg::RequestSnapshot;
+        let bytes = serde_json::to_vec(&m).expect("encode");
+        let back: Msg = serde_json::from_slice(&bytes).expect("decode");
+        assert!(matches!(back, Msg::RequestSnapshot));
+    }
+}
