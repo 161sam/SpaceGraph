@@ -7,12 +7,6 @@ use crate::graph::GraphState;
 
 /// Per-section result cap shown in the overlay.
 const SECTION_HITS: usize = 30;
-/// Debounce before an `ON DISK` agent query is sent (spec §4, ~120 ms).
-const FS_DEBOUNCE: Duration = Duration::from_millis(120);
-/// Agent result cap requested per query.
-const FS_LIMIT: u32 = 200;
-/// Whether to opt into the full-system scope (D-2). Off by default.
-const FS_FULL_SYSTEM: bool = false;
 
 // Ctrl+P search overlay — merged `IN GRAPH` (instant) + `ON DISK` (async agent
 // index) results. Picking an `ON DISK` hit materialises it and flies to it.
@@ -24,8 +18,12 @@ pub fn search_overlay(mut contexts: EguiContexts, mut st: ResMut<GraphState>) {
     }
 
     let now = Instant::now();
-    // Fire the debounced agent query if its window has elapsed.
-    st.maybe_issue_fs_query(now, FS_DEBOUNCE, FS_LIMIT, FS_FULL_SYSTEM);
+    // Fire the debounced agent query if its window has elapsed. Debounce,
+    // result cap and the full-system opt-in come from the `[search]` config.
+    let debounce = Duration::from_millis(st.cfg.search.debounce_ms);
+    let limit = st.cfg.search.result_limit;
+    let full_system = st.cfg.search.full_system;
+    st.maybe_issue_fs_query(now, debounce, limit, full_system);
 
     let fs_available = st.fs_search_available();
     let truncated = st.fs.truncated;
