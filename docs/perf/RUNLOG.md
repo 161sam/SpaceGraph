@@ -1226,3 +1226,20 @@ survives at Potato:
 v0.5.0 gates green: fmt / clippy -D / **188 tests**; both invariants held
 (registered-systems empty after the shell refactor; determinism gate green); all
 structural perf proxies asserted; layout benchmark code unchanged.
+
+---
+
+## v0.5.1 — GitS Focus & Polish (Track-A, viewer-local)
+
+Feature branch `feature/v0.5.1-focus-polish` (off `v0.5.0` / `main` tip). Run in
+parallel with the FS-Search run; **not merged to main, not pushed, not tagged** —
+the operator integrates serially. One sub-branch per phase, merged `--no-ff`.
+
+### Phase 0 — Baseline
+
+Branch verified off `v0.5.0` (`main` tip `ee863b9`). Workspace green at baseline:
+`cargo fmt --check` clean; `cargo test --workspace` **188 tests** pass
+(agent 26 · core 2 · viewer 157 · viewer-bin 3); `cargo clippy --all-targets`
+clean. Both invariants green at start (registered-systems empty; determinism gate
+green). No stray docs committed (the pending `docs/spec_fs_search_index.md` is the
+FS-Search run's — left untouched).
