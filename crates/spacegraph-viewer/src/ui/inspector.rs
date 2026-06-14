@@ -101,13 +101,21 @@ pub fn inspector_overlay(mut contexts: EguiContexts, mut st: ResMut<GraphState>)
     }
     let mut act: Option<Act> = None;
     let right_width = st.cfg.shell.right_width;
-    egui::SidePanel::right("node_inspector")
+    let resp = egui::SidePanel::right("node_inspector")
         .resizable(true)
         .default_width(right_width)
+        .width_range(220.0..=600.0)
         .show(contexts.ctx_mut(), |ui| {
-            ui.heading(format!("🔍 {title}"));
+            // Truncate/wrap every dynamic field so a long value (e.g. a process
+            // cmdline used as a label) can't force the panel wider than the user
+            // dragged it — the blow-up that made the resize snap back.
+            ui.add(
+                egui::Label::new(egui::RichText::new(format!("🔍 {title}")).heading())
+                    .wrap_mode(egui::TextWrapMode::Truncate),
+            )
+            .on_hover_text(&title);
             for line in &detail {
-                ui.label(line);
+                ui.add(egui::Label::new(line).wrap_mode(egui::TextWrapMode::Wrap));
             }
             if fog {
                 ui.separator();
@@ -131,8 +139,11 @@ pub fn inspector_overlay(mut contexts: EguiContexts, mut st: ResMut<GraphState>)
                                     .color(egui_color(theme::edge_color(*class))),
                             );
                             if ui
-                                .button(label)
-                                .on_hover_text(edge_class_name(*class))
+                                .add(
+                                    egui::Button::new(label)
+                                        .wrap_mode(egui::TextWrapMode::Truncate),
+                                )
+                                .on_hover_text(format!("{label}\n{}", edge_class_name(*class)))
                                 .clicked()
                             {
                                 act = Some(Act::Select(nid.clone()));
@@ -159,13 +170,17 @@ pub fn inspector_overlay(mut contexts: EguiContexts, mut st: ResMut<GraphState>)
                 ui.separator();
                 ui.label(egui::RichText::new("why connected").strong());
                 for line in lines {
-                    ui.label(line);
+                    ui.add(egui::Label::new(line).wrap_mode(egui::TextWrapMode::Wrap));
                 }
                 if ui.button("clear compare").clicked() {
                     act = Some(Act::ClearPin);
                 }
             }
         });
+
+    // Persist the dragged width (mirrors the left rail in `ui_panel`) so it
+    // survives "Save Settings" and no longer snaps back to the default.
+    st.cfg.shell.right_width = resp.response.rect.width();
 
     // --- apply deferred state changes ---
     let mut changed = false;
