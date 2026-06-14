@@ -1065,3 +1065,36 @@ cargo run --release -p spacegraph-viewer -- --demo-load 1500
 # Potato/Low → silhouettes vanish, glyph is the node; Minimal → flat spheres, no
 # rings. Confirm a tier switch rebuilds once (no churn) and FPS scales per class.
 ```
+
+## Phase 4 — WP-3 Radial command HUD (spec §3.4)
+
+* Evolved `ui/context_menu.rs` into the keyboard-driven ring HUD (reuses `CtxAct`/
+  `ACTIONS`/`apply_context_action`). `RadialState {focused, active_ring, cursor,
+  path_page}` + `Ring {Commands, Paths}`, held in a UI-side `RadialMenu` resource
+  (kept out of `GraphState` — module boundary). Pure transitions: `open`,
+  `switch_ring`, `rotate` (wrap-around), `page` (clamped); `command_at` (inner =
+  the 6 verbs), `path_at` / `radial_neighbors` (outer = sorted-unique neighbours,
+  paged by 9).
+* `radial_hud` system: full input model — `F` opens (shortcuts), `Esc` closes
+  (shortcuts handles it first so it doesn't also clear the selection), `Tab`/`↑↓`
+  switch ring, `←→` rotate, `[`/`]` page, `1`–`9` select, `Enter` execute; a
+  command runs its `CtxAct`, a path **dives** (re-centres focus on the neighbour +
+  fly-to + re-opens the ring — keyboard graph traversal). Renders two concentric
+  egui-painter rings at the node's projected position with numbered slots, active-
+  ring/cursor amber highlight, and a centre identity readout. `try_ctx_mut` makes
+  it panic-free headless. Tier-independent (egui), determinism-exempt.
+* **Gate 4 PASS** — fmt / clippy -D / test green. New tests (+8):
+  `radial_open_and_ring_switch`, `radial_rotate_wraps_around`,
+  `radial_paging_clamps_to_bounds`, `radial_commands_map_to_actions`,
+  `radial_path_indexing_by_page`, `radial_neighbors_are_unique_and_sorted`,
+  `radial_render_does_not_panic` (real standalone egui ctx), and
+  `radial_hud_runs_without_panic_headless` (camera + focused node + open radial).
+  **175 tests** total.
+
+### Local-capture (interaction)
+
+```
+cargo run --release -p spacegraph-viewer -- --demo-load 1500
+# select a node, press F → ring HUD; Tab between Commands/Paths; ←→ rotate;
+# 1-9 select; Enter execute; [ ] page neighbours; Enter on a path dives. Esc closes.
+```
