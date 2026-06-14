@@ -3,7 +3,73 @@ use bevy_egui::{egui, EguiContexts};
 use std::time::Instant;
 
 use crate::graph::{GraphState, ViewMode};
+use crate::render::quality::QualityState;
+use crate::ui::tokens::color;
 use crate::ui::{UiLayout, HUD_EDGE_PADDING, HUD_FALLBACK_Y_OFFSET, HUD_MIN_CONTENT_W};
+
+/// HUD rand-frame (v0.5.0, spec §3.6): edge-hugging corner brackets carrying live
+/// global state (agents, alert counts by severity, mode, FPS, active tier). Drawn
+/// with the egui painter at the viewport margins so the centre stays the
+/// visualisation. Panic-free headless (`try_ctx_mut`).
+pub fn hud_frame_overlay(
+    mut contexts: EguiContexts,
+    st: Res<GraphState>,
+    quality: Res<QualityState>,
+) {
+    let Some(ctx) = contexts.try_ctx_mut() else {
+        return;
+    };
+    draw_hud_frame(ctx, &st, quality.effective.as_str());
+}
+
+fn draw_hud_frame(ctx: &egui::Context, st: &GraphState, tier: &str) {
+    let screen = ctx.screen_rect();
+    let painter = ctx.layer_painter(egui::LayerId::new(
+        egui::Order::Background,
+        egui::Id::new("hud_frame"),
+    ));
+    let accent = egui::Color32::from_rgba_unmultiplied(
+        color::ACCENT.r(),
+        color::ACCENT.g(),
+        color::ACCENT.b(),
+        150,
+    );
+    let stroke = egui::Stroke::new(1.5, accent);
+    let m = 6.0; // margin
+    let l = 26.0; // bracket arm length
+    let r = screen.shrink(m);
+    // Four corner brackets (the GitS "rand-frame").
+    for (corner, dx, dy) in [
+        (r.left_top(), 1.0, 1.0),
+        (r.right_top(), -1.0, 1.0),
+        (r.left_bottom(), 1.0, -1.0),
+        (r.right_bottom(), -1.0, -1.0),
+    ] {
+        painter.line_segment([corner, egui::pos2(corner.x + dx * l, corner.y)], stroke);
+        painter.line_segment([corner, egui::pos2(corner.x, corner.y + dy * l)], stroke);
+    }
+
+    // Live global-state strip along the top edge.
+    let (low, med, high) = st.alert_severity_counts();
+    let mode = match st.ui.view_mode {
+        ViewMode::Spatial => "SPATIAL",
+        ViewMode::Tree => "TREE",
+        ViewMode::Timeline => "TIMELINE",
+    };
+    let line = format!(
+        "◈ AGENTS {}  ·  ALERTS {low}/{med}/{high}  ·  {mode}  ·  {:.0} FPS  ·  TIER {}",
+        st.net.active_connection_count(),
+        st.perf.fps,
+        tier.to_uppercase(),
+    );
+    painter.text(
+        egui::pos2(screen.center().x, r.top() + 10.0),
+        egui::Align2::CENTER_CENTER,
+        line,
+        egui::FontId::monospace(12.0),
+        color::TEXT,
+    );
+}
 
 pub fn hud_overlay(mut contexts: EguiContexts, st: Res<GraphState>, layout: Res<UiLayout>) {
     let ctx = contexts.ctx_mut();
@@ -83,4 +149,19 @@ pub fn hud_overlay(mut contexts: EguiContexts, st: Res<GraphState>, layout: Res<
                 }
             });
         });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn hud_frame_draws_without_panic() {
+        // Real standalone egui context (no bevy_egui) — exercises the painter.
+        let st = GraphState::default();
+        let ctx = egui::Context::default();
+        let _ = ctx.run(egui::RawInput::default(), |ctx| {
+            draw_hud_frame(ctx, &st, "medium");
+        });
+    }
 }

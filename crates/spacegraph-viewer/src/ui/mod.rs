@@ -22,7 +22,7 @@ pub const HUD_FALLBACK_Y_OFFSET: f32 = 220.0;
 
 pub use context_menu::{context_menu_overlay, radial_hud, RadialMenu, RadialState};
 pub use help::help_overlay;
-pub use hud::hud_overlay;
+pub use hud::{hud_frame_overlay, hud_overlay};
 pub use inspector::inspector_overlay;
 pub use layout::UiLayout;
 pub use legend::legend_overlay;

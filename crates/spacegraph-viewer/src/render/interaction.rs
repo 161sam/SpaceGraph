@@ -96,6 +96,18 @@ pub fn trigger_focus_ripple(
         .map(theme::NodeKind::of)
         .unwrap_or(theme::NodeKind::File)
         .base_color();
+    spawn_ripple(&mut commands, res.mesh.clone(), &mut mats, pos, color);
+}
+
+/// Spawn one decaying ripple at `pos`, tinted by `color` (shared mesh; per-ripple
+/// material that fades and is freed on despawn).
+fn spawn_ripple(
+    commands: &mut Commands,
+    mesh: Handle<Mesh>,
+    mats: &mut Assets<StandardMaterial>,
+    pos: Vec3,
+    color: Color,
+) {
     let tint = color.to_linear();
     let material = mats.add(StandardMaterial {
         base_color: color.with_alpha(0.9),
@@ -110,7 +122,7 @@ pub fn trigger_focus_ripple(
     });
     commands.spawn((
         PbrBundle {
-            mesh: res.mesh.clone(),
+            mesh,
             material,
             transform: Transform::from_translation(pos).with_scale(Vec3::splat(RIPPLE_START)),
             ..default()
@@ -121,6 +133,44 @@ pub fn trigger_focus_ripple(
             tint,
         },
     ));
+}
+
+/// Emit a ripple at the newest alert when the alert set grows (Standard theme) —
+/// the node-focus ripple's threat analogue (spec §3.5). Bounded by `MAX_RIPPLES`.
+pub fn trigger_alert_ripple(
+    mut commands: Commands,
+    st: Res<GraphState>,
+    res: Res<RippleResources>,
+    mut mats: ResMut<Assets<StandardMaterial>>,
+    existing: Query<(), With<FocusRipple>>,
+    mut last_alerts: Local<usize>,
+) {
+    let count = st.alert_order.len();
+    let grew = count > *last_alerts;
+    *last_alerts = count;
+    if !grew
+        || st.cfg.visual_theme != VisualTheme::Standard
+        || existing.iter().count() >= MAX_RIPPLES
+    {
+        return;
+    }
+    let Some(id) = st.alert_order.back() else {
+        return;
+    };
+    let Some(idx) = st.spatial.index_of(id) else {
+        return;
+    };
+    if !st.spatial.placed[idx.slot()] {
+        return;
+    }
+    let pos = st.spatial.positions[idx.slot()];
+    spawn_ripple(
+        &mut commands,
+        res.mesh.clone(),
+        &mut mats,
+        pos,
+        theme::NodeKind::Alert.base_color(),
+    );
 }
 
 /// Advance ripples: expand + fade, despawn at end of life (frees the material).
@@ -301,5 +351,35 @@ mod tests {
         }
         app.update();
         assert!(!app.world().resource::<PreviewExpand>().expanded);
+    }
+
+    #[test]
+    fn alert_growth_spawns_one_ripple_then_no_churn() {
+        use spacegraph_core::Node;
+        let mut gs = GraphState::default();
+        let id = NodeId("alert1".to_string());
+        gs.model.nodes.insert(
+            id.clone(),
+            Node::Alert {
+                source: "s".into(),
+                signature: "x".into(),
+                severity: "high".into(),
+                ts: "t".into(),
+            },
+        );
+        let idx = gs.spatial.intern(&id);
+        gs.spatial.set_position(idx, Vec3::ZERO);
+        gs.alert_order.push_back(id);
+
+        let mut app = ripple_app(gs);
+        app.add_systems(Update, trigger_alert_ripple);
+        app.update();
+        assert_eq!(ripple_count(&mut app), 1, "a new alert spawns one ripple");
+        app.update();
+        assert_eq!(
+            ripple_count(&mut app),
+            1,
+            "a stable alert set spawns no more (no churn)"
+        );
     }
 }

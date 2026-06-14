@@ -1098,3 +1098,34 @@ cargo run --release -p spacegraph-viewer -- --demo-load 1500
 # select a node, press F → ring HUD; Tab between Commands/Paths; ←→ rotate;
 # 1-9 select; Enter execute; [ ] page neighbours; Enter on a path dives. Esc closes.
 ```
+
+## Phase 5 — WP-4 Dive ripples + HUD rand-frame (spec §3.5, §3.6)
+
+* **Dive ripples:** the v0.4.0/v0.4.1 focus ripple (`render/interaction.rs`,
+  spawn→expand+fade→despawn, capped, Standard-only, wakes the reactive renderer)
+  already covers the focus trigger; refactored its spawn into `spawn_ripple` and
+  added `trigger_alert_ripple` — when `alert_order` grows, emit a red ripple at the
+  newest alert (the focus ripple's threat analogue). Bounded by `MAX_RIPPLES`, no
+  churn (only on count increase).
+* **HUD rand-frame** (`ui/hud::hud_frame_overlay` → `draw_hud_frame`): egui-painter
+  corner brackets at the viewport margins + a top-edge live-state strip — agents
+  connected, alert counts by severity (low/med/high), view mode, FPS, and the
+  active `QualityTier`. Edge-hugging so the centre stays the visualisation; reads
+  global state read-only; panic-free headless (`try_ctx_mut`). Tier-independent.
+* **Deviation (documented per §3):** the rand-frame is **added** alongside the
+  existing top-left text HUD rather than replacing it / pulling Agents/Alerts/Mode
+  out of the left rail (spec §3.6's relocation). Both coexist; consolidating the
+  old HUD into the frame + de-duplicating the rail is a contained follow-up (noted
+  for WP-6 docs). No gate affected.
+* **Gate 5 PASS** — fmt / clippy -D / test green. New tests (+2):
+  `interaction::alert_growth_spawns_one_ripple_then_no_churn`,
+  `hud::hud_frame_draws_without_panic` (real standalone egui ctx). **177 tests**
+  total. (Focus-ripple lifecycle remains covered by the v0.4.1 ripple tests.)
+
+### Local-capture (visual)
+
+```
+cargo run --release -p spacegraph-viewer -- --demo-load 1500
+# focus a node → ripple; inject an alert → red ripple at it; the rand-frame
+# corner brackets + status strip show live agents/alerts/mode/FPS/tier.
+```
