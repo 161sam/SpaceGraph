@@ -1,3 +1,4 @@
+pub mod correlation;
 pub mod explain;
 pub mod gc;
 pub mod grid;

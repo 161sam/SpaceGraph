@@ -760,7 +760,7 @@ at their phase's master-prompt (with the Reality-Check), per §5.
 | **ADR-0004** | Security-analytics two-plane architecture | **PARTLY SUPERSEDED by ADR-0013** (§O-7); **§O-8 amended by ADR-0016** (protocol-4 ratification); the two-plane discipline + agent read-only guarantee are retained/re-scoped |
 | **ADR-0005** | **Graph-native detection rule engine** | authored |
 | **ADR-0006** | **MITRE ATT&CK detection & coverage dimension** | authored |
-| ADR-0007 | Multi-stage correlation / campaign model | reserved — author at D3 |
+| **ADR-0007** | **Multi-stage correlation / campaign model** | **authored** — implemented at D3 |
 | **ADR-0008** | **Node-model extension + boundary primitive + AI-fabric + vitals** | authored — implemented at D4 (behind `v0.6.0`) |
 | **ADR-0009** | **Threat-motion + purple-team origin** | **authored** — implemented at D2-core |
 | ADR-0010 | Incident / case object | reserved — author at D6 |

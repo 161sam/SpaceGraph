@@ -160,7 +160,7 @@ Inline `#[cfg(test)]` unit tests only (no `tests/` dirs, no `#[tokio::test]`/
 
 > **This inventory is the v0.4.0 baseline snapshot.** Current state (post v0.5.x +
 > the auto-safe band) is tracked in `RECON_REPORT-2026-06-14-auto-safe-band.md`.
-> Workspace total is now **263** (core 6, agent 48, viewer 206 + 3 main).
+> Workspace total is now **269** (core 6, agent 48, viewer 212 + 3 main).
 >
 > **D0 additions (ADR-0012):** `render::spatial::{aperture_style, exposure_bucket,
 > ApertureStyle, Exposure}` (+ `NodeRenderResources.socket_aperture`);
@@ -181,4 +181,8 @@ Inline `#[cfg(test)]` unit tests only (no `tests/` dirs, no `#[tokio::test]`/
 > `sources/nebula.rs` (`parse_nebula_event`, `build_nebula_graph`, `NebulaSource`)
 > + `fixtures/nebula.jsonl`; `--nebula-log` / `AgentConfig.nebula_log`; purple-team
 > tag in `node_tooltip_lines`. Existing kinds only — no new kind, no wire change.
+>
+> **D3 additions (ADR-0007):** new `graph/correlation.rs` (`correlate`,
+> `Campaign`); `GraphState::campaigns()`; campaign membership in
+> `node_tooltip_lines`. Viewer-internal — no new kind, no wire change.
 </content>
