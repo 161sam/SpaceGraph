@@ -160,7 +160,7 @@ Inline `#[cfg(test)]` unit tests only (no `tests/` dirs, no `#[tokio::test]`/
 
 > **This inventory is the v0.4.0 baseline snapshot.** Current state (post v0.5.x +
 > the auto-safe band) is tracked in `RECON_REPORT-2026-06-14-auto-safe-band.md`.
-> Workspace total is now **255** (core 6, agent 44, viewer 202 + 3 main).
+> Workspace total is now **263** (core 6, agent 48, viewer 206 + 3 main).
 >
 > **D0 additions (ADR-0012):** `render::spatial::{aperture_style, exposure_bucket,
 > ApertureStyle, Exposure}` (+ `NodeRenderResources.socket_aperture`);
@@ -175,4 +175,10 @@ Inline `#[cfg(test)]` unit tests only (no `tests/` dirs, no `#[tokio::test]`/
 > `GraphState::{emit_detection, clear_detection, apply_detections}`; `[detection_*]`
 > config; detection system scheduled in `app/mod.rs`. Detections reuse
 > `Node::Alert` — no new kind, no wire change.
+>
+> **D2-core additions (ADR-0009):** new `render/motion.rs` (`MotionStyle`,
+> `motion_style`/`motion_style_themed`, `Origin`, `origin_of`); new agent
+> `sources/nebula.rs` (`parse_nebula_event`, `build_nebula_graph`, `NebulaSource`)
+> + `fixtures/nebula.jsonl`; `--nebula-log` / `AgentConfig.nebula_log`; purple-team
+> tag in `node_tooltip_lines`. Existing kinds only — no new kind, no wire change.
 </content>

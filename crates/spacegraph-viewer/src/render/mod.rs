@@ -6,6 +6,7 @@ pub mod edges;
 pub mod freefly;
 pub mod gameplay;
 pub mod interaction;
+pub mod motion;
 pub mod node_glyph;
 pub mod node_icon;
 pub mod node_mesh;

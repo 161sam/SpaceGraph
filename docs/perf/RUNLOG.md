@@ -1705,3 +1705,43 @@ exec/egress.
 * Beaconing cadence uses the aggregated event `count` as the proxy; true
   jitter/regularity would need per-interval samples the model does not retain (a
   model change deferred — not made unilaterally, O-8).
+
+## D2-core — Threat-motion + Nebula + purple-team origin (ADR-0009, AUTO, no wire)
+
+Branch: `feat/threat-motion-and-nebula`. Viewer motion/origin + one read-only agent
+log source. No wire, no exec, no egress.
+
+### Changed
+
+* **`render/motion.rs` (new):** `MotionStyle` + `motion_style(tactic)` /
+  `motion_style_themed` (Minimal → Static); `Origin` + `origin_of(stream)`. Pure,
+  unit-tested. Threat-motion keys off the D1 ATT&CK tactic.
+* **`sources/nebula.rs` (new):** read-only tail of `~/.local/share/nebula/logs`
+  (`parse_nebula_event` + `build_nebula_graph` → existing `RemoteHost`/`ConnectsTo`
+  kinds) + committed `fixtures/nebula.jsonl`. Wired via `--nebula-log` (config
+  `nebula_log`) in `main.rs`, mirroring `--eve-file`.
+* **Purple-team origin** surfaced in the inspector tooltip (`node_tooltip_lines`
+  appends `[red-team]` for `nebula-*`/`red-team-*` streams). Render-only.
+* **ADR-0009** authored (motion vocabulary + purple-team origin + Nebula schema).
+
+### Gate results
+
+* `fmt --check` clean · `clippy -D warnings` clean · `test --workspace` green —
+  core **6**, agent **48**, viewer **206** + 3 (8 new D2-core tests: 4 motion/origin
+  + 4 nebula). Agent audit: **no `Command::new`/exec, no egress**.
+
+### Deviations / notes
+
+* **Nebula log schema is ASSUMED, not verified (A.5).** No Nebula instance is
+  reachable from the build host; the parser targets a documented JSONL assumption
+  pinned by `fixtures/nebula.jsonl`, isolated to `parse_nebula_event`. **Operator
+  action: verify the schema on a real Nebula host.** (Surfaced per the
+  MP-D2-core Stop-and-Show; not blocking — same posture as Suricata host-verify.)
+* **Purple-team origin is stream-derived** (no wire field, O-8): deploy the Nebula
+  source as its own agent stream named `nebula-*`/`red-team-*` so its entities
+  classify red-team. Sources within one agent share a namespace, so stream identity
+  is the no-wire signal.
+* Per-tactic **motion animation** and red-team **styling** are the visual layer
+  (documented, not a CI gate); the classifiers are the tested cores.
+
+---

@@ -31,6 +31,8 @@ pub struct AgentConfig {
     pub net_exclude: Vec<String>, // CIDR blocklist for remote hosts
     /// Suricata EVE JSON file to tail for alerts (None disables the source).
     pub eve_file: Option<PathBuf>,
+    /// Nebula engagement log to tail for red-team activity (None disables it).
+    pub nebula_log: Option<PathBuf>,
 }
 
 pub fn parse_args() -> Result<AgentConfig> {
@@ -50,6 +52,7 @@ where
     let mut net_include = Vec::new();
     let mut net_exclude = Vec::new();
     let mut eve_file = None;
+    let mut nebula_log = None;
     let mut args = args.into_iter();
 
     while let Some(arg) = args.next() {
@@ -88,6 +91,11 @@ where
                 anyhow::bail!("--eve-file expects a path");
             };
             eve_file = Some(PathBuf::from(path));
+        } else if arg == "--nebula-log" {
+            let Some(path) = args.next() else {
+                anyhow::bail!("--nebula-log expects a path");
+            };
+            nebula_log = Some(PathBuf::from(path));
         } else if arg == "--mode" {
             let Some(value) = args.next() else {
                 anyhow::bail!("--mode expects user|privileged");
@@ -114,6 +122,7 @@ where
         net_include,
         net_exclude,
         eve_file,
+        nebula_log,
     })
 }
 

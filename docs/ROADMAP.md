@@ -762,7 +762,7 @@ at their phase's master-prompt (with the Reality-Check), per §5.
 | **ADR-0006** | **MITRE ATT&CK detection & coverage dimension** | authored |
 | ADR-0007 | Multi-stage correlation / campaign model | reserved — author at D3 |
 | **ADR-0008** | **Node-model extension + boundary primitive + AI-fabric + vitals** | authored — implemented at D4 (behind `v0.6.0`) |
-| ADR-0009 | Purple-team origin disambiguation | reserved — author at D2 |
+| **ADR-0009** | **Threat-motion + purple-team origin** | **authored** — implemented at D2-core |
 | ADR-0010 | Incident / case object | reserved — author at D6 |
 | ADR-0011 | SOAR playbooks (gated, compose-only) | reserved — author at `v0.7.x` |
 | **ADR-0012** | **Perimeter & exposure visual model** (port-state/exposure/anomaly, AUTO) | authored — implemented at D0 |

@@ -1670,14 +1670,19 @@ impl GraphState {
             }
         }
         if let Some(stream) = namespace::origin(id) {
+            // D2-core/ADR-0009: tag authorized red-team activity (Nebula stream).
+            let purple = match crate::render::motion::origin_of(stream) {
+                crate::render::motion::Origin::RedTeam => " [red-team]",
+                crate::render::motion::Origin::Observed => "",
+            };
             match self
                 .net
                 .streams
                 .get(stream)
                 .and_then(|s| s.origin_host.clone())
             {
-                Some(host) => out.push(format!("origin: {stream} ({host})")),
-                None => out.push(format!("origin: {stream}")),
+                Some(host) => out.push(format!("origin: {stream} ({host}){purple}")),
+                None => out.push(format!("origin: {stream}{purple}")),
             }
         }
         out

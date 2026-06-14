@@ -353,6 +353,24 @@ wird zum Node.
   `spacegraph-core`-Change / PROTOCOL_VERSION 4**; **kein exec/egress** (rein
   viewer-seitig, liest `GraphModel`); kein neuer Collector; kein Publish.
 
+## D2-core — Threat-motion + Nebula + purple-team origin (ADR-0009, AUTO, no wire)
+
+- **Threat-motion (P1):** `motion_style(tactic)` reine Funktion — jede Taktik → eine
+  Motion; `motion_style_themed` erzwingt unter Minimal `Static`; Motion-Konstanten
+  (`speed`/`amplitude`) ohne Magic Numbers. Unit-getestet über alle 14 Taktiken.
+- **Nebula-Source (P2):** read-only Log-Tail (`~/.local/share/nebula/logs`),
+  `parse_nebula_event` + Fixture; emittiert **bestehende** Kinds (`RemoteHost`,
+  `ConnectsTo`); **kein exec, kein egress, kein Wire-Bump**. Schema ist
+  **angenommen (A.5)** — auf dem Operator-Host zu verifizieren, in einer Funktion
+  isoliert.
+- **Purple-team origin (P3):** `origin_of(stream)` reine Funktion (red-team nur für
+  markierte Streams `nebula-*`/`red-team-*`); im Inspector-Tooltip als `[red-team]`
+  sichtbar; viewer-seitig, **kein Wire-Feld**; Minimal → neutral.
+- **Gates / Audited Negatives:** `fmt`/`clippy -D`/`test --workspace` grün
+  (263 Tests); **kein `spacegraph-core`-Change / PROTOCOL_VERSION 4**; Agent
+  **clean** (kein `Command::new`/Egress); kein neuer Node/Edge-Kind; Nebula nur
+  beobachtet (O-9).
+
 ---
 
 ## Definition „Release-fähig“
