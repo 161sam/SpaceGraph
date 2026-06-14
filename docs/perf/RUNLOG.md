@@ -1344,3 +1344,49 @@ Branch: `feat/fs-search-wp1-index` → merged into `feature/fs-search`.
   a host that has plocate). No new dependency, no boundary change.
 * The viewer's `[search] index_source` therefore stays advisory in v1 (the agent
   auto-detects) — a config-push channel is a natural later extension (cf. OS-2).
+
+## Phase 3 — WP-2 Viewer integration
+
+Branch: `feat/fs-search-wp2-viewer` → merged into `feature/fs-search`.
+
+### Changed
+
+* Outbound path (viewer → agent): `net/uds.rs` reader gains a `tokio::sync::mpsc`
+  outbound channel (`SearchRequest`/`MaterialiseRequest`); `IncomingKind::
+  SearchResponse` + `Incoming::search_response` route agent results back. `app`
+  stores a per-stream outbound sender on connect and `pump_outbound` drains
+  `net.outbox` onto it (mirrors the existing `net.commands` queue, so the UI stays
+  side-effect-free and the queue is unit-testable).
+* `GraphState` FS state (`fs: FsSearchState`): `note_search_query_changed` +
+  `maybe_issue_fs_query` (debounced issue), `on_search_response` (stores hits and
+  **adds no nodes** — index ≠ graph), `merged_search_results` (rows tagged
+  `IN GRAPH` / `ON DISK`), `pick_fs_result` (enqueues a `MaterialiseRequest` and
+  remembers the path); `apply_delta` flies to the node when the picked path
+  materialises (matched by path, so the namespaced id need not be predicted).
+* `ui/search.rs`: merged `IN GRAPH` / `ON DISK` list, debounced agent query,
+  FS-unavailable + truncated notices, picks routed to jump (graph) or materialise
+  (disk).
+
+### Gate 3 results
+
+Logic tests against a fake agent (the `net.outbox` queue + fed `Incoming`s);
+viewer **158 → 162**:
+* `merged_search_combines_in_graph_and_on_disk` — an instant graph hit and an
+  async disk hit appear in one merged list, distinguished by source.
+* `fs_query_debounces_then_enqueues_request` — no request before the debounce
+  window elapses; exactly one `SearchRequest` to the stream after.
+* `search_response_adds_no_nodes` — receiving results never materialises nodes.
+* `pick_on_disk_emits_materialise_then_flies_to_on_node_arrival` — pick → one
+  `MaterialiseRequest`, no node yet; when the agent streams the node, it is added
+  and `jump_to` targets it; pending cleared. Only the picked result materialises.
+* `cargo clippy --workspace --all-targets -- -D warnings`: clean.
+  `cargo test --workspace`: green.
+
+### Deviations
+
+* Added the `sync` feature to the viewer's `tokio` dependency. Justification: not
+  a new dependency — `net/uds.rs` already used `tokio::sync::watch` (compiling
+  only via workspace feature-unification from the agent); the new outbound
+  `mpsc` needs the same. Making it explicit lets the viewer build standalone.
+  (Shared-file note: this is `spacegraph-viewer/Cargo.toml`, not one of the MP's
+  shared files; the edit is a single additive feature.)

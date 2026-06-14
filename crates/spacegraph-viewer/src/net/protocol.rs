@@ -14,6 +14,8 @@ pub enum IncomingKind {
     Identity(Msg),
     Snapshot(Msg),
     Event(Msg),
+    /// Agent → viewer FS search results (protocol v4).
+    SearchResponse(Msg),
     Other(Msg),
     Error(String),
 }
@@ -51,6 +53,13 @@ impl Incoming {
         Self {
             stream,
             kind: IncomingKind::Event(msg),
+        }
+    }
+
+    pub fn search_response(stream: String, msg: Msg) -> Self {
+        Self {
+            stream,
+            kind: IncomingKind::SearchResponse(msg),
         }
     }
 
