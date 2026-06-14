@@ -5,4 +5,5 @@ members = [
   "crates/spacegraph-graph",
   "crates/spacegraph-agent",
   "crates/spacegraph-viewer",
+  "crates/spacegraph-mcp",
 ]

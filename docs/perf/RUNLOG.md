@@ -2004,3 +2004,43 @@ MCP (P5). No graph logic is duplicated (shared `GraphModel` mutators).
 > pre-authorized the full P1–P6 autonomous run, so execution continues to P5.
 
 ---
+
+## v0.6.0 — MCP provider, Phase 5 (`spacegraph-mcp` stdio server) — AUTO
+
+Branch: `feat/mcp-provider`. New crate `crates/spacegraph-mcp`: the standalone
+**read-only** MCP stdio binary the ESN hub spawns by `command`. It hosts a headless
+`GraphCore`, ingests from one agent over UDS independently of the viewer, and
+serves the read-only tools over newline-delimited JSON-RPC 2.0.
+
+### What changed
+
+* **`spacegraph-mcp` crate** (lib + bin). The lib is the transport-agnostic core
+  (tool catalog + dispatch + JSON-RPC handling), unit-/contract-tested without a
+  process; `main.rs` wires it to stdio + the live agent-UDS ingest
+  (`spawn_reader` → `apply_snapshot`/`apply_delta` → `run_detection`).
+* **7 read-only tools** (`tools/list`): `topology_stats`, `node`, `alerts`,
+  `explain_path`, `campaigns`, `coverage`, `posture`. Each maps `GraphCore` query
+  results to JSON — the tool schema is this crate's own contract (ADR-0001 §3),
+  distinct from the agent wire.
+* JSON-RPC: `initialize`, `tools/list`, `tools/call`, `ping`; notifications get no
+  reply; unknown method → `-32601`; bad tool/args → MCP `isError` result.
+* Deps: `spacegraph-graph` (headless) + `spacegraph-core` + serde/serde_json +
+  `tokio` (sync only, for the held-open outbound channel) + crossbeam — **no Bevy**.
+
+### Gates
+
+* `cargo fmt --check` OK · `cargo clippy --workspace --all-targets -D warnings`
+  clean · `cargo test --workspace` = **294 passed** (+11 in spacegraph-mcp), 0
+  failed.
+* **Contract tests (11):** per-tool dispatch over a fixture graph → typed result;
+  JSON-RPC `initialize`/`tools/list`/`tools/call`; notification → no reply; unknown
+  method → error; unknown tool → `isError`.
+* **End-to-end stdio smoke** (real binary, no agent → empty graph): `initialize` →
+  `serverInfo {spacegraph, 0.1.0}` proto `2024-11-05`; `tools/list` → the 7 tools;
+  `tools/call topology_stats` → structured result, `isError=false`.
+* **Audited negatives:** `cargo tree -p spacegraph-mcp` has **no Bevy** (headless
+  binary) · **read-only only** — the catalog is exactly the 7 query tools, audit
+  test rejects any mutating verb in a tool name (O-7') · `PROTOCOL_VERSION` still 4
+  (O-8) · `spacegraph-agent` untouched · no scanner/AdminBot/exploitation.
+
+---
