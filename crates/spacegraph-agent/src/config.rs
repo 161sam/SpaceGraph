@@ -2,6 +2,8 @@ use anyhow::Result;
 use std::ffi::OsString;
 use std::path::PathBuf;
 
+use crate::index::IndexSource;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AgentMode {
     User,
@@ -31,6 +33,9 @@ pub struct AgentConfig {
     pub net_exclude: Vec<String>, // CIDR blocklist for remote hosts
     /// Suricata EVE JSON file to tail for alerts (None disables the source).
     pub eve_file: Option<PathBuf>,
+    /// Filesystem search index source (spec §2, D-1). Default `Auto` prefers a
+    /// system locate binary and falls back to the builtin walker.
+    pub index_source: IndexSource,
 }
 
 pub fn parse_args() -> Result<AgentConfig> {
@@ -50,6 +55,7 @@ where
     let mut net_include = Vec::new();
     let mut net_exclude = Vec::new();
     let mut eve_file = None;
+    let mut index_source = IndexSource::Auto;
     let mut args = args.into_iter();
 
     while let Some(arg) = args.next() {
@@ -88,6 +94,14 @@ where
                 anyhow::bail!("--eve-file expects a path");
             };
             eve_file = Some(PathBuf::from(path));
+        } else if arg == "--index-source" {
+            let Some(value) = args.next() else {
+                anyhow::bail!("--index-source expects auto|plocate|builtin");
+            };
+            let value = value.to_string_lossy();
+            index_source = IndexSource::parse(&value).ok_or_else(|| {
+                anyhow::anyhow!("invalid index source: {value} (expected auto|plocate|builtin)")
+            })?;
         } else if arg == "--mode" {
             let Some(value) = args.next() else {
                 anyhow::bail!("--mode expects user|privileged");
@@ -114,6 +128,7 @@ where
         net_include,
         net_exclude,
         eve_file,
+        index_source,
     })
 }
 

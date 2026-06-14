@@ -1290,3 +1290,57 @@ Branch: `feat/fs-search-wp0-protocol` → merged into `feature/fs-search`.
 
 * None. No new Cargo dependency; module boundaries unchanged (new types live in
   `spacegraph-core`, the shared contract).
+
+## Phase 2 — WP-1 Agent index
+
+Branch: `feat/fs-search-wp1-index` → merged into `feature/fs-search`.
+
+### Changed
+
+* New `crates/spacegraph-agent/src/index/` (the index — separate from the graph):
+  * `locate.rs` — `detect_locate` (plocate > locate > mlocate; the detection
+    predicate is injectable for fixtures) behind the mockable `LocateBackend`
+    trait; `SystemLocate` shells out via `std::process`; `parse_locate_output`.
+  * `walker.rs` — builtin fallback: a `BTreeSet<String>` path list built over the
+    scoped roots with **build-time** scope+privilege filtering; `on_upsert`/
+    `on_remove` apply inotify events incrementally.
+  * `rank.rs` — in-house tiered scorer (exact > prefix > path-substring > fuzzy
+    subsequence), ties broken by recency (mtime) then path depth; result cap +
+    `truncated`.
+  * `mod.rs` — `FsIndex` facade (locate post-filter / walker query) + `search()`
+    + `materialise()`; `path_allowed()` is the **single security chokepoint**
+    (excludes always win; `User` returns only readable in-scope paths;
+    `full_system` widens scope; `Privileged` may surface unreadable). `IndexSource`.
+* Agent wiring: `server.rs` now reads client frames (split sink/stream + `select!`)
+  and dispatches `SearchRequest → SearchResponse` (off-thread via
+  `spawn_blocking`) and `MaterialiseRequest → Event(UpsertNode)`. `main.rs` builds
+  the index (background walker build in builtin mode, so startup is not blocked)
+  and threads the walker into `watch_fs` for inotify-incremental updates. New
+  `--index-source auto|plocate|builtin` CLI flag.
+
+### Gate 2 results
+
+* `detect_locate` fixtures (present/absent + preference order); plocate-output
+  parse (fixture stdout); builtin walker **build + query** (hit/miss),
+  excluded-subdir not indexed, **incremental** upsert/remove; **ranking** order +
+  cap/truncated + recency/depth tie-break.
+* **Security test** (`user_mode_drops_excluded_and_unreadable` +
+  `privileged_surfaces_unreadable_but_excludes_still_win` +
+  `full_system_widens_scope_but_user_still_needs_readability`): in `User` mode an
+  excluded **or** unreadable path is never returned; excludes win even when
+  `Privileged`. Readability is injected so the test is euid-independent.
+* `search()`/`materialise()` end-to-end over a mock locate backend (scope/exclude
+  filter + ranking + cap; materialise emits exactly one bounded `File` node and
+  refuses an excluded path).
+* `cargo clippy --workspace --all-targets -- -D warnings`: clean.
+  `cargo test --workspace`: green — agent **26 → 44**, core 6, viewer 158 + 3.
+
+### Deviations
+
+* Added a `--index-source` agent CLI flag (not in the MP). Justification: the
+  `[search] index_source` config (spec §7) is viewer-side; the index is
+  agent-side and there is no config-push message in Track-A. The flag gives the
+  operator the same control agent-side (and lets the builtin path be exercised on
+  a host that has plocate). No new dependency, no boundary change.
+* The viewer's `[search] index_source` therefore stays advisory in v1 (the agent
+  auto-detects) — a config-push channel is a natural later extension (cf. OS-2).
