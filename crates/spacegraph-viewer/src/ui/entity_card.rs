@@ -10,6 +10,7 @@ use std::sync::atomic::Ordering;
 
 use crate::graph::{namespace, GraphState};
 use crate::render::theme::NodeKind;
+use crate::ui::context_menu::{apply_context_action, CtxAct};
 use crate::ui::gits;
 use crate::ui::overlay::layer;
 use crate::ui::tokens::color;
@@ -19,6 +20,7 @@ enum CardAct {
     Focus,
     Pin,
     ClearPin,
+    Ctx(CtxAct),
 }
 
 /// Draw the focus entity card (only while Focus Mode is active).
@@ -35,6 +37,7 @@ pub fn entity_card_overlay(mut contexts: EguiContexts, mut st: ResMut<GraphState
     let degree = st.core.model.degree(&id);
     let origin = namespace::origin(&id).unwrap_or("local").to_string();
     let pinned_self = st.ui.compare_pin.as_ref() == Some(&id);
+    let marked = st.ui.marked.contains(&id);
 
     let Some(ctx) = contexts.try_ctx_mut() else {
         return;
@@ -99,6 +102,17 @@ pub fn entity_card_overlay(mut contexts: EguiContexts, mut st: ResMut<GraphState
                     act = Some(CardAct::Pin);
                 }
             });
+            ui.horizontal(|ui| {
+                if ui.button("Isolate").clicked() {
+                    act = Some(CardAct::Ctx(CtxAct::Isolate));
+                }
+                if ui.button("Trace").clicked() {
+                    act = Some(CardAct::Ctx(CtxAct::Trace));
+                }
+                if ui.button(if marked { "Unmark" } else { "Mark" }).clicked() {
+                    act = Some(CardAct::Ctx(CtxAct::ToggleMark));
+                }
+            });
         });
     if let Some(resp) = resp {
         gits::bracket_response(ctx, resp.response.rect, standard);
@@ -117,6 +131,7 @@ pub fn entity_card_overlay(mut contexts: EguiContexts, mut st: ResMut<GraphState
             st.ui.compare_pin = None;
             st.needs_redraw.store(true, Ordering::Relaxed);
         }
+        Some(CardAct::Ctx(a)) => apply_context_action(&mut st, &id, a),
         None => {}
     }
 }

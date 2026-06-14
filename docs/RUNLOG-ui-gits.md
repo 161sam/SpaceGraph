@@ -397,3 +397,41 @@ Commits: `8ee4007` P0 · `12ab3e2` P1 · `848f2df` P2 · `25cc208` P3 · P4 (thi
   effect on a normal run); remove it if undesired.
 - Rail glyphs/labels are functional placeholders (monospace); a dedicated icon
   font could replace them in a later polish pass.
+
+---
+
+## P5 — Depth 3D focus core + richer focus (post-review iteration)
+
+Sam's review: visual OK, aber der Fokus-Layer verbesserungswürdig — **echte
+tiefen-3D-Core-Mesh**, reichere Node-Details + mehr Interaktionen, bessere
+Effekte, performance-bewusst. (This deliberately crosses P3's earlier
+out-of-scope line — Sam explicitly authorised the render-architecture decision.)
+
+### What changed
+- **New `render/focus_core.rs`** — a real depth-tested, emissive (bloom-eligible)
+  3D core spawned around the **single** focused node: three gyroscopic rings on
+  orthogonal planes (different radii + spin), a wireframe octahedron shell (slow
+  tumble), and a bright **pulsing** inner pip. Reuses the gate-glyph shared-mesh +
+  unlit-HDR-emissive pattern and `node_mesh::octahedron_wire`. New focus-core
+  colours in `render/theme.rs` (distinct from `RETICLE_*`).
+- **Performance:** strictly **O(1)** — geometry exists only for the focused node
+  (6 entities, shared meshes/materials, no per-node alloc); the spin/pulse
+  animation runs **only while Focus Mode is active** and requests a redraw only
+  then (idle/non-focus cost unchanged — keeps the `needs_redraw` discipline
+  outside focus). Despawns on focus exit; rebuilds on path-dive to a neighbour.
+- **2D centerpiece reduced to labels** (`ui/focus.rs`): the egui rings/ticks/
+  wireframe are gone (the 3D rig now owns the geometry) — only the `◤ FOCUS ◥`
+  tag + kind/links/identity labels remain, so 2D and 3D don't double-draw.
+- **Richer entity card** (`ui/entity_card.rs`): added **Isolate / Trace / Mark**
+  actions (reusing `context_menu::apply_context_action`) next to Fly-to / Pin.
+- **Minimal** unchanged: the 3D core + centerpiece are Standard-gated; Minimal
+  stays a plain dim + flat card.
+
+### Gate
+- `fmt --check` ✓ · `clippy --workspace --all-targets -D warnings` ✓ ·
+  `test --workspace` ✓ (196 viewer tests).
+- Viewer-only: `render/focus_core.rs`, `render/theme.rs` (3 colours),
+  `render/node_mesh.rs` (2 builders made `pub`), `render/mod.rs`, `app/mod.rs`,
+  `ui/focus.rs`, `ui/entity_card.rs`. No core/graph/agent change; no wire bump.
+- Screenshots: `afterp5-focus.png` (3D layered core) vs `afterp3-focus.png`
+  (2D schematic) vs `before-focus.png`; `afterp5-minimal-focus.png` (flat).

@@ -88,6 +88,7 @@ impl Plugin for SpaceGraphViewerPlugin {
                 crate::render::setup_node_glyph_resources,
                 crate::render::setup_ripple_resources,
                 crate::render::setup_edge_mesh,
+                crate::render::setup_focus_core_resources,
             ),
         )
         .add_systems(
@@ -159,6 +160,7 @@ impl Plugin for SpaceGraphViewerPlugin {
             (
                 crate::ui::focus_double_click,
                 crate::render::focus_mode_camera,
+                crate::render::animate_focus_core,
             ),
         )
         // Render pipeline runs in order: layout publishes the visible set, the
@@ -174,6 +176,7 @@ impl Plugin for SpaceGraphViewerPlugin {
                 crate::render::sync_node_rings,
                 crate::render::sync_node_icons,
                 crate::render::sync_node_glyphs,
+                crate::render::sync_focus_core,
                 crate::render::update_edge_mesh,
                 crate::render::draw_scene,
                 crate::render::draw_node_labels,
@@ -282,13 +285,13 @@ fn demo_autofocus(
     if *done || time.elapsed_seconds() < 1.5 {
         return;
     }
+    // Highest-degree node *among placed nodes* (so it has a spatial position the
+    // camera can dive to and the focus core can frame). Deterministic enough.
     let hub = st
-        .core
-        .model
-        .nodes
-        .keys()
-        .max_by_key(|id| st.core.model.degree(id))
-        .cloned();
+        .spatial
+        .placed_positions()
+        .map(|(id, _)| id.clone())
+        .max_by_key(|id| st.core.model.degree(id));
     if let Some(id) = hub {
         crate::ui::focus::enter_focus(&mut st, &mut radial, id);
     }
