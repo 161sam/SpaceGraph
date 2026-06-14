@@ -1,7 +1,7 @@
 use crate::net::Incoming;
 use crossbeam_channel::Sender;
 use futures_util::{SinkExt, StreamExt};
-use spacegraph_core::{Msg, PROTOCOL_VERSION};
+use spacegraph_core::{protocol_compatible, Msg, PROTOCOL_VERSION};
 use tokio::net::UnixStream;
 use tokio::sync::watch;
 use tokio_util::codec::{Framed, LengthDelimitedCodec};
@@ -17,12 +17,17 @@ impl ReaderHandle {
     }
 }
 
-pub fn spawn_reader(stream_name: String, sock_path: String, tx: Sender<Incoming>) -> ReaderHandle {
+pub fn spawn_reader(
+    stream_name: String,
+    sock_path: String,
+    tx: Sender<Incoming>,
+    outbound_rx: tokio::sync::mpsc::Receiver<Msg>,
+) -> ReaderHandle {
     let (shutdown_tx, shutdown_rx) = watch::channel(false);
     std::thread::spawn(move || {
         let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
         rt.block_on(async move {
-            run(stream_name, sock_path, tx.clone(), shutdown_rx).await;
+            run(stream_name, sock_path, tx.clone(), shutdown_rx, outbound_rx).await;
         });
     });
 
@@ -36,6 +41,7 @@ async fn run(
     sock_path: String,
     tx: Sender<Incoming>,
     mut shutdown: watch::Receiver<bool>,
+    mut outbound_rx: tokio::sync::mpsc::Receiver<Msg>,
 ) {
     let stream = match tokio::select! {
         _ = shutdown.changed() => {
@@ -88,17 +94,41 @@ async fn run(
             _ = shutdown.changed() => {
                 break;
             }
+            out = outbound_rx.recv() => {
+                match out {
+                    Some(msg) => {
+                        // Viewer → agent request (FS SearchRequest / Materialise).
+                        match serde_json::to_vec(&msg) {
+                            Ok(bytes) => {
+                                if framed.send(bytes.into()).await.is_err() {
+                                    break;
+                                }
+                            }
+                            Err(err) => {
+                                let _ = tx.send(Incoming::error(
+                                    stream_name.clone(),
+                                    format!("encode outbound: {err}"),
+                                ));
+                            }
+                        }
+                    }
+                    None => {
+                        // The outbound sender was dropped (stream torn down).
+                        break;
+                    }
+                }
+            }
             frame = framed.next() => {
                 match frame {
                     Some(Ok(bytes)) => {
                         match serde_json::from_slice::<Msg>(&bytes) {
                             Ok(m) => {
                                 let inc = match &m {
-                                    Msg::Hello { protocol, .. } if *protocol != PROTOCOL_VERSION => {
+                                    Msg::Hello { protocol, .. } if !protocol_compatible(*protocol) => {
                                         let _ = tx.send(Incoming::error(
                                             stream_name.clone(),
                                             format!(
-                                                "protocol mismatch: agent v{protocol}, viewer v{PROTOCOL_VERSION}"
+                                                "protocol incompatible: agent v{protocol}, viewer v{PROTOCOL_VERSION}"
                                             ),
                                         ));
                                         let _ = tx.send(Incoming::disconnected(stream_name.clone()));
@@ -107,6 +137,9 @@ async fn run(
                                     Msg::Identity { .. } => Incoming::identity(stream_name.clone(), m),
                                     Msg::Snapshot { .. } => Incoming::snapshot(stream_name.clone(), m),
                                     Msg::Event { .. } => Incoming::event(stream_name.clone(), m),
+                                    Msg::SearchResponse(_) => {
+                                        Incoming::search_response(stream_name.clone(), m)
+                                    }
                                     _ => Incoming::other(stream_name.clone(), m),
                                 };
                                 let _ = tx.send(inc);

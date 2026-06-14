@@ -268,6 +268,46 @@ sind render/UI → determinismus-exempt. 208 Tests grün.
 
 ---
 
+## v0.5.2 — Filesystem-Search & Index (Track-A)
+
+Eigenständiges Feature (Viewer + Agent + Wire-Protokoll; kein ESN), Spezifikation
+`docs/spec_fs_search_index.md`. **Leitprinzip `index ≠ graph`:** der Index ist das
+durchsuchbare Universum, der Graph bleibt bounded — nur ein *gepicktes* Ergebnis
+wird zum Node.
+
+### Protokoll & Handshake (WP-0)
+- `PROTOCOL_VERSION` **3 → 4**; ein v3-Peer bleibt kompatibel
+  (`protocol_compatible` akzeptiert `3..=4`) — **kein stilles Brechen von v3**.
+- FS-Search wird per Capability ausgehandelt: nur wenn der Agent `fs_search`
+  annonciert. Ein v3-Agent (Cap default `false`) → Viewer deaktiviert FS-Search
+  **ohne Panic**, Graph-Suche funktioniert weiter.
+
+### Agent-Index (WP-1)
+- **D-1**: bevorzugt System-`plocate`/`locate`/`mlocate` (erkannt, hinter
+  mockbarem Trait); sonst Builtin-Walker (gecachte Pfadliste, inotify-inkrementell).
+- **Ranking**: exact > prefix > path-substring > fuzzy; Ties nach Recency
+  (mtime), dann Pfadtiefe; Result-Cap mit `truncated`-Flag.
+- **Security (§5, Test-erzwungen)**: im `User`-Modus wird ein **excluded oder
+  unreadable** Pfad **nie** zurückgegeben; Excludes schlagen Privileg; `full_system`
+  jenseits des lesbaren Sets erfordert `Privileged`. Privilegierte Suche bleibt
+  read-only.
+
+### Viewer-Integration (WP-2)
+- Ctrl+P/Palette: Graph-Treffer **instant** (`IN GRAPH`), Agent-Treffer **async**
+  gemerged (`ON DISK`), sichtbar unterschieden; Query **debounced**.
+- Pick `ON DISK` → `MaterialiseRequest` → Agent emittiert Node(s) über den
+  Delta-Stream → Node hinzugefügt + Fly-to. **Nur gepickte Ergebnisse
+  materialisieren** — nie der ganze Result-Set.
+
+### Config & Kompatibilität (WP-3)
+- `[search]`-Block in `viewer.toml` (`index_source`, `full_system`, `result_limit`,
+  `debounce_ms`), additiv, round-trip; eine Config **ohne** `[search]` lädt per
+  Default (rückwärtskompatibel).
+- **Gates**: `cargo fmt` / `clippy -D warnings` / `cargo test` grün; keine neue
+  Cargo-Dependency; Modulgrenzen (`net`/`graph`/Agent-Index isoliert) gewahrt.
+
+---
+
 ## Definition „Release-fähig“
 
 Ein Release gilt als fertig, wenn:

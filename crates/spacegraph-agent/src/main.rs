@@ -1,4 +1,5 @@
 mod config;
+mod index;
 mod path_policy;
 mod server;
 mod snapshot;
@@ -8,12 +9,13 @@ mod watch_proc;
 
 use anyhow::Result;
 use config::{default_excludes, default_includes, parse_args, should_warn_privileged_without_root};
+use index::{detect_locate, FsIndex, IndexSource, SystemLocate, Walker};
 use path_policy::PathPolicy;
 use sources::net::{NetConfig, NetSource};
 use sources::suricata_eve::SuricataEveSource;
 use sources::{EventSource, FsSource, ProcSource};
 use spacegraph_core::{Capabilities, Delta, Msg, NodeIdentity};
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 use std::time::Duration;
 use tokio::sync::{broadcast, mpsc};
 
@@ -127,8 +129,23 @@ async fn main() -> Result<()> {
         ebpf: false,
         cloud: false,
         windows: false,
+        // v4: this agent serves filesystem search/materialise requests.
+        fs_search: true,
     };
     let identity_msg = Msg::Identity { ident, caps };
+
+    // Filesystem search index (spec §2, D-1). Prefer a system locate binary;
+    // fall back to the builtin walker. In builtin mode the walker is built in
+    // the background (so startup is not blocked) and kept fresh by the FS
+    // watcher's inotify events; `fs_walker` is the handle we hand to `FsSource`.
+    let (fs_index, fs_walker) = build_fs_index(
+        &node_id,
+        (*policy).clone(),
+        config.mode,
+        config.index_source,
+        &watch_roots,
+    );
+    let fs_index = Arc::new(fs_index);
 
     // Event bus (broadcast so multiple viewers can subscribe)
     let (bus_tx, _bus_rx) = broadcast::channel::<Msg>(32_768);
@@ -137,6 +154,7 @@ async fn main() -> Result<()> {
     let server_handle = {
         let sock_path = sock_path.clone();
         let bus_tx = bus_tx.clone();
+        let fs_index = Arc::clone(&fs_index);
         tokio::spawn(async move {
             server::run(
                 &sock_path,
@@ -144,6 +162,7 @@ async fn main() -> Result<()> {
                 snapshot_msg,
                 snapshot_node_events,
                 bus_tx,
+                fs_index,
             )
             .await
         })
@@ -166,6 +185,9 @@ async fn main() -> Result<()> {
             mode: config.mode,
             policy: Arc::clone(&policy),
             roots: watch_roots,
+            // Builtin index only: feed inotify events into the walker so it stays
+            // incrementally fresh. `None` in locate mode (locate maintains itself).
+            index_walker: fs_walker,
         }),
         Box::new(ProcSource),
     ];
@@ -205,4 +227,58 @@ async fn forward_to_bus(mut rx: mpsc::Receiver<Msg>, bus_tx: broadcast::Sender<M
         // ignore lagging viewers
         let _ = bus_tx.send(msg);
     }
+}
+
+/// Build the FS search index per the configured source (spec §2, D-1): `Auto`
+/// prefers a system locate binary and falls back to the builtin walker;
+/// `Plocate` forces locate (still falling back if no binary exists); `Builtin`
+/// always walks. Returns the index plus, in builtin mode, the walker handle the
+/// FS watcher uses to apply incremental inotify updates.
+fn build_fs_index(
+    node_id: &str,
+    policy: PathPolicy,
+    mode: config::AgentMode,
+    source: IndexSource,
+    roots: &[std::path::PathBuf],
+) -> (FsIndex, Option<Arc<RwLock<Walker>>>) {
+    let detected = match source {
+        IndexSource::Builtin => None,
+        IndexSource::Auto | IndexSource::Plocate => detect_locate(),
+    };
+
+    if let Some(kind) = detected {
+        tracing::info!(locate = kind.binary(), "FS index: using system locate");
+        let index = FsIndex::with_locate(
+            Box::new(SystemLocate::new(kind)),
+            policy,
+            mode,
+            node_id.to_string(),
+        );
+        return (index, None);
+    }
+
+    if matches!(source, IndexSource::Plocate) {
+        tracing::warn!(
+            "FS index: requested plocate but no locate binary found; using builtin walker"
+        );
+    } else {
+        tracing::info!("FS index: no system locate; using builtin walker");
+    }
+
+    let walker = Arc::new(RwLock::new(Walker::new()));
+    // Build in the background so a large initial walk does not block startup.
+    let build_walker = Arc::clone(&walker);
+    let build_roots = roots.to_vec();
+    let build_policy = policy.clone();
+    tokio::task::spawn_blocking(move || {
+        let built = Walker::build(&build_roots, &build_policy, mode);
+        let indexed = built.len();
+        if let Ok(mut guard) = build_walker.write() {
+            *guard = built;
+        }
+        tracing::info!(indexed, "FS index: builtin walker build complete");
+    });
+
+    let index = FsIndex::with_walker(Arc::clone(&walker), policy, mode, node_id.to_string());
+    (index, Some(walker))
 }

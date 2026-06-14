@@ -1,6 +1,7 @@
 use bevy::prelude::{Resource, Vec2, Vec3};
 use spacegraph_core::{
-    id_file, id_process, id_user, Delta, Edge, EdgeKind, FileKind, Msg, Node, NodeId,
+    id_file, id_process, id_user, Delta, Edge, EdgeKind, FileKind, MaterialiseRequest, Msg, Node,
+    NodeId, SearchHit, SearchRequest, SearchResponse,
 };
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -17,7 +18,8 @@ use crate::graph::tree;
 use crate::net::{Incoming, IncomingKind, ReaderHandle};
 use crate::util::config::{
     AgentEndpoint, AgentMode, EdgeLodConfig, FocusConfig, LodEdgesMode, NodeDetailConfig,
-    PostFxConfig, QualityConfig, ShellConfig, ViewerConfig, ViewerViewMode, VisualTheme,
+    PostFxConfig, QualityConfig, SearchConfig, ShellConfig, ViewerConfig, ViewerViewMode,
+    VisualTheme,
 };
 use crate::util::ids::{node_label_long, node_label_short};
 
@@ -383,6 +385,10 @@ pub struct NetStreamState {
     pub msg_rate: f32,
     pub msg_window: VecDeque<Instant>,
     pub last_error: Option<String>,
+    /// Whether the agent on this stream advertised the `fs_search` capability
+    /// (protocol v4). Negotiated from the `Identity` message; a v3 agent leaves
+    /// this `false` so FS search is disabled for the stream. (Spec §3.)
+    pub fs_search: bool,
 }
 
 pub struct NetState {
@@ -391,6 +397,19 @@ pub struct NetState {
     pub connections: HashMap<String, ReaderHandle>,
     pub msg_window: Duration,
     pub commands: Vec<NetCommand>,
+    /// Viewer → agent messages queued by the UI (FS `SearchRequest` /
+    /// `MaterialiseRequest`), drained each frame by `pump_outbound` and sent on
+    /// the matching stream's outbound channel. Mirrors the `commands` pattern so
+    /// the UI stays side-effect-free and the queue is unit-testable.
+    pub outbox: Vec<OutboundMsg>,
+    /// Per-stream outbound sender to the agent (set on connect).
+    pub outbound: HashMap<String, tokio::sync::mpsc::Sender<Msg>>,
+}
+
+/// A viewer → agent message addressed to a specific stream.
+pub struct OutboundMsg {
+    pub stream: String,
+    pub msg: Msg,
 }
 
 pub enum NetCommand {
@@ -418,6 +437,7 @@ impl NetStreamState {
             msg_rate: 0.0,
             msg_window: VecDeque::new(),
             last_error: None,
+            fs_search: false,
         }
     }
 }
@@ -430,8 +450,55 @@ impl Default for NetState {
             connections: HashMap::new(),
             msg_window: Duration::from_secs(2),
             commands: Vec::new(),
+            outbox: Vec::new(),
+            outbound: HashMap::new(),
         }
     }
+}
+
+/// Filesystem (`ON DISK`) search state (spec §2/§4) — distinct from the in-graph
+/// node search. These are *index* hits (not nodes); a hit materialises into a
+/// node only when picked. Per the `index ≠ graph` principle, holding results
+/// here never adds nodes to the graph.
+#[derive(Default)]
+pub struct FsSearchState {
+    /// Agent hits for the current query, tagged with their origin stream.
+    pub results: Vec<FsHit>,
+    /// The agent capped its result set (more matched than were returned).
+    pub truncated: bool,
+    /// The query text the current `results` reflect.
+    pub results_query: String,
+    /// A query-text change is pending the debounce window before being sent.
+    pub dirty: bool,
+    /// When the query text last changed (debounce origin).
+    pub last_change: Option<Instant>,
+    /// The query currently sent to agents (`None` = idle).
+    pub inflight: Option<String>,
+    /// Paths picked and awaiting their materialised node — used to fly to the
+    /// node once the agent streams it in.
+    pub pending_materialise: HashSet<String>,
+}
+
+/// An `ON DISK` hit plus the stream whose agent produced it (so a pick's
+/// `MaterialiseRequest` goes back to the right agent).
+#[derive(Clone)]
+pub struct FsHit {
+    pub stream: String,
+    pub hit: SearchHit,
+}
+
+/// One row of the merged search list, distinguished by source (spec §4).
+pub struct SearchRow {
+    pub label: String,
+    pub source: SearchSource,
+}
+
+/// Where a merged search row comes from.
+pub enum SearchSource {
+    /// A node already in the graph (instant, in-memory match).
+    InGraph(NodeId),
+    /// An on-disk index hit at this index into `FsSearchState::results`.
+    OnDisk(usize),
 }
 
 impl NetState {
@@ -562,6 +629,10 @@ pub struct CfgState {
     /// UI sound effects (effective only in builds with the `audio` feature).
     pub audio_enabled: bool,
     pub audio_volume: f32,
+
+    /// Filesystem (`ON DISK`) search (v0.5.2, spec §7): debounce, result cap,
+    /// full-system scope opt-in, index-source hint.
+    pub search: SearchConfig,
 }
 
 impl CfgState {
@@ -579,6 +650,8 @@ pub struct GraphState {
     pub perf: PerfState,
     pub net: NetState,
     pub cfg: CfgState,
+    /// Filesystem (`ON DISK`) search state (spec §2/§4).
+    pub fs: FsSearchState,
     pub explain_cache: Option<ExplainCache>,
     /// Insertion order of retained alert nodes (oldest first) for cap eviction.
     pub alert_order: VecDeque<NodeId>,
@@ -740,7 +813,9 @@ impl Default for GraphState {
                 shell: ShellConfig::default(),
                 audio_enabled: true,
                 audio_volume: 0.6,
+                search: SearchConfig::default(),
             },
+            fs: FsSearchState::default(),
             needs_redraw: AtomicBool::new(true),
             explain_cache: None,
             alert_order: VecDeque::new(),
@@ -1042,10 +1117,21 @@ impl GraphState {
             IncomingKind::Identity(msg) => {
                 self.on_message();
                 self.net_on_message(&inc.stream);
-                if let Msg::Identity { ident, .. } = &msg {
+                if let Msg::Identity { ident, caps } = &msg {
                     if let Some(s) = self.net.streams.get_mut(&inc.stream) {
                         s.origin_host = Some(ident.hostname.clone());
+                        // FS-search capability negotiation (spec §3): a v3 agent's
+                        // caps decode `fs_search` to false, disabling FS search
+                        // for this stream without breaking the connection.
+                        s.fs_search = caps.fs_search;
                     }
+                }
+            }
+            IncomingKind::SearchResponse(msg) => {
+                self.on_message();
+                self.net_on_message(&inc.stream);
+                if let Msg::SearchResponse(resp) = msg {
+                    self.on_search_response(&inc.stream, resp);
                 }
             }
             IncomingKind::Other(_) => {
@@ -1268,6 +1354,22 @@ impl GraphState {
                     None,
                     None,
                 );
+
+                // A picked `ON DISK` result just materialised: fly to it. The id
+                // is already stream-namespaced; match on the File node's path
+                // (the materialise key) so we don't have to predict the id.
+                let materialised_path = match self.model.nodes.get(&id) {
+                    Some(Node::File { path, .. }) => Some(path.clone()),
+                    _ => None,
+                };
+                if let Some(path) = materialised_path {
+                    if self.fs.pending_materialise.remove(&path) {
+                        self.reveal(&id);
+                        self.ui.selected = Some(id.clone());
+                        self.ui.focus = Some(id.clone());
+                        self.request_jump(id.clone());
+                    }
+                }
 
                 let is_alert = matches!(self.model.nodes.get(&id), Some(Node::Alert { .. }));
                 if matches!(self.model.nodes.get(&id), Some(Node::File { .. })) {
@@ -1552,6 +1654,146 @@ impl GraphState {
         self.ui.jump_to = Some(id);
     }
 
+    /// Whether any connected stream's agent advertised the `fs_search`
+    /// capability — i.e. whether the viewer may offer filesystem (`ON DISK`)
+    /// search. When false (e.g. only v3 agents connected), the search surface
+    /// stays graph-only. (Spec §3 handshake negotiation.)
+    pub fn fs_search_available(&self) -> bool {
+        self.net
+            .streams
+            .values()
+            .any(|s| s.fs_search && matches!(s.status, NetStreamStatus::Connected))
+    }
+
+    /// Note that the search query text changed at `now`: recompute the instant
+    /// in-graph hits and (if FS search is available) schedule a debounced
+    /// `ON DISK` query. The agent query is *not* sent here — it is sent once the
+    /// debounce window elapses (see [`Self::maybe_issue_fs_query`]).
+    pub fn note_search_query_changed(&mut self, now: Instant, graph_limit: usize) {
+        self.recompute_search_hits(graph_limit);
+        if self.fs_search_available() {
+            self.fs.dirty = true;
+            self.fs.last_change = Some(now);
+        } else {
+            self.fs.dirty = false;
+            self.fs.results.clear();
+        }
+        if self.ui.search_query.trim().is_empty() {
+            // Clearing the box clears disk results immediately.
+            self.fs.results.clear();
+            self.fs.results_query.clear();
+            self.fs.inflight = None;
+        }
+    }
+
+    /// Whether the debounce window has elapsed since the last query change.
+    /// Pure (time injected) — the debounce gate for issuing an FS query.
+    pub fn fs_debounce_elapsed(&self, now: Instant, debounce: Duration) -> bool {
+        match self.fs.last_change {
+            Some(t) => now.duration_since(t) >= debounce,
+            None => false,
+        }
+    }
+
+    /// If a query change is pending and the debounce has elapsed, enqueue a
+    /// `SearchRequest` to every FS-search-capable connected stream and return
+    /// `true`. The query text is read from `ui.search_query`.
+    pub fn maybe_issue_fs_query(
+        &mut self,
+        now: Instant,
+        debounce: Duration,
+        limit: u32,
+        full_system: bool,
+    ) -> bool {
+        if !self.fs.dirty || !self.fs_debounce_elapsed(now, debounce) {
+            return false;
+        }
+        self.fs.dirty = false;
+        let query = self.ui.search_query.trim().to_string();
+        if query.is_empty() {
+            self.fs.results.clear();
+            self.fs.results_query.clear();
+            self.fs.inflight = None;
+            return false;
+        }
+        self.fs.inflight = Some(query.clone());
+        let streams: Vec<String> = self
+            .net
+            .streams
+            .iter()
+            .filter(|(_, s)| s.fs_search && matches!(s.status, NetStreamStatus::Connected))
+            .map(|(name, _)| name.clone())
+            .collect();
+        if streams.is_empty() {
+            return false;
+        }
+        for stream in streams {
+            self.net.outbox.push(OutboundMsg {
+                stream,
+                msg: Msg::SearchRequest(SearchRequest {
+                    query: query.clone(),
+                    limit,
+                    full_system,
+                }),
+            });
+        }
+        true
+    }
+
+    /// Apply an agent `SearchResponse` from `stream`: replace that stream's
+    /// `ON DISK` hits (other streams' hits are kept). **No nodes are added** —
+    /// index ≠ graph; results materialise only when picked.
+    pub fn on_search_response(&mut self, stream: &str, resp: SearchResponse) {
+        self.fs.results.retain(|h| h.stream != stream);
+        for hit in resp.results {
+            self.fs.results.push(FsHit {
+                stream: stream.to_string(),
+                hit,
+            });
+        }
+        self.fs.truncated = resp.truncated;
+        self.fs.results_query = self.fs.inflight.clone().unwrap_or_default();
+        self.needs_redraw.store(true, Ordering::Relaxed);
+    }
+
+    /// The merged search list: instant `IN GRAPH` node matches followed by
+    /// async `ON DISK` index hits, each tagged with its [`SearchSource`] so the
+    /// UI can distinguish and route picks. (Spec §4.)
+    pub fn merged_search_results(&self, per_section: usize) -> Vec<SearchRow> {
+        let mut rows = Vec::new();
+        for id in self.ui.search_hits.iter().take(per_section) {
+            rows.push(SearchRow {
+                label: self.node_label_with_id(id),
+                source: SearchSource::InGraph(id.clone()),
+            });
+        }
+        for (i, fshit) in self.fs.results.iter().take(per_section).enumerate() {
+            rows.push(SearchRow {
+                label: fshit.hit.path.clone(),
+                source: SearchSource::OnDisk(i),
+            });
+        }
+        rows
+    }
+
+    /// Pick an `ON DISK` result by its index into `fs.results`: enqueue a
+    /// `MaterialiseRequest` to its origin stream and remember the path so the
+    /// camera flies to the node once the agent streams it in. Only the picked
+    /// result materialises (never the whole result set). (Spec §2.)
+    pub fn pick_fs_result(&mut self, index: usize) -> bool {
+        let Some(fshit) = self.fs.results.get(index).cloned() else {
+            return false;
+        };
+        let path = fshit.hit.path.clone();
+        self.fs.pending_materialise.insert(path.clone());
+        self.net.outbox.push(OutboundMsg {
+            stream: fshit.stream,
+            msg: Msg::MaterialiseRequest(MaterialiseRequest { path }),
+        });
+        self.needs_redraw.store(true, Ordering::Relaxed);
+        true
+    }
+
     // ---- Glow checks ----
     pub fn node_is_glowing(&self, id: &NodeId) -> bool {
         self.spatial.is_glowing(id)
@@ -1720,6 +1962,7 @@ impl GraphState {
         self.cfg.edge_lod = cfg.edge_lod;
         self.cfg.focus = cfg.focus;
         self.cfg.shell = cfg.shell.clone();
+        self.cfg.search = cfg.search.clone();
         self.cfg.audio_enabled = cfg.audio_enabled;
         self.cfg.audio_volume = cfg.audio_volume.clamp(0.0, 1.0);
         self.sync_agent_endpoints(cfg.agents.clone());
@@ -1782,6 +2025,7 @@ impl GraphState {
             audio_enabled: self.cfg.audio_enabled,
             audio_volume: self.cfg.audio_volume,
             agents: self.net.endpoints.clone(),
+            search: self.cfg.search.clone(),
         }
     }
 }
@@ -1847,6 +2091,227 @@ mod tests {
             .map(|id| namespace::origin(id))
             .collect();
         assert!(origins.contains(&Some("a")) && origins.contains(&Some("b")));
+    }
+
+    /// An `Identity` Incoming whose agent advertises `fs_search = caps`.
+    fn identity_with(stream: &str, fs_search: bool) -> Incoming {
+        Incoming::identity(
+            stream.to_string(),
+            Msg::Identity {
+                ident: spacegraph_core::NodeIdentity {
+                    node_id: stream.to_string(),
+                    hostname: "host".to_string(),
+                    platform: "linux".to_string(),
+                    arch: "x86_64".to_string(),
+                },
+                caps: spacegraph_core::Capabilities {
+                    procfs: true,
+                    fd_edges: true,
+                    fs_notify: true,
+                    proc_poll: true,
+                    ebpf: false,
+                    cloud: false,
+                    windows: false,
+                    fs_search,
+                },
+            },
+        )
+    }
+
+    #[test]
+    fn v3_agent_handshake_disables_fs_search_without_panic() {
+        // A v3 agent advertises no fs_search capability (decodes to false). The
+        // viewer must accept the connection (no panic) and report FS search
+        // unavailable — graph-only search still works. (Gate 1 / spec §3.)
+        let mut st = GraphState::default();
+        st.net.endpoints = vec![endpoint("legacy")];
+        st.net.ensure_stream("legacy");
+        st.apply(identity_with("legacy", false));
+        assert!(
+            !st.fs_search_available(),
+            "a v3 agent (fs_search=false) must disable FS search"
+        );
+
+        // A v4 agent on a second stream flips availability on.
+        st.net.endpoints.push(endpoint("modern"));
+        st.net.ensure_stream("modern");
+        st.apply(identity_with("modern", true));
+        assert!(
+            st.fs_search_available(),
+            "a v4 agent advertising fs_search enables FS search"
+        );
+    }
+
+    /// A connected, FS-search-capable stream named `a`.
+    fn fs_stream(st: &mut GraphState) {
+        st.net.endpoints = vec![endpoint("a")];
+        st.net.ensure_stream("a");
+        st.apply(identity_with("a", true));
+    }
+
+    fn disk_response(paths: &[&str]) -> Incoming {
+        Incoming::search_response(
+            "a".to_string(),
+            Msg::SearchResponse(SearchResponse {
+                results: paths
+                    .iter()
+                    .map(|p| SearchHit {
+                        path: (*p).to_string(),
+                        kind: FileKind::Regular,
+                        size: None,
+                        mtime: None,
+                        readable: true,
+                    })
+                    .collect(),
+                truncated: false,
+            }),
+        )
+    }
+
+    #[test]
+    fn merged_search_combines_in_graph_and_on_disk() {
+        let mut st = GraphState::default();
+        fs_stream(&mut st);
+
+        // A graph node matching "report" (instant, in-memory).
+        st.model.upsert_node(
+            NodeId("a:file:/x/report.txt".into()),
+            Node::File {
+                path: "/x/report.txt".into(),
+                inode: 1,
+                kind: FileKind::Regular,
+            },
+            Instant::now(),
+        );
+        st.ui.search_query = "report".into();
+        st.recompute_search_hits(30);
+        assert!(!st.ui.search_hits.is_empty(), "graph hit present");
+
+        // An async agent response with an on-disk hit.
+        st.fs.inflight = Some("report".into());
+        st.apply(disk_response(&["/disk/report2.txt"]));
+
+        let rows = st.merged_search_results(30);
+        assert!(
+            rows.iter()
+                .any(|r| matches!(r.source, SearchSource::InGraph(_))),
+            "an IN GRAPH row is present"
+        );
+        assert!(
+            rows.iter()
+                .any(|r| matches!(r.source, SearchSource::OnDisk(_))),
+            "an ON DISK row is merged in"
+        );
+        assert!(rows.iter().any(|r| r.label.contains("/disk/report2.txt")));
+    }
+
+    #[test]
+    fn fs_query_debounces_then_enqueues_request() {
+        let mut st = GraphState::default();
+        fs_stream(&mut st);
+
+        let t0 = Instant::now();
+        st.ui.search_query = "rep".into();
+        st.note_search_query_changed(t0, 30);
+
+        // Within the debounce window: nothing is sent.
+        let early = st.maybe_issue_fs_query(
+            t0 + Duration::from_millis(50),
+            Duration::from_millis(120),
+            200,
+            false,
+        );
+        assert!(!early);
+        assert!(
+            st.net.outbox.is_empty(),
+            "no request before debounce elapses"
+        );
+
+        // After the window: exactly one SearchRequest to stream `a`.
+        let issued = st.maybe_issue_fs_query(
+            t0 + Duration::from_millis(130),
+            Duration::from_millis(120),
+            200,
+            false,
+        );
+        assert!(issued);
+        assert_eq!(st.net.outbox.len(), 1);
+        assert_eq!(st.net.outbox[0].stream, "a");
+        match &st.net.outbox[0].msg {
+            Msg::SearchRequest(req) => {
+                assert_eq!(req.query, "rep");
+                assert_eq!(req.limit, 200);
+                assert!(!req.full_system);
+            }
+            other => panic!("expected SearchRequest, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn search_response_adds_no_nodes() {
+        // index ≠ graph: receiving results must never add graph nodes.
+        let mut st = GraphState::default();
+        fs_stream(&mut st);
+        let before = st.model.nodes.len();
+        st.apply(disk_response(&["/a/one", "/a/two"]));
+        assert_eq!(
+            st.model.nodes.len(),
+            before,
+            "results never materialise nodes"
+        );
+        assert_eq!(st.fs.results.len(), 2);
+    }
+
+    #[test]
+    fn pick_on_disk_emits_materialise_then_flies_to_on_node_arrival() {
+        let mut st = GraphState::default();
+        fs_stream(&mut st);
+        st.apply(disk_response(&["/disk/picked.txt"]));
+        let before = st.model.nodes.len();
+
+        // Pick the on-disk hit → a MaterialiseRequest is enqueued; path pending;
+        // still no node (only the *picked* result materialises, on arrival).
+        assert!(st.pick_fs_result(0));
+        assert_eq!(st.model.nodes.len(), before, "picking alone adds no node");
+        assert!(st.fs.pending_materialise.contains("/disk/picked.txt"));
+        assert_eq!(st.net.outbox.len(), 1);
+        match &st.net.outbox[0].msg {
+            Msg::MaterialiseRequest(req) => assert_eq!(req.path, "/disk/picked.txt"),
+            other => panic!("expected MaterialiseRequest, got {other:?}"),
+        }
+
+        // The fake agent streams the materialised node back (local id; the viewer
+        // namespaces it by the originating stream).
+        st.apply(Incoming::event(
+            "a".to_string(),
+            Msg::Event {
+                delta: Delta::UpsertNode {
+                    id: NodeId("a:file:/disk/picked.txt".into()),
+                    node: Node::File {
+                        path: "/disk/picked.txt".into(),
+                        inode: 7,
+                        kind: FileKind::Regular,
+                    },
+                },
+            },
+        ));
+
+        // The node is now in the graph and the camera flies to it.
+        let (gid, _) = st
+            .model
+            .nodes
+            .iter()
+            .find(|(_, n)| matches!(n, Node::File { path, .. } if path == "/disk/picked.txt"))
+            .expect("materialised node is in the graph");
+        assert_eq!(
+            st.ui.jump_to.as_ref(),
+            Some(gid),
+            "camera jump targets the materialised node"
+        );
+        assert!(
+            !st.fs.pending_materialise.contains("/disk/picked.txt"),
+            "pending entry cleared on arrival"
+        );
     }
 
     #[test]
@@ -2182,6 +2647,7 @@ mod tests {
                 msg_rate: 0.0,
                 msg_window: VecDeque::new(),
                 last_error: None,
+                fs_search: false,
             },
         );
 
@@ -2215,6 +2681,7 @@ mod tests {
                 msg_rate: 0.0,
                 msg_window: VecDeque::new(),
                 last_error: None,
+                fs_search: false,
             },
         );
 

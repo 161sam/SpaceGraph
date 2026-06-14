@@ -2,12 +2,13 @@ use bevy::prelude::*;
 
 use crate::app::events::Picked;
 use crate::app::resources::{NetRx, NetTx};
-use crate::graph::state::{NetCommand, NetStreamStatus};
+use crate::graph::state::{NetCommand, NetStreamStatus, OutboundMsg};
 use crate::graph::GraphState;
 use crate::net;
 use crate::ui::UiLayout;
 use crate::util::config;
 use crate::util::config::AgentEndpointKind;
+use spacegraph_core::Msg;
 
 pub mod events;
 pub mod resources;
@@ -87,6 +88,7 @@ impl Plugin for SpaceGraphViewerPlugin {
             (
                 process_net_commands,
                 pump_network,
+                pump_outbound,
                 crate::graph::tick_housekeeping,
                 crate::ui::apply_egui_theme,
                 crate::ui::handle_shortcuts,
@@ -218,6 +220,21 @@ fn pump_network(mut st: ResMut<GraphState>, rx: Res<NetRx>) {
     }
 }
 
+/// Drain the viewer → agent outbox (FS `SearchRequest` / `MaterialiseRequest`)
+/// onto each stream's outbound channel. Non-blocking (`try_send`); a full or
+/// missing channel drops the message (the user can retype).
+fn pump_outbound(mut st: ResMut<GraphState>) {
+    if st.net.outbox.is_empty() {
+        return;
+    }
+    let outbox = std::mem::take(&mut st.net.outbox);
+    for OutboundMsg { stream, msg } in outbox {
+        if let Some(tx) = st.net.outbound.get(&stream) {
+            let _ = tx.try_send(msg);
+        }
+    }
+}
+
 fn seed_demo_load(mut st: ResMut<GraphState>, demo: Res<DemoLoad>) {
     st.load_synthetic_graph(demo.0);
 }
@@ -259,13 +276,19 @@ fn process_net_commands(mut st: ResMut<GraphState>, net_tx: Res<NetTx>) {
                     stream.status = NetStreamStatus::Connecting;
                     stream.last_error = None;
                 }
-                let handle = net::spawn_reader(endpoint.name.clone(), path, net_tx.0.clone());
+                // Outbound channel: viewer → agent FS requests (v4). Held in
+                // `net.outbound` for the connection's lifetime.
+                let (out_tx, out_rx) = tokio::sync::mpsc::channel::<Msg>(256);
+                let handle =
+                    net::spawn_reader(endpoint.name.clone(), path, net_tx.0.clone(), out_rx);
                 st.net.connections.insert(endpoint.name.clone(), handle);
+                st.net.outbound.insert(endpoint.name.clone(), out_tx);
             }
             NetCommand::Disconnect(name) => {
                 if let Some(handle) = st.net.connections.remove(&name) {
                     handle.shutdown();
                 }
+                st.net.outbound.remove(&name);
                 if let Some(stream) = st.net.streams.get_mut(&name) {
                     stream.status = NetStreamStatus::Disconnected;
                 }
@@ -274,6 +297,7 @@ fn process_net_commands(mut st: ResMut<GraphState>, net_tx: Res<NetTx>) {
                 if let Some(handle) = st.net.connections.remove(&name) {
                     handle.shutdown();
                 }
+                st.net.outbound.remove(&name);
                 if let Some(stream) = st.net.streams.get_mut(&name) {
                     stream.status = NetStreamStatus::Connecting;
                     stream.last_error = None;

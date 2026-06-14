@@ -7,13 +7,14 @@
 //! [`FsSource`] / [`ProcSource`] wrappers over `watch_fs` / `watch_proc`.
 
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 
 use anyhow::Result;
 use spacegraph_core::Msg;
 use tokio::sync::mpsc;
 
 use crate::config::AgentMode;
+use crate::index::Walker;
 use crate::path_policy::PathPolicy;
 
 pub mod net;
@@ -31,6 +32,9 @@ pub struct FsSource {
     pub mode: AgentMode,
     pub policy: Arc<PathPolicy>,
     pub roots: Vec<PathBuf>,
+    /// Builtin search index walker to keep incrementally fresh from inotify
+    /// events (`None` when a system locate index is used instead).
+    pub index_walker: Option<Arc<RwLock<Walker>>>,
 }
 
 impl EventSource for FsSource {
@@ -38,7 +42,14 @@ impl EventSource for FsSource {
         "fs"
     }
     fn start(self: Box<Self>, node_id: String, tx: mpsc::Sender<Msg>) -> Result<()> {
-        crate::watch_fs::spawn(&node_id, self.mode, self.policy, self.roots, tx)
+        crate::watch_fs::spawn(
+            &node_id,
+            self.mode,
+            self.policy,
+            self.roots,
+            tx,
+            self.index_walker,
+        )
     }
 }
 

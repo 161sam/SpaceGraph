@@ -239,6 +239,32 @@ impl Default for EdgeLodConfig {
     }
 }
 
+/// Filesystem search (v0.5.2, spec §7). `index_source` =
+/// `auto`|`plocate`|`builtin` (advisory to the agent in Track-A — the agent
+/// auto-detects; the agent-side `--index-source` flag is authoritative).
+/// `full_system` (D-2) opts into the system-wide scope; `result_limit` caps the
+/// hits requested; `debounce_ms` is the search-box debounce before a query is
+/// sent.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct SearchConfig {
+    pub index_source: String,
+    pub full_system: bool,
+    pub result_limit: u32,
+    pub debounce_ms: u64,
+}
+
+impl Default for SearchConfig {
+    fn default() -> Self {
+        Self {
+            index_source: "auto".to_string(),
+            full_system: false,
+            result_limit: 200,
+            debounce_ms: 120,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct ViewerConfig {
@@ -324,6 +350,9 @@ pub struct ViewerConfig {
     pub audio_volume: f32,
     #[serde(default = "default_agents")]
     pub agents: Vec<AgentEndpoint>,
+    // ---- Filesystem search (v0.5.2): on-disk index query + materialise ----
+    #[serde(default)]
+    pub search: SearchConfig,
 }
 
 impl Default for ViewerConfig {
@@ -384,6 +413,7 @@ impl Default for ViewerConfig {
             audio_enabled: default_audio_enabled(),
             audio_volume: default_audio_volume(),
             agents: vec![AgentEndpoint::default()],
+            search: SearchConfig::default(),
         }
     }
 }
@@ -551,6 +581,38 @@ mod tests {
         let dec: NodeDetailConfig = toml::from_str(&enc).expect("deserialize override");
         assert_eq!(overridden, dec);
         assert_eq!(dec.level.as_deref(), Some("low"));
+    }
+
+    #[test]
+    fn search_config_roundtrip() {
+        // Defaults match the spec §7 block.
+        let d = SearchConfig::default();
+        assert_eq!(d.index_source, "auto");
+        assert!(!d.full_system);
+        assert_eq!(d.result_limit, 200);
+        assert_eq!(d.debounce_ms, 120);
+
+        let cfg = SearchConfig {
+            index_source: "builtin".into(),
+            full_system: true,
+            result_limit: 50,
+            debounce_ms: 200,
+        };
+        let dec: SearchConfig = toml::from_str(&toml::to_string(&cfg).unwrap()).unwrap();
+        assert_eq!(cfg, dec);
+
+        // The [search] block round-trips inside a full ViewerConfig...
+        let viewer = ViewerConfig {
+            search: cfg.clone(),
+            ..Default::default()
+        };
+        let dec: ViewerConfig = toml::from_str(&toml::to_string(&viewer).unwrap()).unwrap();
+        assert_eq!(dec.search, cfg);
+
+        // ...and a config file that omits [search] entirely decodes to the
+        // default (serde(default)) — backward compatible with old viewer.toml.
+        let dec: ViewerConfig = toml::from_str("show_3d = true").unwrap();
+        assert_eq!(dec.search, SearchConfig::default());
     }
 
     #[test]

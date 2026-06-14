@@ -1397,3 +1397,202 @@ edge draw work; gate-ring + Focus Mode add no per-visible-node entity/material
 (structural tests). Deferred (documented, not blockers): High-tier DoF blur (dim-only
 ships); the 3-class FPS local-capture numbers (no GPU/Pi in this env — procedure +
 expected direction recorded above).
+
+---
+
+# FS-Search & Index MP (`feature/fs-search`)
+
+Track-A standalone feature (viewer + agent + wire protocol; no ESN), per
+`docs/spec_fs_search_index.md`. Branched from `v0.5.0` (`ee863b9`). Runs in
+parallel with the v0.5.1 focus/polish pass; shared files touched additively only
+(see `docs/recon/INTEGRATION_fs-search.md` at closeout).
+
+## Phase 0 — Branch + commit pending docs
+
+Branch: `feature/fs-search` (off `v0.5.0`).
+
+### Changed
+
+* Committed `docs/spec_fs_search_index.md` (the binding spec) — previously an
+  uncommitted worktree file.
+
+### Gate 0 results
+
+* `cargo test --workspace`: **green** (exit 0) at the `v0.5.0` baseline — the
+  feature branch starts from a green tree.
+* No source changed in Phase 0; the v0.5.0 fmt/clippy gates are inherited.
+
+## Phase 1 — WP-0 Protocol + handshake
+
+Branch: `feat/fs-search-wp0-protocol` → merged into `feature/fs-search`.
+
+### Changed
+
+* `spacegraph-core`: `PROTOCOL_VERSION` **3 → 4**. New
+  `MIN_COMPATIBLE_PROTOCOL = 3` + `protocol_compatible()` — peers in `3..=4`
+  interoperate (no strict-equality reject), so a v3 agent is never broken
+  silently. New wire types `SearchRequest`/`SearchResponse`/`SearchHit`/
+  `MaterialiseRequest` as `Msg` variants. `Capabilities` gains `fs_search`
+  (`#[serde(default)]` → a v3 `Identity` decodes it to `false`).
+  `fs_search_available()` couples version + capability.
+* `spacegraph-agent`: advertises `fs_search = true`; the UDS server handshake
+  now rejects only an *incompatible* peer (`protocol_compatible`), not any
+  non-equal version.
+* `spacegraph-viewer`: UDS reader handshake relaxed likewise; `NetStreamState`
+  stores the negotiated per-stream `fs_search` cap (set from `Identity`);
+  `GraphState::fs_search_available()` gates the FS-search surface — only true
+  when a connected stream advertised the capability.
+
+### Gate 1 results
+
+* **Protocol round-trip + negotiation** (core 2 → 6 tests): `protocol_compatible`
+  accepts v3/v4 and rejects 0/2/5; `fs_search_available` requires *both* a
+  compatible version and the capability; a legacy (v3) `Identity` decodes
+  `fs_search` to false; `SearchRequest`/`SearchResponse`/`MaterialiseRequest`
+  round-trip.
+* **Graceful v3 fallback** (viewer +1 test,
+  `v3_agent_handshake_disables_fs_search_without_panic`): feeding a v3-style
+  `Identity` leaves `fs_search_available()` false **without panic**; a v4 agent
+  flips it on.
+* `cargo clippy --workspace -- -D warnings`: clean. `cargo test --workspace`:
+  green (exit 0) — core **6**, agent **26**, viewer **158** + 3.
+
+### Deviations
+
+* None. No new Cargo dependency; module boundaries unchanged (new types live in
+  `spacegraph-core`, the shared contract).
+
+## Phase 2 — WP-1 Agent index
+
+Branch: `feat/fs-search-wp1-index` → merged into `feature/fs-search`.
+
+### Changed
+
+* New `crates/spacegraph-agent/src/index/` (the index — separate from the graph):
+  * `locate.rs` — `detect_locate` (plocate > locate > mlocate; the detection
+    predicate is injectable for fixtures) behind the mockable `LocateBackend`
+    trait; `SystemLocate` shells out via `std::process`; `parse_locate_output`.
+  * `walker.rs` — builtin fallback: a `BTreeSet<String>` path list built over the
+    scoped roots with **build-time** scope+privilege filtering; `on_upsert`/
+    `on_remove` apply inotify events incrementally.
+  * `rank.rs` — in-house tiered scorer (exact > prefix > path-substring > fuzzy
+    subsequence), ties broken by recency (mtime) then path depth; result cap +
+    `truncated`.
+  * `mod.rs` — `FsIndex` facade (locate post-filter / walker query) + `search()`
+    + `materialise()`; `path_allowed()` is the **single security chokepoint**
+    (excludes always win; `User` returns only readable in-scope paths;
+    `full_system` widens scope; `Privileged` may surface unreadable). `IndexSource`.
+* Agent wiring: `server.rs` now reads client frames (split sink/stream + `select!`)
+  and dispatches `SearchRequest → SearchResponse` (off-thread via
+  `spawn_blocking`) and `MaterialiseRequest → Event(UpsertNode)`. `main.rs` builds
+  the index (background walker build in builtin mode, so startup is not blocked)
+  and threads the walker into `watch_fs` for inotify-incremental updates. New
+  `--index-source auto|plocate|builtin` CLI flag.
+
+### Gate 2 results
+
+* `detect_locate` fixtures (present/absent + preference order); plocate-output
+  parse (fixture stdout); builtin walker **build + query** (hit/miss),
+  excluded-subdir not indexed, **incremental** upsert/remove; **ranking** order +
+  cap/truncated + recency/depth tie-break.
+* **Security test** (`user_mode_drops_excluded_and_unreadable` +
+  `privileged_surfaces_unreadable_but_excludes_still_win` +
+  `full_system_widens_scope_but_user_still_needs_readability`): in `User` mode an
+  excluded **or** unreadable path is never returned; excludes win even when
+  `Privileged`. Readability is injected so the test is euid-independent.
+* `search()`/`materialise()` end-to-end over a mock locate backend (scope/exclude
+  filter + ranking + cap; materialise emits exactly one bounded `File` node and
+  refuses an excluded path).
+* `cargo clippy --workspace --all-targets -- -D warnings`: clean.
+  `cargo test --workspace`: green — agent **26 → 44**, core 6, viewer 158 + 3.
+
+### Deviations
+
+* Added a `--index-source` agent CLI flag (not in the MP). Justification: the
+  `[search] index_source` config (spec §7) is viewer-side; the index is
+  agent-side and there is no config-push message in Track-A. The flag gives the
+  operator the same control agent-side (and lets the builtin path be exercised on
+  a host that has plocate). No new dependency, no boundary change.
+* The viewer's `[search] index_source` therefore stays advisory in v1 (the agent
+  auto-detects) — a config-push channel is a natural later extension (cf. OS-2).
+
+## Phase 3 — WP-2 Viewer integration
+
+Branch: `feat/fs-search-wp2-viewer` → merged into `feature/fs-search`.
+
+### Changed
+
+* Outbound path (viewer → agent): `net/uds.rs` reader gains a `tokio::sync::mpsc`
+  outbound channel (`SearchRequest`/`MaterialiseRequest`); `IncomingKind::
+  SearchResponse` + `Incoming::search_response` route agent results back. `app`
+  stores a per-stream outbound sender on connect and `pump_outbound` drains
+  `net.outbox` onto it (mirrors the existing `net.commands` queue, so the UI stays
+  side-effect-free and the queue is unit-testable).
+* `GraphState` FS state (`fs: FsSearchState`): `note_search_query_changed` +
+  `maybe_issue_fs_query` (debounced issue), `on_search_response` (stores hits and
+  **adds no nodes** — index ≠ graph), `merged_search_results` (rows tagged
+  `IN GRAPH` / `ON DISK`), `pick_fs_result` (enqueues a `MaterialiseRequest` and
+  remembers the path); `apply_delta` flies to the node when the picked path
+  materialises (matched by path, so the namespaced id need not be predicted).
+* `ui/search.rs`: merged `IN GRAPH` / `ON DISK` list, debounced agent query,
+  FS-unavailable + truncated notices, picks routed to jump (graph) or materialise
+  (disk).
+
+### Gate 3 results
+
+Logic tests against a fake agent (the `net.outbox` queue + fed `Incoming`s);
+viewer **158 → 162**:
+* `merged_search_combines_in_graph_and_on_disk` — an instant graph hit and an
+  async disk hit appear in one merged list, distinguished by source.
+* `fs_query_debounces_then_enqueues_request` — no request before the debounce
+  window elapses; exactly one `SearchRequest` to the stream after.
+* `search_response_adds_no_nodes` — receiving results never materialises nodes.
+* `pick_on_disk_emits_materialise_then_flies_to_on_node_arrival` — pick → one
+  `MaterialiseRequest`, no node yet; when the agent streams the node, it is added
+  and `jump_to` targets it; pending cleared. Only the picked result materialises.
+* `cargo clippy --workspace --all-targets -- -D warnings`: clean.
+  `cargo test --workspace`: green.
+
+### Deviations
+
+* Added the `sync` feature to the viewer's `tokio` dependency. Justification: not
+  a new dependency — `net/uds.rs` already used `tokio::sync::watch` (compiling
+  only via workspace feature-unification from the agent); the new outbound
+  `mpsc` needs the same. Making it explicit lets the viewer build standalone.
+  (Shared-file note: this is `spacegraph-viewer/Cargo.toml`, not one of the MP's
+  shared files; the edit is a single additive feature.)
+
+## Phase 4 — WP-3 Config, docs, integration report
+
+Branch: `feat/fs-search-wp3-config-docs` → merged into `feature/fs-search`.
+
+### Changed
+
+* `util/config.rs` (**shared, additive**): new `SearchConfig` (`index_source`,
+  `full_system`, `result_limit`, `debounce_ms`) + `ViewerConfig::search` field
+  (`#[serde(default)]`). Threaded into `CfgState` (apply + emit) and read by
+  `ui/search.rs` (debounce/limit/full_system now config-driven, no constants).
+* Docs (**additive**): `GRAPH_SCHEMA` (PROTOCOL_VERSION 4, the three search
+  messages, `fs_search` cap), `README` (FS-search feature + `[search]` defaults
+  table), `DESIGN_LANGUAGE` (`IN GRAPH` vs `ON DISK` distinction), `ACCEPTANCE`
+  (v0.5.2 FS-search criteria), this RUNLOG. `docs/recon/INTEGRATION_fs-search.md`
+  written (the operator hand-off; flags the protocol bump prominently).
+
+### Gate 4 results
+
+* `[search]` config **round-trips** (`search_config_roundtrip`): defaults match
+  spec §7; a full `ViewerConfig` round-trips the block; a config file **without**
+  `[search]` decodes to the default (backward compatible). `viewer.toml` is
+  runtime-generated (`save`), so the `[search]` block is now emitted automatically.
+* `ACCEPTANCE` gains the v0.5.2 FS-search criteria (protocol/handshake, agent
+  index incl. the security gate, viewer integration, config).
+* Integration report complete — feature branch + HEAD, **PROTOCOL_VERSION now 4**
+  flagged for the operator, every shared file + exact additions, all new files.
+* `cargo clippy --workspace --all-targets -- -D warnings`: clean.
+  `cargo test --workspace`: green — core **6**, agent **44**, viewer **163** + 3.
+
+### Deviations
+
+* None for Phase 4 (the `--index-source` and `tokio sync` notes are in Phases 2/3).
+  **No tag, no main-merge, no push** — the feature branch is left ready for the
+  operator to integrate serially.

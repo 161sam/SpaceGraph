@@ -292,3 +292,20 @@ node's scale** (`icon_half_extent` ≤ the per-kind core envelope) so the glyph 
 `F` / double-click **Focus Mode** · `Esc` exit focus · in focus: `1`–`9` select,
 `Tab`/`↑↓` switch ring, `←→` rotate, `[` `]` page, `Enter` execute, path dive
 re-centres.
+
+## v0.5.2 — Filesystem search (`IN GRAPH` vs `ON DISK`)
+
+The Ctrl+P search surface merges two result classes, **visually distinguished**
+so the user always knows what they are picking:
+
+- **`IN GRAPH`** — a node already loaded in the graph (instant, in-memory).
+  Tagged in a mint/green accent. Picking jumps the camera to the node.
+- **`ON DISK`** — a filesystem index hit from the agent (async, debounced).
+  Tagged in a cyan/blue accent. Picking **materialises** the path into a node
+  (a single bounded `File` node) and flies to it once the agent streams it in.
+
+Binding rule: `index ≠ graph`. An `ON DISK` row is a *pointer*, never a node,
+until picked — so the search box can surface the whole filesystem while the graph
+stays bounded. When no connected agent advertises `fs_search`, the surface shows
+`IN GRAPH only` and the `ON DISK` section is absent (graceful v3 fallback). A
+capped result set shows a "results capped — refine the query" hint.
