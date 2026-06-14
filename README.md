@@ -115,6 +115,32 @@ Ziel ist **Verständnis**, nicht nur Monitoring.
   `gen_sounds.py`). Start mit
   `cargo run -p spacegraph-viewer --features audio` (Linux: ALSA-Dev-Libs nötig).
 
+### Detaillierte Knoten (v0.4.1)
+Zwei-Ebenen-Modell — reich *und* billig (bis Raspberry Pi):
+- **Ebene 1 — Node-Face-Icons** (alle sichtbaren Knoten, billig): jeder Knoten
+  zeigt ein Typ-/Datei-Subtyp-Icon auf der zur Kamera gerichteten Fläche, aus
+  *einem* geteilten Atlas (`assets/icons/atlas.rgba`, reproduzierbar via
+  `gen_atlas.py`), als instanziertes Billboard-Quad. Subtyp aus der Dateiendung
+  (image/video/text/code/json/log/audio/archive/binary). Standard-Theme; auf
+  Low-GPU eine flache Farb-Variante. O(sichtbar), keine Allokation pro Knoten.
+- **Ebene 2 — Fokus-Vorschau** (nur fokussierter Knoten + ≤ `max_preview_panels`
+  gepinnte): typ-dispatchter Inhalt — Bild → Thumbnail; Text/Code/JSON/Log →
+  Monospace-Kopf; Prozess → terminal-artiger **read-only** Readout;
+  Video/Audio/Archiv/Binär → Karte; User/Socket/Host/Alert → Typ-Karte. Inhalt
+  wird viewer-lokal gelesen (pfad-policy- + größengedeckelt), **off-thread**
+  dekodiert und LRU-gecacht — O(fokussiert), nie O(sichtbar).
+- **Interaktion:** Hover → Peek-Karte; Fokuswechsel → abklingender Ripple;
+  Doppelklick auf einen Bild-/Datei-Knoten → größere Vorschau.
+- **Bewusste Grenzen:** kein Live-Video-Decode (Karte + Metadaten; ein Decoder
+  ist späteren Passes vorbehalten); **kein interaktives Terminal** im Knoten —
+  v0.4.1 liefert nur den read-only *Look*; das echte Terminal ist die v0.7.0
+  AdminBot-Control-Plane hinter der Approval-Ebene.
+- **GPU-skaliert:** `[node_detail]` in `viewer.toml` (`level` low/mid/high,
+  `max_preview_panels`, `thumbnail_px`, `max_image_bytes`, `max_text_bytes`,
+  `enable_image`, `enable_video_card`); auf Pi/GLES (Low) automatisch reduziert
+  (Icons als Farb-Variante, Vorschau text-only, kein Bild-Decode). Vorläufer des
+  v0.5.0-`QualityTier`-Systems.
+
 ### UX & Analyse
 - Ctrl+P Search & Jump
 - HUD (FPS, Eventrate, Visible Nodes)
@@ -213,6 +239,10 @@ Settings-Panel bzw. in `viewer.toml` änderbar:
 | `scan_speed` / `scan_max` | 70 / 500 | Scan-Puls (`G`): Ausbreitungsgeschwindigkeit und Reichweite |
 | `fly_speed` / `fly_boost` | 24 / 4 | Free-Fly (`V`): Geschwindigkeit und Shift-Boost-Faktor |
 | `fly_sensitivity` | 0.0025 | Free-Fly Maus-Look-Empfindlichkeit |
+| `[node_detail] level` | auto | Detail-Stufe `low`/`mid`/`high` überschreiben (leer = GPU-Auto-Erkennung) |
+| `[node_detail] max_preview_panels` | 3 | Cap gleichzeitiger Fokus-Vorschauen (Low → 1) |
+| `[node_detail] thumbnail_px` / `enable_image` | 256 / true | Thumbnail-Größe bzw. Bild-Decode (Low: aus) |
+| `[node_detail] max_image_bytes` / `max_text_bytes` | 2 MiB / 256 KiB | Lese-Budgets für Vorschau-Inhalte |
 
 Die Gameplay-Parameter (Fog/Scan/Free-Fly) sind live im Settings-Panel unter
 **„Gameplay"** regelbar und werden mit „Save Settings" in `viewer.toml` persistiert.

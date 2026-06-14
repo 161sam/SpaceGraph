@@ -303,11 +303,14 @@ fn decode_set(st: &GraphState, cap: usize) -> Vec<NodeId> {
     if let Some(f) = st.ui.selected.clone().or_else(|| st.ui.focus.clone()) {
         out.push(f);
     }
-    for id in st.spatial.vis_cache.iter() {
+    // O(pins), not O(visible): iterate the compact pinned-id index, keeping only
+    // those currently rendered. `is_pinned` re-validates against the authoritative
+    // slot state (the index is kept exact, this is belt-and-braces).
+    for id in st.spatial.pinned_ids.iter() {
         if out.len() >= cap {
             break;
         }
-        if st.is_pinned(id) && !out.contains(id) {
+        if st.is_pinned(id) && st.is_visible_rendered(id) && !out.contains(id) {
             out.push(id.clone());
         }
     }
@@ -450,7 +453,10 @@ pub fn node_preview_overlay(
             None => PreviewView::Card,
             Some(path) => match preview.cache.peek(&path) {
                 Some(CachedPreview::Image(h, w, ht)) => {
-                    PreviewView::Image(contexts.add_image(h.clone()), *w as f32, *ht as f32)
+                    // Weak handle: the LRU cache owns the only strong handle, so on
+                    // eviction the asset frees and bevy_egui's AssetEvent::Removed
+                    // cleanup fires (a strong handle here would pin it forever).
+                    PreviewView::Image(contexts.add_image(h.clone_weak()), *w as f32, *ht as f32)
                 }
                 Some(CachedPreview::Text(s)) => PreviewView::Text(s.clone()),
                 Some(CachedPreview::Note(n)) => PreviewView::Note(n.clone()),
@@ -508,12 +514,12 @@ pub fn node_preview_overlay(
                         }
                         PreviewView::Note(n) => {
                             ui.weak(n);
-                            render_card(ui, node);
+                            render_card(ui, node, &eff);
                         }
                         PreviewView::Loading => {
                             ui.weak("decoding…");
                         }
-                        PreviewView::Card => render_card(ui, node),
+                        PreviewView::Card => render_card(ui, node, &eff),
                     }
                 });
             }
@@ -526,10 +532,10 @@ fn cached_path(st: &GraphState, id: &NodeId) -> Option<String> {
     file_path_of(node).map(|p| p.to_string())
 }
 
-fn render_card(ui: &mut egui::Ui, node: &Node) {
+fn render_card(ui: &mut egui::Ui, node: &Node, eff: &EffectiveDetail) {
     match node {
         Node::Process { .. } => terminal_readout(ui, node),
-        Node::File { .. } => file_card(ui, node),
+        Node::File { .. } => file_card(ui, node, eff),
         _ => type_card(ui, node),
     }
 }
@@ -552,9 +558,14 @@ fn terminal_readout(ui: &mut egui::Ui, node: &Node) {
         });
 }
 
-fn file_card(ui: &mut egui::Ui, node: &Node) {
+fn file_card(ui: &mut egui::Ui, node: &Node, eff: &EffectiveDetail) {
     // Distinguish the deferred-decode cases (video etc.) from the rest with a note.
     if let Node::File { path, .. } = node {
+        // Video is card-only (no decoder); the card itself is toggleable.
+        if file_subtype(path) == IconId::FileVideo && !eff.enable_video_card {
+            ui.weak("video — card disabled");
+            return;
+        }
         let note = match file_subtype(path) {
             IconId::FileVideo => Some("video — card only (no decoder; v0.4.1 boundary)"),
             IconId::FileAudio => Some("audio file"),
@@ -865,11 +876,11 @@ mod tests {
         let ids: Vec<NodeId> = gs.spatial.vis_cache.iter().cloned().collect();
         gs.ui.selected = Some(ids[0].clone());
         for id in ids.iter().take(6) {
-            if let Some(idx) = gs.spatial.index_of(id) {
-                gs.spatial.pinned[idx.slot()] = Some(Vec3::ZERO);
-            }
+            gs.set_pin(id, Vec3::ZERO);
         }
         assert!(decode_set(&gs, 2).len() <= 2, "panel cap enforced");
         assert!(decode_set(&gs, 5).len() <= 5);
+        // O(pins): the pinned-id index drives the scan, not the visible set.
+        assert!(gs.spatial.pinned_ids.len() >= 5);
     }
 }

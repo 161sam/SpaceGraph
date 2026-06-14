@@ -161,6 +161,36 @@ verifiziert; FPS/Pixel-Optik **lokal/GPU** per Capture-Anleitung in
 - **Layout-Benchmarks** — `force_step` weiterhin innerhalb der Gates trotz
   Pin-Clamp im Integrate-Loop (Zahlen in `RUNLOG.md`, Phase-6-Eintrag).
 
+### v0.4.1 — Detailed Interactive Nodes (Track A, viewer-local)
+
+Zwei-Ebenen-Detailmodell, GPU-skaliert, ohne Layout-Regression — alle Gates
+struktur-/pure-fn-geprüft (kein GPU/Pi in CI; FPS-Capture lokal, siehe RUNLOG).
+
+- **Capability-Gate** — ✓ `detect_capability` (V3D/VideoCore/llvmpipe/GLES → Low,
+  discrete → High, integrated → Mid), `resolve_detail` (Low → Bild-Decode aus,
+  Panels ≤ 1, text-only), `[node_detail]`-Config-Roundtrip. Vorläufer von
+  v0.5.0-`QualityTier`.
+- **Level-1-Icons** — ✓ *ein* geteilter Atlas-Handle, von allen Glyph-Materialien
+  referenziert (`icons_share_one_atlas_and_quad_set`); Subtyp-Mapping pure-fn;
+  ein Icon je sichtbarem Knoten (Standard), keiner in Minimal; kein
+  Steady-State-Churn.
+- **Level-2-Vorschau** — ✓ Panel-Cap erzwungen (`decode_set_respects_panel_cap`);
+  LRU insert/evict + Recency-Bump; Decode als Task gespawnt, nicht inline
+  (`requests_spawn_a_task_not_inline_decode`); Oversize-Bild übersprungen /
+  Oversize-Text gekürzt / verbotener Pfad nicht gelesen; nicht dekodierbares
+  Format → Karte; Low → text-only; kein Re-Decode bei stabilem Fokus
+  (`stable_focus_has_no_redecode_churn`).
+- **Interaktion** — ✓ Vorschau öffnet bei Fokus / schließt bei Clear; Hover ist
+  reiner Display-Peek (kein Read); Fokus-Ripple spawnt nur bei Fokuswechsel,
+  klingt ab und despawnt (gecappt, Minimal aus); Doppelklick toggelt Expand.
+- **Off-thread-Decode** — `bevy/multi_threaded` aktiviert, damit der
+  (vorab-genehmigte) `AsyncComputeTaskPool` Decode wirklich nebenläufig ausführt;
+  Determinismus-Gate danach grün re-verifiziert.
+- **Modulgrenzen** — ✓ Icon-/Preview-State in `render/`/`ui/`; Graph-Wahrheit
+  unberührt; rein visuell → determinismus-exempt.
+- **Layout-Benchmarks** — `force_step` unverändert innerhalb der Gates (dieser
+  Pass ist render-seitig; Zahlen in `RUNLOG.md`, v0.4.1-Closeout).
+
 ---
 
 ## Definition „Release-fähig“
