@@ -1291,3 +1291,49 @@ FS-Search run's — left untouched).
   `glyphs_share_one_ring_mesh`.
 * **Gate 2 green:** fmt clean · clippy `-D warnings` clean · 194 tests · ring stays
   a single shared instanced mesh (structural) · no steady-state churn.
+
+### Phase 3 — Edge-perf pass (`v0.5.1/phase3-edgeperf`, merged `--no-ff`)
+
+The recon FPS table (POTATO ~7, high ~8–9) showed the bottleneck is
+**tier-independent edge rendering / overdraw**, not bloom. This pass thins the
+edge mesh render-side; `force_step` (layout truth) is untouched.
+
+* **Edge LOD** (`render::edges::edge_lod`, pure + unit-tested): each aggregated
+  edge is classified **Full / Dim / Cull**. Outside Focus Mode, edges **dim** past
+  `near_dist` (×`far_dim` brightness → less HDR/bloom) and **cull** past `far_dist`
+  (fewer vertices → less overdraw). In **Focus Mode**, edges not incident to the
+  focused node are culled (`focus_cull`) — the strong reduction that foregrounds the
+  focused subgraph.
+* **Bundling:** aggregated edges (`AggEdge`) already merge raw edges per class;
+  distance dim/cull is the render-side LOD on top. (No geometric edge-bundling —
+  out of scope; the dim/cull bands deliver the overdraw win without it.)
+* **Rebuild stays bounded:** the camera position is quantized into a cell
+  (`EDGE_LOD_CELL = 12`) in the rebuild fingerprint, so the mesh rebuilds only when
+  the camera crosses a cell — the v0.5.0 "settled → skip" property holds; idle costs
+  nothing. The rebuild cost equals the already-accepted layout-phase rebuild; the
+  per-frame **draw** savings (fewer + dimmer edges) dominate → perf-positive.
+* **`force_step` byte-unchanged:** `git diff v0.5.0 -- graph/layout.rs` → **empty**
+  (asserted in the gate). Determinism gate green.
+* **Config:** additive `[edge_lod]` block (`near_dist=70`, `far_dist=160`,
+  `far_dim=0.35`, `focus_cull=true`), plumbed `ViewerConfig ↔ CfgState`.
+* **Tests (+4 → 198 total):** `edge_lod_distance_bands`,
+  `edge_lod_focus_mode_culls_non_incident`, `cam_cell_quantizes_position`,
+  `edge_lod_config_roundtrip`.
+* **Gate 3 green:** fmt · clippy `-D warnings` · 198 tests · `force_step` empty diff ·
+  determinism green. **3-class FPS local-capture (required, no GPU/Pi in CI)** — run
+  per class and confirm no regression vs the v0.5.0 row (target: a gain on large
+  graphs where edge overdraw dominates):
+
+```
+cargo run --release -p spacegraph-viewer -- --demo-load 2000
+```
+
+| Class | Auto tier | FPS before (v0.5.0) | FPS after (edge-LOD) | Δ |
+|---|---|---|---|---|
+| Pi / GLES / llvmpipe | Potato | ~7 | | |
+| Integrated | Low/Medium | ~8–9 | | |
+| Discrete | High | | | |
+
+Expected: distant edges dim/cull on the 2000-node demo → fewer bright edge
+vertices → lower bloom/overdraw cost → FPS neutral-to-up, strongest at Potato/Low
+where fill-rate is the bottleneck.
