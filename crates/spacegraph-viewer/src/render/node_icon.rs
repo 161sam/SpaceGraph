@@ -18,6 +18,7 @@ use bevy::prelude::*;
 use bevy::render::mesh::{Indices, PrimitiveTopology};
 use bevy::render::render_asset::RenderAssetUsages;
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
+use bevy::render::texture::ImageSampler;
 use spacegraph_core::{FileKind, Node};
 
 use crate::graph::interner::NodeIndex;
@@ -33,8 +34,14 @@ pub const ATLAS_SIZE: u32 = 256;
 const ATLAS_COLS: u32 = 4;
 const ICON_COUNT: usize = 15;
 const KIND_COUNT: usize = theme::NodeKind::ALL.len();
-/// Quad half-extent (world units) — sits within the node pick envelope.
-const ICON_HALF: f32 = 0.26;
+/// Largest icon half-extent (world units) — the cap: an icon never exceeds the
+/// old fixed size, and is clamped *down* to smaller nodes' envelopes below.
+const ICON_HALF_MAX: f32 = 0.26;
+/// Smallest icon half-extent so even the smallest cores show a legible glyph.
+const ICON_HALF_MIN: f32 = 0.14;
+/// Fraction of a node's core envelope the icon fills (< 1 so the glyph sits *on*
+/// the node face rather than overhanging it as a block — the v0.5.1 bugfix).
+const ICON_FILL: f32 = 0.9;
 /// Offset of the icon from the node centre toward the camera (on the near face).
 const ICON_OFFSET: f32 = 0.42;
 
@@ -143,6 +150,27 @@ pub fn icon_for(node: &Node) -> IconId {
     }
 }
 
+/// Visual half-envelope of each node kind's core, mirroring the `render::node_mesh`
+/// geometry sizes. Used to clamp the face-icon billboard to the node's scale.
+fn node_envelope(kind: theme::NodeKind) -> f32 {
+    match kind {
+        theme::NodeKind::Process => 0.26,    // octahedron_solid(0.26)
+        theme::NodeKind::File => 0.17,       // hex plate radius 0.17
+        theme::NodeKind::User => 0.18,       // cone radius 0.18
+        theme::NodeKind::Socket => 0.22,     // torus outer 0.22
+        theme::NodeKind::RemoteHost => 0.30, // octahedron wire shell 0.30
+        theme::NodeKind::Alert => 0.34,      // spiked-star shell 0.34
+    }
+}
+
+/// Face-icon half-extent (world units) **clamped to the node's scale**: a fraction
+/// of the kind's core envelope, bounded to `[ICON_HALF_MIN, ICON_HALF_MAX]`. Pure +
+/// unit-tested. Guarantees the billboard never overhangs the node (the v0.5.1
+/// "big block" bug) while staying legible on the smallest cores.
+pub fn icon_half_extent(kind: theme::NodeKind) -> f32 {
+    (node_envelope(kind) * ICON_FILL).clamp(ICON_HALF_MIN, ICON_HALF_MAX)
+}
+
 /// Marker on a node-face icon entity.
 #[derive(Component)]
 pub struct NodeIconMarker;
@@ -199,7 +227,10 @@ fn cell_uv(cell: u32) -> (f32, f32, f32, f32) {
 /// glyph selection lives in the mesh, not the material — so all nodes share one
 /// atlas + one material per kind, and Bevy instances them).
 fn icon_quad_mesh(cell: u32) -> Mesh {
-    let h = ICON_HALF;
+    // Unit quad (half-extent 1.0); the per-kind size is applied via the icon
+    // entity's `Transform.scale` (`icon_half_extent`), so the billboard is clamped
+    // to the node's scale rather than a fixed world size.
+    let h = 1.0_f32;
     let (u0, u1, v0, v1) = cell_uv(cell);
     Mesh::new(
         PrimitiveTopology::TriangleList,
@@ -223,7 +254,7 @@ fn build_icon_resources(
     mats: &mut Assets<StandardMaterial>,
     images: &mut Assets<Image>,
 ) -> NodeIconResources {
-    let atlas = images.add(Image::new(
+    let mut atlas_img = Image::new(
         Extent3d {
             width: ATLAS_SIZE,
             height: ATLAS_SIZE,
@@ -233,7 +264,14 @@ fn build_icon_resources(
         ATLAS_BYTES.to_vec(),
         TextureFormat::Rgba8UnormSrgb,
         RenderAssetUsages::RENDER_WORLD,
-    ));
+    );
+    // Crisp alpha cutout (v0.5.1 bugfix): nearest sampling makes every fragment's
+    // alpha exactly 0 or 1, so the opaque-pass alpha mask (`AlphaMode::Mask`) cuts
+    // a clean glyph instead of a linearly-blended edge haze that can read as a
+    // filled quad. (The atlas data is white-on-transparent; GPU confirmation is a
+    // local step in this headless env.)
+    atlas_img.sampler = ImageSampler::nearest();
+    let atlas = images.add(atlas_img);
     let quad = std::array::from_fn(|i| meshes.add(icon_quad_mesh(IconId::ALL[i].cell())));
     let glyph_mat = std::array::from_fn(|i| {
         mats.add(StandardMaterial {
@@ -342,6 +380,7 @@ pub fn sync_node_icons(
         let icon = icon_for(node);
         let pos = st.spatial.positions[idx.slot()];
         let icon_pos = pos + (cam_pos - pos).normalize_or_zero() * ICON_OFFSET;
+        let scale = Vec3::splat(icon_half_extent(kind)); // clamp billboard to node scale
         let mesh = res.quad[icon.cell() as usize].clone();
         let material = if low {
             res.flat_mat[kind.index()].clone()
@@ -353,6 +392,7 @@ pub fn sync_node_icons(
             if let Ok((mut tf, mut mh, mut mat)) = q.get_mut(e) {
                 tf.translation = icon_pos;
                 tf.rotation = cam_rot; // screen-aligned billboard
+                tf.scale = scale;
                 if *mh != mesh {
                     *mh = mesh;
                 }
@@ -369,7 +409,7 @@ pub fn sync_node_icons(
                         transform: Transform {
                             translation: icon_pos,
                             rotation: cam_rot,
-                            ..default()
+                            scale,
                         },
                         ..default()
                     },
@@ -466,6 +506,82 @@ mod tests {
                 kind: FileKind::Dir
             }),
             IconId::FileGeneric
+        );
+    }
+
+    #[test]
+    fn atlas_alpha_is_a_cutout_mask() {
+        // The committed atlas must be a real cutout: its alpha channel is bimodal —
+        // fully-transparent background texels AND opaque glyph texels. With the
+        // `AlphaMode::Mask` material below this guards that icons render a glyph
+        // cutout, not a filled quad (the "big green block" bug). GPU confirmation is
+        // a local step in this headless env.
+        let alphas: Vec<u8> = ATLAS_BYTES.iter().skip(3).step_by(4).copied().collect();
+        assert_eq!(alphas.len(), (ATLAS_SIZE * ATLAS_SIZE) as usize);
+        let transparent = alphas.iter().filter(|&&a| a == 0).count();
+        let opaque = alphas.iter().filter(|&&a| a == 255).count();
+        assert!(
+            transparent > 0,
+            "atlas must have transparent background texels"
+        );
+        assert!(opaque > 0, "atlas must have opaque glyph texels");
+        assert!(
+            transparent > opaque,
+            "glyph is a sparse cutout, not a filled block"
+        );
+    }
+
+    #[test]
+    fn glyph_material_is_alpha_masked_with_nearest_atlas() {
+        let mut app = App::new();
+        app.add_plugins((MinimalPlugins, bevy::asset::AssetPlugin::default()))
+            .init_asset::<Image>()
+            .init_asset::<Mesh>()
+            .init_asset::<StandardMaterial>()
+            .add_systems(Startup, setup_node_icon_resources);
+        app.update();
+
+        let res = app.world().resource::<NodeIconResources>();
+        let mats = app.world().resource::<Assets<StandardMaterial>>();
+        let images = app.world().resource::<Assets<Image>>();
+        // Every textured glyph material masks (opaque-pass cutout), not opaque fill.
+        for h in res.glyph_mat.iter() {
+            let m = mats.get(h).expect("glyph material present");
+            assert!(
+                matches!(m.alpha_mode, AlphaMode::Mask(_)),
+                "glyph material must alpha-mask the cutout"
+            );
+        }
+        // The atlas carries an explicit (nearest) sampler so the mask edge is crisp
+        // (per-fragment alpha 0/1), not the linear default that blurs thin strokes.
+        let atlas = images.get(&res.atlas).expect("atlas image present");
+        assert!(
+            matches!(atlas.sampler, ImageSampler::Descriptor(_)),
+            "atlas must use an explicit sampler (nearest), not the linear default"
+        );
+    }
+
+    #[test]
+    fn icon_half_extent_is_clamped_to_node_scale() {
+        for kind in theme::NodeKind::ALL {
+            let h = icon_half_extent(kind);
+            assert!(
+                h <= ICON_HALF_MAX + f32::EPSILON,
+                "{kind:?} exceeds the cap"
+            );
+            assert!(
+                h >= ICON_HALF_MIN - f32::EPSILON,
+                "{kind:?} too small to read"
+            );
+            // Never overhangs the node core (the "big block" bug).
+            assert!(
+                h <= node_envelope(kind) + 1e-4,
+                "{kind:?} icon must fit within the node envelope"
+            );
+        }
+        // A larger node carries a larger-or-equal glyph.
+        assert!(
+            icon_half_extent(theme::NodeKind::Alert) >= icon_half_extent(theme::NodeKind::File)
         );
     }
 
