@@ -353,7 +353,7 @@ pub fn update_preview_requests(
 
     let pool = AsyncComputeTaskPool::get();
     for id in decode_set(&st, eff.max_preview_panels) {
-        let Some(node) = st.model.nodes.get(&id) else {
+        let Some(node) = st.core.model.nodes.get(&id) else {
             continue;
         };
         let allowed = file_path_of(node)
@@ -489,7 +489,7 @@ pub fn node_preview_overlay(
         .resizable(false)
         .show(ctx, |ui| {
             for (id, view) in set.iter().zip(views) {
-                let Some(node) = st.model.nodes.get(id) else {
+                let Some(node) = st.core.model.nodes.get(id) else {
                     continue;
                 };
                 ui.group(|ui| {
@@ -535,7 +535,7 @@ pub fn node_preview_overlay(
 
 /// The cache key (path) for a node if it currently maps to a file-backed plan.
 fn cached_path(st: &GraphState, id: &NodeId) -> Option<String> {
-    let node = st.model.nodes.get(id)?;
+    let node = st.core.model.nodes.get(id)?;
     file_path_of(node).map(|p| p.to_string())
 }
 
@@ -759,7 +759,7 @@ mod tests {
 
         let mut gs = GraphState::default();
         let id = NodeId("n".into());
-        gs.model.nodes.insert(
+        gs.core.model.nodes.insert(
             id.clone(),
             Node::File {
                 path: path.clone(),
@@ -796,7 +796,7 @@ mod tests {
 
         let mut gs = GraphState::default();
         let id = NodeId("n".into());
-        gs.model.nodes.insert(
+        gs.core.model.nodes.insert(
             id.clone(),
             Node::File {
                 path: path.clone(),
@@ -848,7 +848,7 @@ mod tests {
     fn preview_opens_on_focus_and_closes_when_cleared() {
         let mut gs = GraphState::default();
         let id = NodeId("n".into());
-        gs.model.nodes.insert(
+        gs.core.model.nodes.insert(
             id.clone(),
             Node::User {
                 uid: 0,

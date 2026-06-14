@@ -164,7 +164,8 @@ pub fn draw_timeline(
     }
 
     let lane_key_for_node = |id: &spacegraph_core::NodeId| {
-        st.model
+        st.core
+            .model
             .nodes
             .get(id)
             .map(timeline_lane_key)
@@ -194,7 +195,8 @@ pub fn draw_timeline(
     // - edge events: midpoint at (x, avg(y,z))
     let mut hover_best: Option<HoverPick> = None;
     let label_for_node = |id: &spacegraph_core::NodeId| {
-        st.model
+        st.core
+            .model
             .nodes
             .get(id)
             .map(node_label_short)
@@ -360,7 +362,7 @@ pub fn draw_timeline(
                                 let label = label_for_node(aid);
                                 lines.push(format!("{:?}", entry.kind));
                                 lines.push(format!("node: {} ({})", label, aid.0));
-                                if let Some(node) = st.model.nodes.get(aid) {
+                                if let Some(node) = st.core.model.nodes.get(aid) {
                                     lines.extend(node_label_long(node));
                                 }
                                 lines.push(format!("age: {:.2}s", entry.age));

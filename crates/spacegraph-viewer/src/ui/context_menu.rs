@@ -155,7 +155,7 @@ pub fn path_at(neighbors: &[NodeId], page: usize, slot: usize) -> Option<&NodeId
 pub fn radial_neighbors(st: &GraphState, id: &NodeId) -> Vec<NodeId> {
     let mut seen = std::collections::HashSet::new();
     let mut out = Vec::new();
-    for edge in st.model.edges_for_node(id) {
+    for edge in st.core.model.edges_for_node(id) {
         let other = if &edge.from == id {
             edge.to.clone()
         } else {
@@ -209,7 +209,7 @@ pub fn radial_hud(
     let Some(state) = radial.0.clone() else {
         return;
     };
-    if !st.model.nodes.contains_key(&state.focused) {
+    if !st.core.model.nodes.contains_key(&state.focused) {
         radial.0 = None;
         return;
     }
@@ -487,7 +487,7 @@ mod tests {
     fn state_with_node() -> (GraphState, NodeId) {
         let mut st = GraphState::default();
         let id = NodeId("n".to_string());
-        st.model.nodes.insert(id.clone(), process_node());
+        st.core.model.nodes.insert(id.clone(), process_node());
         let idx = st.spatial.intern(&id);
         st.spatial.set_position(idx, Vec3::ZERO);
         (st, id)
@@ -606,10 +606,11 @@ mod tests {
         let mut st = GraphState::default();
         st.load_synthetic_graph(60);
         let id = st
+            .core
             .model
             .nodes
             .keys()
-            .find(|id| st.model.edges_for_node(id).next().is_some())
+            .find(|id| st.core.model.edges_for_node(id).next().is_some())
             .cloned()
             .expect("a connected node");
         let ns = radial_neighbors(&st, &id);
@@ -625,7 +626,7 @@ mod tests {
     fn path_dive_recentres_focus_on_neighbor() {
         let (mut st, _id) = state_with_node();
         let nb = nid("nb");
-        st.model.nodes.insert(nb.clone(), process_node());
+        st.core.model.nodes.insert(nb.clone(), process_node());
         let idx = st.spatial.intern(&nb);
         st.spatial.set_position(idx, Vec3::ZERO);
         let mut radial = RadialMenu(Some(RadialState::open(nid("n"))));

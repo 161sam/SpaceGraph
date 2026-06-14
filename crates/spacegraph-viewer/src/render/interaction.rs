@@ -90,6 +90,7 @@ pub fn trigger_focus_ripple(
     }
     let pos = st.spatial.positions[idx.slot()];
     let color = st
+        .core
         .model
         .nodes
         .get(&id)
@@ -148,7 +149,7 @@ pub fn trigger_alert_ripple(
     // Track the newest alert by *identity*, not by count: `alert_order` is a
     // capped ring buffer, so its length pins at the cap and a count delta would
     // miss every new alert once full.
-    let newest = st.alert_order.back().cloned();
+    let newest = st.core.alert_order.back().cloned();
     let is_new = newest.is_some() && newest != *last_alert;
     *last_alert = newest.clone();
     if !is_new
@@ -361,7 +362,7 @@ mod tests {
         use spacegraph_core::Node;
         let mut gs = GraphState::default();
         let id = NodeId("alert1".to_string());
-        gs.model.nodes.insert(
+        gs.core.model.nodes.insert(
             id.clone(),
             Node::Alert {
                 source: "s".into(),
@@ -372,7 +373,7 @@ mod tests {
         );
         let idx = gs.spatial.intern(&id);
         gs.spatial.set_position(idx, Vec3::ZERO);
-        gs.alert_order.push_back(id);
+        gs.core.alert_order.push_back(id);
 
         let mut app = ripple_app(gs);
         app.add_systems(Update, trigger_alert_ripple);
@@ -391,7 +392,7 @@ mod tests {
         use spacegraph_core::Node;
         fn add_alert(gs: &mut GraphState, name: &str) -> NodeId {
             let id = NodeId(name.to_string());
-            gs.model.nodes.insert(
+            gs.core.model.nodes.insert(
                 id.clone(),
                 Node::Alert {
                     source: "s".into(),
@@ -407,7 +408,7 @@ mod tests {
 
         let mut gs = GraphState::default();
         let a = add_alert(&mut gs, "a");
-        gs.alert_order.push_back(a);
+        gs.core.alert_order.push_back(a);
         let mut app = ripple_app(gs);
         app.add_systems(Update, trigger_alert_ripple);
         app.update();
@@ -419,8 +420,8 @@ mod tests {
         {
             let mut st = app.world_mut().resource_mut::<GraphState>();
             let b = add_alert(&mut st, "b");
-            st.alert_order.clear();
-            st.alert_order.push_back(b);
+            st.core.alert_order.clear();
+            st.core.alert_order.push_back(b);
         }
         app.update();
         assert_eq!(

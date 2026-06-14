@@ -127,7 +127,7 @@ fn ranked_entries(st: &GraphState, query: &str) -> Vec<Entry> {
         }
     }
     if !query.is_empty() {
-        for (id, _) in st.model.nodes.iter().take(NODE_SCAN_CAP) {
+        for (id, _) in st.core.model.nodes.iter().take(NODE_SCAN_CAP) {
             let label = st.node_label_with_id(id);
             if let Some(s) = fuzzy_match(query, &label) {
                 scored.push((

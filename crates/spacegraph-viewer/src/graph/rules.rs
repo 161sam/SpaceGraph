@@ -60,7 +60,7 @@ pub fn run_detection_rules(
     }
     ds.last_run_secs = now;
 
-    let detections = ds.registry.evaluate(&st.model);
+    let detections = ds.registry.evaluate(&st.core.model);
     let active = ds.active.clone();
     ds.active = st.apply_detections(&detections, &active);
 }
@@ -70,6 +70,7 @@ mod tests {
     use super::*;
     use crate::graph::model::GraphModel;
     use spacegraph_core::{Edge, EdgeKind, FileKind, Node};
+    use spacegraph_graph::GraphCore;
     use std::time::Instant;
 
     fn proc(id: &str) -> (NodeId, Node) {
@@ -159,11 +160,12 @@ mod tests {
     }
 
     fn count_rule_alerts(st: &GraphState) -> usize {
-        st.alert_order
+        st.core
+            .alert_order
             .iter()
             .filter(|id| {
                 matches!(
-                    st.model.nodes.get(id),
+                    st.core.model.nodes.get(id),
                     Some(Node::Alert { source, .. }) if source == "spacegraph-rule"
                 )
             })
@@ -173,10 +175,13 @@ mod tests {
     #[test]
     fn emission_dedups_and_rearms() {
         let mut st = GraphState {
-            model: lateral_movement_graph(),
+            core: GraphCore {
+                model: lateral_movement_graph(),
+                ..Default::default()
+            },
             ..Default::default()
         };
-        let dets = evaluate_rules(&st.model);
+        let dets = evaluate_rules(&st.core.model);
         assert_eq!(dets.len(), 1, "the fixture trips exactly lateral-movement");
 
         // First apply emits the rule alert.

@@ -228,7 +228,7 @@ pub fn update_edge_mesh(
 
         let mut seen: HashSet<AggEdgeKey> = HashSet::new();
         for id in sources {
-            for edge in st.model.edges_for_node(id) {
+            for edge in st.core.model.edges_for_node(id) {
                 if !focus_only && &edge.from != id {
                     continue;
                 }

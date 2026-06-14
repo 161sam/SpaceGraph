@@ -17,7 +17,10 @@ pub mod correlation;
 pub mod coverage;
 pub mod explain;
 pub mod exposure;
+pub mod graph_core;
 pub mod model;
 pub mod net;
 pub mod posture;
 pub mod rules;
+
+pub use graph_core::GraphCore;
