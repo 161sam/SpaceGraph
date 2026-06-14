@@ -53,9 +53,10 @@ impl Plugin for SpaceGraphViewerPlugin {
             .insert_resource(crate::ui::PreviewState::default())
             .insert_resource(crate::render::RippleTracker::default())
             .insert_resource(crate::render::PreviewExpand::default())
-            // Default detail capability; `finish` refines it from the real GPU
-            // adapter once the renderer is initialized.
-            .insert_resource(crate::render::DetailCapability::Mid);
+            // Default detail capability + quality tier; `finish` refines both from
+            // the real GPU adapter (or config) once the renderer is initialized.
+            .insert_resource(crate::render::DetailCapability::Mid)
+            .insert_resource(crate::render::QualityState::default());
 
         match self.demo_load {
             Some(n) => {
@@ -114,6 +115,8 @@ impl Plugin for SpaceGraphViewerPlugin {
                 crate::render::trigger_focus_ripple,
                 crate::render::update_focus_ripples,
                 crate::render::detect_preview_expand,
+                crate::render::apply_quality,
+                crate::render::adaptive_quality,
             ),
         )
         // Render pipeline runs in order: layout publishes the visible set, the
@@ -145,40 +148,46 @@ impl Plugin for SpaceGraphViewerPlugin {
         }
     }
 
-    /// Resolve the node-detail capability from the real GPU adapter once the
-    /// renderer has initialized (the `[node_detail] level` config overrides it).
-    /// `RenderAdapterInfo` lives in the `RenderApp`; we read it here and store the
-    /// resolved `DetailCapability` in the main world. (v0.5.0 `QualityTier` seam.)
+    /// Resolve the quality tier (and derived node-detail capability) once the
+    /// renderer has initialized. `[quality] tier` overrides auto-detection from
+    /// `RenderAdapterInfo` (in the `RenderApp`); `[node_detail] level` still
+    /// overrides the derived `DetailCapability`. (Spec §2.4.)
     fn finish(&self, app: &mut App) {
-        let override_cap = {
+        let (cfg_tier, detail_override, qcfg) = {
             let st = app.world().resource::<GraphState>();
-            crate::render::capability::parse_override(&st.cfg.node_detail.level)
+            (
+                crate::render::quality::parse_tier(&st.cfg.quality.tier),
+                crate::render::capability::parse_override(&st.cfg.node_detail.level),
+                st.cfg.quality.clone(),
+            )
         };
-        let cap = override_cap
-            .or_else(|| {
-                app.get_sub_app(bevy::render::RenderApp)
-                    .and_then(|render_app| {
-                        render_app
-                            .world()
-                            .get_resource::<bevy::render::renderer::RenderAdapterInfo>()
-                            .map(|info| {
-                                let kind = crate::render::capability::adapter_kind_from_debug(
-                                    &format!("{:?}", info.device_type),
-                                );
-                                crate::render::capability::detect_capability(&info.name, kind)
-                            })
-                    })
-            })
-            .unwrap_or(crate::render::DetailCapability::Mid);
+        let detected =
+            app.get_sub_app(bevy::render::RenderApp)
+                .and_then(|render_app| {
+                    render_app
+                        .world()
+                        .get_resource::<bevy::render::renderer::RenderAdapterInfo>()
+                        .map(|info| {
+                            let kind = crate::render::capability::adapter_kind_from_debug(
+                                &format!("{:?}", info.device_type),
+                            );
+                            let backend = format!("{:?}", info.backend);
+                            crate::render::quality::detect_tier(&info.name, kind, &backend)
+                        })
+                });
+        let base = cfg_tier
+            .or(detected)
+            .unwrap_or(crate::render::QualityTier::Medium);
+        // node_detail.level explicitly overrides the tier-derived capability.
+        let cap = detail_override.unwrap_or_else(|| base.detail_capability());
+
         info!(
-            "node detail capability: {:?}{}",
-            cap,
-            if override_cap.is_some() {
-                " (config override)"
-            } else {
-                " (auto-detected)"
-            }
+            "quality tier: {:?} ({}); node detail: {:?}",
+            base,
+            if cfg_tier.is_some() { "config" } else { "auto" },
+            cap
         );
+        app.insert_resource(crate::render::quality::QualityState::new(base, &qcfg));
         app.insert_resource(cap);
     }
 }

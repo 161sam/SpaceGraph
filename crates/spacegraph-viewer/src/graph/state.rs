@@ -16,8 +16,8 @@ use crate::graph::timeline::{BatchSpan, NodeLife, TimelineEvt, TimelineEvtKind};
 use crate::graph::tree;
 use crate::net::{Incoming, IncomingKind, ReaderHandle};
 use crate::util::config::{
-    AgentEndpoint, AgentMode, LodEdgesMode, NodeDetailConfig, PostFxConfig, ViewerConfig,
-    ViewerViewMode, VisualTheme,
+    AgentEndpoint, AgentMode, LodEdgesMode, NodeDetailConfig, PostFxConfig, QualityConfig,
+    ViewerConfig, ViewerViewMode, VisualTheme,
 };
 use crate::util::ids::{node_label_long, node_label_short};
 
@@ -535,6 +535,10 @@ pub struct CfgState {
     /// runtime to the detected `DetailCapability`.
     pub node_detail: NodeDetailConfig,
 
+    /// Quality tier (v0.5.0): GPU-cost axis. The persisted config; the live
+    /// effective tier lives in the `QualityState` resource.
+    pub quality: QualityConfig,
+
     /// UI sound effects (effective only in builds with the `audio` feature).
     pub audio_enabled: bool,
     pub audio_volume: f32,
@@ -706,6 +710,7 @@ impl Default for GraphState {
                 edge_pick_threshold: 0.15,
                 postfx: PostFxConfig::default(),
                 node_detail: NodeDetailConfig::default(),
+                quality: QualityConfig::default(),
                 audio_enabled: true,
                 audio_volume: 0.6,
             },
@@ -1684,6 +1689,7 @@ impl GraphState {
         self.cfg.edge_pick_threshold = cfg.edge_pick_threshold.max(0.01);
         self.cfg.postfx = cfg.postfx;
         self.cfg.node_detail = cfg.node_detail.clone();
+        self.cfg.quality = cfg.quality.clone();
         self.cfg.audio_enabled = cfg.audio_enabled;
         self.cfg.audio_volume = cfg.audio_volume.clamp(0.0, 1.0);
         self.sync_agent_endpoints(cfg.agents.clone());
@@ -1739,6 +1745,7 @@ impl GraphState {
             edge_pick_threshold: self.cfg.edge_pick_threshold,
             postfx: self.cfg.postfx,
             node_detail: self.cfg.node_detail.clone(),
+            quality: self.cfg.quality.clone(),
             audio_enabled: self.cfg.audio_enabled,
             audio_volume: self.cfg.audio_volume,
             agents: self.net.endpoints.clone(),

@@ -307,11 +307,16 @@ fn node_qualifies_for_ring(st: &GraphState, id: &spacegraph_core::NodeId) -> boo
 pub fn sync_node_rings(
     mut commands: Commands,
     st: Res<GraphState>,
+    quality: Res<crate::render::quality::QualityState>,
     res: Res<NodeRenderResources>,
     entities: Res<NodeEntities>,
     mut rings: ResMut<NodeRings>,
 ) {
-    let enabled = st.cfg.node_rings && st.cfg.visual_theme == VisualTheme::Standard;
+    // Standard + user-enabled + the active quality tier permits orbital rings
+    // (off at Potato).
+    let enabled = st.cfg.node_rings
+        && st.cfg.visual_theme == VisualTheme::Standard
+        && quality.gates(st.cfg.visual_theme).rings;
 
     // Drop rings whose parent node entity is gone (despawned with it), and
     // despawn rings on nodes that no longer qualify or when disabled.
@@ -1527,6 +1532,8 @@ mod tests {
             .insert_resource(NodeRings::default())
             .insert_resource(RebuildNodeEntities::default())
             .insert_resource(dummy_render_resources())
+            // Default tier (Medium) permits rings; the test asserts ring logic.
+            .insert_resource(crate::render::quality::QualityState::default())
             .add_systems(Update, (sync_node_entities, sync_node_rings).chain());
         app.update();
         app

@@ -45,25 +45,20 @@ pub fn setup_scene(mut commands: Commands) {
 }
 
 /// Apply the active visual theme to scene-wide settings: background clear colour
-/// and bloom intensity (Minimal = no bloom, flat background).
+/// (bloom intensity is owned by `render::quality::apply_quality`, which folds the
+/// theme into the tier gates).
 pub fn sync_visual_theme(
     st: Res<GraphState>,
     mut clear: ResMut<ClearColor>,
-    mut bloom_q: Query<&mut BloomSettings>,
     mut rebuild: ResMut<crate::render::RebuildNodeEntities>,
     mut last_theme: Local<Option<VisualTheme>>,
 ) {
-    let (bg, bloom) = match st.cfg.visual_theme {
-        VisualTheme::Standard => (theme::CLEAR_STANDARD, 0.25_f32),
-        VisualTheme::Minimal => (theme::CLEAR_MINIMAL, 0.0),
+    let bg = match st.cfg.visual_theme {
+        VisualTheme::Standard => theme::CLEAR_STANDARD,
+        VisualTheme::Minimal => theme::CLEAR_MINIMAL,
     };
     if clear.0 != bg {
         clear.0 = bg;
-    }
-    for mut settings in bloom_q.iter_mut() {
-        if (settings.intensity - bloom).abs() > f32::EPSILON {
-            settings.intensity = bloom;
-        }
     }
     // On an actual theme change (not first run), trigger one node-entity rebuild
     // so cores/shells switch between per-kind geometry and the flat sphere.
