@@ -84,6 +84,7 @@ impl Plugin for SpaceGraphViewerPlugin {
                 process_net_commands,
                 pump_network,
                 crate::graph::tick_housekeeping,
+                crate::ui::apply_egui_theme,
                 crate::ui::handle_shortcuts,
                 crate::ui::ui_panel,
                 crate::ui::help_overlay,

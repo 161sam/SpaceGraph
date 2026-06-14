@@ -139,6 +139,33 @@ impl Default for NodeDetailConfig {
     }
 }
 
+/// IDE-shell (v0.5.0, spec §3.2 / §6) layout persistence. Native egui panels —
+/// no docking crate. Widths in logical px.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ShellConfig {
+    pub left_open: bool,
+    pub left_width: f32,
+    pub right_open: bool,
+    pub right_width: f32,
+    pub bottom_open: bool,
+    /// The collapsible "Technician" tuning section (collapsed by default).
+    pub technician_open: bool,
+}
+
+impl Default for ShellConfig {
+    fn default() -> Self {
+        Self {
+            left_open: true,
+            left_width: 290.0,
+            right_open: true,
+            right_width: 320.0,
+            bottom_open: false,
+            technician_open: false,
+        }
+    }
+}
+
 /// Quality-tier (v0.5.0, spec §2.7) config block. `tier` =
 /// `auto`|`potato`|`low`|`medium`|`high` (auto = detect from the GPU adapter);
 /// `adaptive` toggles the runtime FPS-feedback tier stepping.
@@ -230,6 +257,9 @@ pub struct ViewerConfig {
     // ---- Quality tier (v0.5.0): GPU-cost axis, Pi → desktop ----
     #[serde(default)]
     pub quality: QualityConfig,
+    // ---- IDE shell (v0.5.0): native-panel layout persistence ----
+    #[serde(default)]
+    pub shell: ShellConfig,
     // ---- Audio (effective only in builds with the `audio` feature) ----
     #[serde(default = "default_audio_enabled")]
     pub audio_enabled: bool,
@@ -291,6 +321,7 @@ impl Default for ViewerConfig {
             postfx: PostFxConfig::default(),
             node_detail: NodeDetailConfig::default(),
             quality: QualityConfig::default(),
+            shell: ShellConfig::default(),
             audio_enabled: default_audio_enabled(),
             audio_volume: default_audio_volume(),
             agents: vec![AgentEndpoint::default()],
@@ -461,6 +492,23 @@ mod tests {
         let dec: NodeDetailConfig = toml::from_str(&enc).expect("deserialize override");
         assert_eq!(overridden, dec);
         assert_eq!(dec.level.as_deref(), Some("low"));
+    }
+
+    #[test]
+    fn shell_config_roundtrip() {
+        let cfg = ShellConfig {
+            left_open: true,
+            left_width: 300.0,
+            right_open: false,
+            right_width: 280.0,
+            bottom_open: true,
+            technician_open: true,
+        };
+        let dec: ShellConfig = toml::from_str(&toml::to_string(&cfg).unwrap()).unwrap();
+        assert_eq!(cfg, dec);
+        // Defaults: Technician collapsed, right open.
+        let d = ShellConfig::default();
+        assert!(!d.technician_open && d.right_open && d.left_open);
     }
 
     #[test]

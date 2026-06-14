@@ -12,6 +12,8 @@ pub mod search;
 pub mod settings_agents;
 pub mod settings_paths;
 pub mod shortcuts;
+pub mod theme_egui;
+pub mod tokens;
 pub mod tooltips;
 
 pub const HUD_EDGE_PADDING: f32 = 10.0;
@@ -31,6 +33,7 @@ pub use node_preview::{
 pub use panel::ui_panel;
 pub use reticle::reticle_overlay;
 pub use shortcuts::handle_shortcuts;
+pub use theme_egui::apply_egui_theme;
 
 /// Convert a Bevy `Color` to an egui `Color32` (sRGB, opaque) for UI swatches.
 pub fn egui_color(c: bevy::prelude::Color) -> bevy_egui::egui::Color32 {
