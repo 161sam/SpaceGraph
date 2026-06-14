@@ -239,16 +239,12 @@ impl Default for EdgeLodConfig {
     }
 }
 
-/// Filesystem search (v0.5.2, spec §7). `index_source` =
-/// `auto`|`plocate`|`builtin` (advisory to the agent in Track-A — the agent
-/// auto-detects; the agent-side `--index-source` flag is authoritative).
-/// `full_system` (D-2) opts into the system-wide scope; `result_limit` caps the
-/// hits requested; `debounce_ms` is the search-box debounce before a query is
-/// sent.
+/// Filesystem search (v0.5.2, spec §7). `full_system` (D-2) opts into the
+/// system-wide scope; `result_limit` caps the hits requested; `debounce_ms` is
+/// the search-box debounce before a query is sent.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct SearchConfig {
-    pub index_source: String,
     pub full_system: bool,
     pub result_limit: u32,
     pub debounce_ms: u64,
@@ -257,7 +253,6 @@ pub struct SearchConfig {
 impl Default for SearchConfig {
     fn default() -> Self {
         Self {
-            index_source: "auto".to_string(),
             full_system: false,
             result_limit: 200,
             debounce_ms: 120,
@@ -587,13 +582,11 @@ mod tests {
     fn search_config_roundtrip() {
         // Defaults match the spec §7 block.
         let d = SearchConfig::default();
-        assert_eq!(d.index_source, "auto");
         assert!(!d.full_system);
         assert_eq!(d.result_limit, 200);
         assert_eq!(d.debounce_ms, 120);
 
         let cfg = SearchConfig {
-            index_source: "builtin".into(),
             full_system: true,
             result_limit: 50,
             debounce_ms: 200,

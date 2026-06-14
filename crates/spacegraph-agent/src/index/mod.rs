@@ -1,19 +1,19 @@
 //! Filesystem search index (spec §2/§4/§5). **The index is not the graph:** it
 //! is the searchable universe of paths; only a *picked* result materialises into
-//! a node. The index prefers the system locate binary (D-1) and falls back to a
-//! builtin walker.
+//! a node. The index is the builtin walker: it walks the scoped roots into a
+//! cached path list, kept fresh by incremental inotify updates. The agent never
+//! shells out to a system `locate` binary — its read-only / no-exec guarantee
+//! (O-7') is preserved.
 //!
-//! Scope / privilege / path-policy are applied as a **post-filter** in locate
-//! mode (plocate indexed the whole system) and **at build time** in builtin mode
-//! (the walker only records allowed entries). Either way, in `User` mode an
-//! excluded or unreadable path is never returned (§5) — [`path_allowed`] is the
-//! single chokepoint, asserted by the security test.
+//! Scope / privilege / path-policy are applied **at build time** (the walker only
+//! records allowed entries) and re-checked as a **post-filter** in
+//! [`FsIndex::search`]. Either way, in `User` mode an excluded or unreadable path
+//! is never returned (§5) — [`path_allowed`] is the single chokepoint, asserted
+//! by the security test.
 
-mod locate;
 mod rank;
 mod walker;
 
-pub use locate::{detect_locate, LocateBackend, SystemLocate};
 pub use rank::Candidate;
 pub use walker::Walker;
 
@@ -27,66 +27,28 @@ use spacegraph_core::{
 use crate::config::AgentMode;
 use crate::path_policy::PathPolicy;
 
-/// Where the index sources its data (config `[search] index_source`).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum IndexSource {
-    Auto,
-    Plocate,
-    Builtin,
-}
-
-impl IndexSource {
-    pub fn parse(input: &str) -> Option<Self> {
-        match input {
-            "auto" => Some(Self::Auto),
-            "plocate" => Some(Self::Plocate),
-            "builtin" => Some(Self::Builtin),
-            _ => None,
-        }
-    }
-}
-
 /// Hard ceiling on results regardless of the request limit — bounds the work and
 /// the wire payload.
 const MAX_RESULTS: usize = 1000;
 
-/// The agent-side filesystem index. Backed by either a system locate binary
-/// (results post-filtered) or the builtin walker (filtered at build time).
+/// The agent-side filesystem index, backed by the builtin walker (scope and
+/// privilege applied at build time; re-checked on search).
 pub struct FsIndex {
-    backend: Backend,
+    walker: Arc<RwLock<Walker>>,
     policy: PathPolicy,
     mode: AgentMode,
     node_id: String,
 }
 
-enum Backend {
-    Locate(Box<dyn LocateBackend>),
-    Builtin(Arc<RwLock<Walker>>),
-}
-
 impl FsIndex {
-    pub fn with_locate(
-        backend: Box<dyn LocateBackend>,
-        policy: PathPolicy,
-        mode: AgentMode,
-        node_id: String,
-    ) -> Self {
-        Self {
-            backend: Backend::Locate(backend),
-            policy,
-            mode,
-            node_id,
-        }
-    }
-
-    pub fn with_walker(
+    pub fn new(
         walker: Arc<RwLock<Walker>>,
         policy: PathPolicy,
         mode: AgentMode,
         node_id: String,
     ) -> Self {
         Self {
-            backend: Backend::Builtin(walker),
+            walker,
             policy,
             mode,
             node_id,
@@ -96,7 +58,7 @@ impl FsIndex {
     /// Query the index for `req`, returning ranked, policy-filtered hits.
     pub fn search(&self, req: &SearchRequest) -> SearchResponse {
         let limit = (req.limit as usize).clamp(1, MAX_RESULTS);
-        let raw = self.raw_candidates(&req.query, limit);
+        let raw = self.raw_candidates(&req.query);
         let candidates: Vec<Candidate> = raw
             .into_iter()
             .filter(|path| {
@@ -136,18 +98,11 @@ impl FsIndex {
         }]
     }
 
-    fn raw_candidates(&self, query: &str, limit: usize) -> Vec<String> {
-        match &self.backend {
-            Backend::Locate(backend) => {
-                // Over-fetch so the post-filter still fills the cap.
-                let over = (limit.saturating_mul(4)).min(MAX_RESULTS) as u32;
-                backend.query(query, over).unwrap_or_default()
-            }
-            Backend::Builtin(walker) => walker
-                .read()
-                .map(|walker| walker.query(query))
-                .unwrap_or_default(),
-        }
+    fn raw_candidates(&self, query: &str) -> Vec<String> {
+        self.walker
+            .read()
+            .map(|walker| walker.query(query))
+            .unwrap_or_default()
     }
 }
 
@@ -258,9 +213,21 @@ fn inode_of(path: &Path) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use locate::MockLocate;
     use std::collections::HashSet;
     use std::path::PathBuf;
+
+    /// Build an `FsIndex` whose walker holds exactly `paths` (bypassing the
+    /// build-time walk) so the search-time scope/exclude post-filter and ranking
+    /// are exercised directly over a synthetic universe.
+    fn index_over(paths: Vec<&str>, policy: PathPolicy, mode: AgentMode) -> FsIndex {
+        let walker = Walker::from_paths(paths.into_iter().map(String::from));
+        FsIndex::new(
+            Arc::new(RwLock::new(walker)),
+            policy,
+            mode,
+            "host".to_string(),
+        )
+    }
 
     fn policy_over(root: &Path) -> PathPolicy {
         let mut policy = PathPolicy::new(vec![root.to_path_buf()], vec![PathBuf::from("secret")]);
@@ -369,31 +336,28 @@ mod tests {
         );
     }
 
-    // ---- search() end-to-end over a mock locate backend ----
+    // ---- search() end-to-end over the walker index ----
 
     #[test]
-    fn search_ranks_filters_and_caps_via_locate() {
-        // Locate indexed the whole system; the post-filter drops excluded paths.
-        let mock = MockLocate {
-            paths: vec![
-                "/home/u/report.txt".to_string(),
-                "/home/u/reporting/report2.txt".to_string(),
-                "/home/u/secret/report_leak.txt".to_string(), // excluded
-                "/etc/passwd".to_string(),                    // out of scope
-            ],
-        };
+    fn search_ranks_filters_and_caps() {
+        // The walker holds the raw universe; search's post-filter drops the
+        // excluded / out-of-scope paths.
         let mut policy = PathPolicy::new(
             vec![PathBuf::from("/home/u")],
             vec![PathBuf::from("secret")],
         );
         policy.normalize();
-        let index = FsIndex::with_locate(
-            Box::new(mock),
+        let index = index_over(
+            vec![
+                "/home/u/report.txt",
+                "/home/u/reporting/report2.txt",
+                "/home/u/secret/report_leak.txt", // excluded
+                "/etc/passwd",                    // out of scope
+            ],
             policy,
-            // Privileged so the (non-existent) temp paths aren't dropped for
+            // Privileged so the (non-existent) synthetic paths aren't dropped for
             // unreadability — this test isolates scope/exclude + ranking.
             AgentMode::Privileged,
-            "host".to_string(),
         );
 
         let resp = index.search(&SearchRequest {
@@ -419,13 +383,15 @@ mod tests {
 
     #[test]
     fn search_sets_truncated_when_over_cap() {
-        let mock = MockLocate {
-            paths: (0..5).map(|i| format!("/home/u/report{i}")).collect(),
-        };
         let mut policy = PathPolicy::new(vec![PathBuf::from("/home/u")], Vec::new());
         policy.normalize();
-        let index =
-            FsIndex::with_locate(Box::new(mock), policy, AgentMode::Privileged, "host".into());
+        let paths: Vec<String> = (0..5).map(|i| format!("/home/u/report{i}")).collect();
+        let index = FsIndex::new(
+            Arc::new(RwLock::new(Walker::from_paths(paths))),
+            policy,
+            AgentMode::Privileged,
+            "host".into(),
+        );
         let resp = index.search(&SearchRequest {
             query: "report".into(),
             limit: 2,
@@ -448,7 +414,7 @@ mod tests {
 
         let mut policy = PathPolicy::new(vec![dir.clone()], Vec::new());
         policy.normalize();
-        let index = FsIndex::with_walker(
+        let index = FsIndex::new(
             Arc::new(RwLock::new(Walker::new())),
             policy,
             AgentMode::User,
@@ -478,7 +444,7 @@ mod tests {
         let mut policy =
             PathPolicy::new(vec![PathBuf::from("/home/u")], vec![PathBuf::from("/proc")]);
         policy.normalize();
-        let index = FsIndex::with_walker(
+        let index = FsIndex::new(
             Arc::new(RwLock::new(Walker::new())),
             policy,
             AgentMode::Privileged,

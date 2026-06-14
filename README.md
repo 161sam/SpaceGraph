@@ -178,7 +178,7 @@ Zwei-Ebenen-Modell — reich *und* billig (bis Raspberry Pi):
 - Ctrl+P Search & Jump
 - **Filesystem-Search (v0.5.2):** Ctrl+P/Palette durchsucht nicht nur den
   geladenen Graphen (`IN GRAPH`), sondern auch das Dateisystem über einen
-  agentseitigen Index (`ON DISK`, bevorzugt `plocate`, sonst Builtin-Walker).
+  agentseitigen Index (`ON DISK`, Builtin-Walker — kein `exec`, O-7').
   Treffer sind keine Nodes — erst ein *gepicktes* Ergebnis wird materialisiert
   (Node + Fly-to). Index ≠ Graph; der Graph bleibt bounded. Im `User`-Modus
   werden ausgeschlossene/unlesbare Pfade nie zurückgegeben.
@@ -282,7 +282,6 @@ Settings-Panel bzw. in `viewer.toml` änderbar:
 | `[node_detail] max_preview_panels` | 3 | Cap gleichzeitiger Fokus-Vorschauen (Low → 1) |
 | `[node_detail] thumbnail_px` / `enable_image` | 256 / true | Thumbnail-Größe bzw. Bild-Decode (Low: aus) |
 | `[node_detail] max_image_bytes` / `max_text_bytes` | 2 MiB / 256 KiB | Lese-Budgets für Vorschau-Inhalte |
-| `[search] index_source` | `auto` | FS-Suche: `auto`/`plocate`/`builtin` (Hinweis an den Agent; agentseitig `--index-source` ist maßgeblich) |
 | `[search] full_system` | aus | Systemweite Scope-Erweiterung (D-2); jenseits des lesbaren Sets braucht der Agent `Privileged` (D-3) |
 | `[search] result_limit` / `debounce_ms` | 200 / 120 | Cap der angefragten Disk-Treffer bzw. Such-Debounce |
 

@@ -101,8 +101,8 @@ pub async fn run(
                 inbound = stream.next() => match inbound {
                     Some(Ok(bytes)) => match serde_json::from_slice::<Msg>(&bytes) {
                         Ok(Msg::SearchRequest(req)) => {
-                            // The locate shell-out / walker scan is blocking — run
-                            // it off the async worker.
+                            // The walker scan is blocking — run it off the async
+                            // worker.
                             let idx = Arc::clone(&index);
                             match tokio::task::spawn_blocking(move || idx.search(&req)).await {
                                 Ok(resp) => {

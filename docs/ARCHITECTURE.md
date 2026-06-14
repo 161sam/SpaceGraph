@@ -9,7 +9,8 @@ boundaries, system order, multi-node, pin/interaction state) lives in
 ## Crates
 
 - **`spacegraph-core`** — shared wire protocol & types (`Node`/`Edge`/`EdgeKind`/
-  `Delta`/`Msg`, `PROTOCOL_VERSION = 3`, id constructors). No Bevy, no IO.
+  `Delta`/`Msg`, `PROTOCOL_VERSION = 4` (`MIN_COMPATIBLE = 3`), id constructors).
+  No Bevy, no IO.
 - **`spacegraph-agent`** — read-only host collectors behind the `EventSource`
   trait (`fs`, `proc`, `net` procfs sockets, `suricata_eve` alerts); serves a UDS
   stream of `Msg`. `AgentMode::{User, Privileged}` gates *which paths are read*.
