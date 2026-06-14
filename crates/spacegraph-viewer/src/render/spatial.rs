@@ -397,9 +397,15 @@ fn node_meshes(
     res: &NodeRenderResources,
     theme: crate::util::config::VisualTheme,
     kind: theme::NodeKind,
+    silhouette: bool,
 ) -> NodeMeshSet {
     match theme {
         crate::util::config::VisualTheme::Minimal => (res.minimal_mesh.clone(), None),
+        // Standard, but the tier suppresses 3D silhouettes (Potato/Low) → the
+        // gate-glyph is primary; render a cheap flat core, no shell.
+        crate::util::config::VisualTheme::Standard if !silhouette => {
+            (res.minimal_mesh.clone(), None)
+        }
         crate::util::config::VisualTheme::Standard => {
             let i = kind.index();
             let shell = res.shell_mesh[i]
@@ -468,6 +474,7 @@ pub fn sync_node_entities(
     mut commands: Commands,
     st: Res<GraphState>,
     res: Res<NodeRenderResources>,
+    quality: Res<crate::render::quality::QualityState>,
     mut entities: ResMut<NodeEntities>,
     mut rebuild: ResMut<RebuildNodeEntities>,
     mut q: Query<
@@ -529,7 +536,15 @@ pub fn sync_node_entities(
         let pos = st.spatial.positions[idx.slot()];
         let material = node_material(&res, &st, idx, id, now, glow_secs);
         let kind = node_kind(&st, id);
-        let (mesh, shell) = node_meshes(&res, st.cfg.visual_theme, kind);
+        // The tier decides whether the 3D silhouette renders (near band); Potato/
+        // Low suppress it so the gate-glyph is primary (spec §3.3).
+        let silhouette = crate::render::node_glyph::silhouette_active(
+            st.cfg.visual_theme,
+            quality.gates(st.cfg.visual_theme).silhouettes,
+            0.0,
+            crate::render::node_glyph::FAR_DIST,
+        );
+        let (mesh, shell) = node_meshes(&res, st.cfg.visual_theme, kind, silhouette);
 
         if let Some(&entity) = entities.map.get(&idx) {
             if let Ok((mut tf, mut handle, mut mesh_h)) = q.get_mut(entity) {
@@ -1203,6 +1218,7 @@ mod tests {
             .insert_resource(NodeEntities::default())
             .insert_resource(RebuildNodeEntities::default())
             .insert_resource(dummy_render_resources())
+            .insert_resource(crate::render::quality::QualityState::default())
             .add_systems(Update, sync_node_entities);
         app.update();
         app
@@ -1264,6 +1280,7 @@ mod tests {
             .insert_resource(NodeEntities::default())
             .insert_resource(RebuildNodeEntities::default())
             .insert_resource(dummy_render_resources())
+            .insert_resource(crate::render::quality::QualityState::default())
             .add_systems(Update, sync_node_entities);
         app.update();
         let count = node_entities(&mut app).len();
@@ -1279,6 +1296,7 @@ mod tests {
             .insert_resource(NodeEntities::default())
             .insert_resource(RebuildNodeEntities::default())
             .insert_resource(dummy_render_resources())
+            .insert_resource(crate::render::quality::QualityState::default())
             .add_systems(Update, sync_node_entities);
 
         app.update();
@@ -1345,6 +1363,7 @@ mod tests {
             .insert_resource(NodeEntities::default())
             .insert_resource(RebuildNodeEntities::default())
             .insert_resource(dummy_render_resources())
+            .insert_resource(crate::render::quality::QualityState::default())
             .add_systems(Update, sync_node_entities);
         app.update();
         assert_eq!(node_entities(&mut app).len(), 0);
@@ -1433,12 +1452,38 @@ mod tests {
     }
 
     #[test]
+    fn potato_tier_suppresses_silhouette_glyph_primary() {
+        use crate::render::quality::{QualityState, QualityTier};
+        let res = dummy_render_resources();
+        for (node, _kind) in all_kind_nodes() {
+            let mut app = App::new();
+            let mut q = QualityState::default();
+            q.base = QualityTier::Potato;
+            q.set_effective(QualityTier::Potato);
+            app.insert_resource(one_node_state(node, VisualTheme::Standard))
+                .insert_resource(NodeEntities::default())
+                .insert_resource(RebuildNodeEntities::default())
+                .insert_resource(dummy_render_resources())
+                .insert_resource(q)
+                .add_systems(Update, sync_node_entities);
+            app.update();
+            let (mesh, has_shell) = node_mesh_and_shell(&mut app);
+            assert_eq!(
+                mesh, res.minimal_mesh,
+                "Potato suppresses the per-kind silhouette — the gate-glyph is primary"
+            );
+            assert!(!has_shell, "Potato has no shell child (glyph primary)");
+        }
+    }
+
+    #[test]
     fn theme_switch_triggers_exactly_one_rebuild() {
         let mut app = App::new();
         app.insert_resource(graph_state(100))
             .insert_resource(NodeEntities::default())
             .insert_resource(RebuildNodeEntities::default())
             .insert_resource(dummy_render_resources())
+            .insert_resource(crate::render::quality::QualityState::default())
             .add_systems(Update, sync_node_entities);
         app.update();
         let before = node_entities(&mut app);

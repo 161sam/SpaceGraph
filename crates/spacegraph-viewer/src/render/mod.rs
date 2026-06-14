@@ -6,6 +6,7 @@ pub mod edges;
 pub mod freefly;
 pub mod gameplay;
 pub mod interaction;
+pub mod node_glyph;
 pub mod node_icon;
 pub mod node_mesh;
 pub mod pacing;
@@ -31,6 +32,9 @@ pub use gameplay::{mission_tick, reveal_tick, scan_pulse, Mission, ScanPulse};
 pub use interaction::{
     detect_preview_expand, setup_ripple_resources, trigger_focus_ripple, update_focus_ripples,
     PreviewExpand, RippleTracker,
+};
+pub use node_glyph::{
+    setup_node_glyph_resources, sync_node_glyphs, NodeGlyphMarker, NodeGlyphResources, NodeGlyphs,
 };
 pub use node_icon::{
     file_subtype, icon_for, setup_node_icon_resources, sync_node_icons, IconId, NodeIconMarker,

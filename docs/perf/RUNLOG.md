@@ -1029,3 +1029,39 @@ cargo run --release -p spacegraph-viewer -- --demo-load 1500
 # the rail and inspector and confirm widths persist after Save Settings + restart;
 # switch theme + tier from the Display selectors.
 ```
+
+## Phase 3 — WP-2 Gate-glyph LOD layer (spec §3.3)
+
+* `render/node_glyph.rs`: a billboarded **gate-glyph** (centre dot + two concentric
+  rings) as a shared `LineList` mesh (the shell/edges pattern), unlit HDR-emissive
+  so it blooms, per-kind material (instanced), camera-faced each frame (rotation
+  copy). Spawned per visible node in **Standard** only; `sync_node_glyphs` mirrors
+  the node-icon lifecycle (spawn on add / despawn on remove / mutate otherwise).
+* Node-representation matrix (theme × tier) wired into `sync_node_entities`:
+  `Minimal` → flat sphere, no glyph; `Standard` + silhouettes-on (Medium/High) →
+  per-kind 3D core + shell + glyph; `Standard` + silhouettes-off (Potato/Low) →
+  **glyph-primary** (cheap flat core, no shell). `node_meshes` gained a
+  `silhouette` arg; `apply_quality` triggers one entity rebuild when the
+  silhouette gate flips on a tier change (the v0.4.0 theme-switch pattern — no
+  per-frame churn). The gate-glyph is the centre-ring complement to the v0.4.1
+  face icon (one GitS gate unit).
+* **Deviation (documented per §3):** the *distance* far-LOD band (silhouette drops
+  out beyond `FAR_DIST` even at Medium/High) is selectable via the pure
+  `silhouette_active(theme, gates, dist, far)` fn (tested) but not yet wired into
+  `sync_node_entities` — wiring it needs dynamic shell add/remove on band-cross
+  (churn-prone). Current wiring is tier-driven (near band); the distance band is a
+  contained v0.5.x refinement. Glyph LOD ladder otherwise per spec.
+* **Gate 3 PASS** — fmt / clippy -D / test green. New tests (+5):
+  `node_glyph::lod_matrix_pure_fns` (Standard glyph / Minimal none / silhouette
+  near vs far vs Potato), `glyph_per_visible_node_in_standard`,
+  `minimal_theme_has_no_glyphs`, `glyphs_have_no_steady_state_churn`,
+  `spatial::potato_tier_suppresses_silhouette_glyph_primary`. **167 tests** total.
+
+### Local-capture (perf/visual)
+
+```
+cargo run --release -p spacegraph-viewer -- --demo-load 1500
+# Standard: every node shows the gate ring (type-coloured, blooms); set tier
+# Potato/Low → silhouettes vanish, glyph is the node; Minimal → flat spheres, no
+# rings. Confirm a tier switch rebuilds once (no churn) and FPS scales per class.
+```
