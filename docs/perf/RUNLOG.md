@@ -1337,3 +1337,45 @@ cargo run --release -p spacegraph-viewer -- --demo-load 2000
 Expected: distant edges dim/cull on the 2000-node demo → fewer bright edge
 vertices → lower bloom/overdraw cost → FPS neutral-to-up, strongest at Potato/Low
 where fill-rate is the bottleneck.
+
+### Phase 4 — Focus Mode, the headline (`v0.5.1/phase4-focus`, merged `--no-ff`)
+
+A real **Focus Mode** that centres + foregrounds a node — the convergence of the
+preview, radial HUD, gate-rings, ripple and camera. New `ui/focus.rs` orchestrates;
+everything else is evolved, not duplicated.
+
+* **Enter / exit (FM-3):** `F` or double-click → `enter_focus` sets the subject,
+  selects it (fires the existing dive ripple on the focus change), and
+  `request_jump`s the camera to ease the node to **screen-centre + close**. `Esc` →
+  `exit_focus`; `render::focus_mode_camera` + `FocusCam` capture the pre-focus
+  framing on enter and **ease the camera back** on exit (edge-detected, O(1)).
+* **Background recedes (FM-1):** `ui::focus::focus_overlay` paints a full-screen dim
+  on **all tiers** (egui Background layer; the radial HUD + preview draw above it).
+  **DoF blur is High-tier-only and deferred** in v0.5.1 — dim-only ships, exactly the
+  documented fallback (§1.4); no WGSL added, not a blocker.
+* **Layout freeze (FM-2):** `GraphState::layout_frozen()` (focus + `freeze_layout`)
+  gates the `force_step` call in `update_layout_or_timeline`. Reversible; resumes the
+  instant focus clears. **`force_step` body is byte-identical to v0.5.0** (verified by
+  extracting the function from both revisions — 194 lines, IDENTICAL; only
+  `update_layout_or_timeline` + the new `layout_frozen` method changed).
+* **Node centerpiece (Standard):** a prominent gate ring + identity arcs
+  (kind / links / id) around screen-centre, the v0.4.1 preview **re-anchored to
+  CENTER**, and the v0.5.0 radial command ring — composed at the focused node.
+  **Minimal → plain dim+centre** (no rings/arcs/DoF), asserted by
+  `enter_focus_minimal_dims_without_radial`.
+* **In-focus interactivity + path dive:** the keyboard radial model drives it; a
+  path dive (`context_menu::dive_to_neighbor`) re-centres focus on a neighbour — the
+  camera eases onward and dim/freeze/edge-cull follow. Focus-mode **edge culling**
+  (Phase 3) is now live (only the focused node's incident edges draw).
+* **Cost:** O(1) — `focus_overlay` has no `Commands` and spawns nothing; the camera
+  system mutates only the camera. Structural test
+  `focus_mode_spawns_no_per_node_entities` asserts **no per-visible-node entity**.
+* **Config:** additive `[focus]` block (`dim=0.62`, `dof=false` (deferred),
+  `freeze_layout=true`), plumbed `ViewerConfig ↔ CfgState`.
+* **Tests (+10 → 208 total):** enter/exit + Minimal degrade, double-click entry,
+  path-dive re-centre, layout freeze/resume, camera capture/restore, no-spawn
+  structural, headless render, `[focus]` round-trip. All three new systems are also
+  exercised (executed) in tests → runtime-valid.
+* **Gate 4 green:** fmt · clippy `-D warnings` · **208 tests** · determinism green ·
+  `force_step` byte-identical · registered-systems intact (focus systems registered,
+  no orphans) · renders without panic headless with a focused node + camera.
