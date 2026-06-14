@@ -1,5 +1,8 @@
 use anyhow::Result;
 use spacegraph_core::{protocol_compatible, Msg, PROTOCOL_VERSION};
+use std::sync::Arc;
+
+use crate::index::FsIndex;
 
 #[cfg(unix)]
 use anyhow::Context;
@@ -19,6 +22,7 @@ pub async fn run(
     snapshot_msg: Msg,
     snapshot_node_events: Vec<Msg>,
     bus_tx: tokio::sync::broadcast::Sender<Msg>,
+    index: Arc<FsIndex>,
 ) -> Result<()> {
     let listener =
         UnixListener::bind(sock_path).with_context(|| format!("bind UDS {sock_path}"))?;
@@ -87,16 +91,61 @@ pub async fn run(
             "sent_snapshot"
         );
 
-        // Stream deltas
+        // Split so we can read client requests (FS search/materialise, v4) and
+        // forward bus deltas over the same connection without a borrow conflict.
+        let (mut sink, mut stream) = framed.split();
+
+        // Stream deltas + serve client requests.
         loop {
-            match bus_rx.recv().await {
-                Ok(msg) => {
-                    if framed.send(serde_json::to_vec(&msg)?.into()).await.is_err() {
+            tokio::select! {
+                inbound = stream.next() => match inbound {
+                    Some(Ok(bytes)) => match serde_json::from_slice::<Msg>(&bytes) {
+                        Ok(Msg::SearchRequest(req)) => {
+                            // The locate shell-out / walker scan is blocking — run
+                            // it off the async worker.
+                            let idx = Arc::clone(&index);
+                            match tokio::task::spawn_blocking(move || idx.search(&req)).await {
+                                Ok(resp) => {
+                                    let out = serde_json::to_vec(&Msg::SearchResponse(resp))?;
+                                    if sink.send(out.into()).await.is_err() {
+                                        break;
+                                    }
+                                }
+                                Err(err) => tracing::warn!(error = %err, "search task failed"),
+                            }
+                        }
+                        Ok(Msg::MaterialiseRequest(req)) => {
+                            // Only a picked, permitted path materialises (bounded).
+                            for delta in index.materialise(&req) {
+                                let out = serde_json::to_vec(&Msg::Event { delta })?;
+                                if sink.send(out.into()).await.is_err() {
+                                    break;
+                                }
+                            }
+                        }
+                        Ok(Msg::Ping) => {
+                            if sink.send(serde_json::to_vec(&Msg::Pong)?.into()).await.is_err() {
+                                break;
+                            }
+                        }
+                        Ok(_) => {} // ignore other client messages (re-sent Hello, etc.)
+                        Err(err) => tracing::debug!(error = %err, "decode client frame"),
+                    },
+                    Some(Err(err)) => {
+                        tracing::debug!(error = %err, "client stream error");
                         break;
                     }
-                }
-                Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
-                Err(_) => break,
+                    None => break, // client closed
+                },
+                bus = bus_rx.recv() => match bus {
+                    Ok(msg) => {
+                        if sink.send(serde_json::to_vec(&msg)?.into()).await.is_err() {
+                            break;
+                        }
+                    }
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
+                    Err(_) => break,
+                },
             }
         }
         let client_count = active_clients.fetch_sub(1, Ordering::SeqCst) - 1;
@@ -111,6 +160,7 @@ pub async fn run(
     _snapshot_msg: Msg,
     _snapshot_node_events: Vec<Msg>,
     _bus_tx: tokio::sync::broadcast::Sender<Msg>,
+    _index: Arc<FsIndex>,
 ) -> Result<()> {
     anyhow::bail!("UDS server is only supported on unix platforms")
 }

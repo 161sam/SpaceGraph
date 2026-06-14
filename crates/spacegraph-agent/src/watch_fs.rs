@@ -4,11 +4,12 @@ use spacegraph_core::{id_file, Delta, FileKind, Msg, Node};
 use std::collections::HashMap;
 use std::io;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
 
 use crate::config::AgentMode;
+use crate::index::Walker;
 use crate::path_policy::PathPolicy;
 fn inode_for_path(path: &str) -> u64 {
     std::fs::metadata(path)
@@ -184,6 +185,7 @@ pub fn spawn(
     policy: Arc<PathPolicy>,
     roots: Vec<PathBuf>,
     tx: mpsc::Sender<Msg>,
+    index_walker: Option<Arc<RwLock<Walker>>>,
 ) -> Result<()> {
     let node_id = node_id.to_string();
 
@@ -225,7 +227,9 @@ pub fn spawn(
         "FS watcher: initial watch summary"
     );
 
-    // Coalescer: 250ms window
+    // Coalescer: 250ms window. Also feeds the builtin search-index walker (if
+    // present) the same inotify-driven add/remove events, keeping it fresh.
+    let walker_policy = Arc::clone(&policy);
     tokio::spawn(async move {
         let mut pending: HashMap<String, Action> = HashMap::new();
         let mut tick = tokio::time::interval(Duration::from_millis(250));
@@ -269,6 +273,11 @@ pub fn spawn(
                         let id = id_file(&node_id, &path);
                         match action {
                             Action::Upsert => {
+                                if let Some(walker) = &index_walker {
+                                    if let Ok(mut w) = walker.write() {
+                                        w.on_upsert(&path, &walker_policy, mode);
+                                    }
+                                }
                                 let node = Node::File {
                                     path: path.clone(),
                                     inode: inode_for_path(&path),
@@ -277,6 +286,11 @@ pub fn spawn(
                                 let _ = tx.send(Msg::Event{ delta: Delta::UpsertNode{ id, node }}).await;
                             }
                             Action::Remove => {
+                                if let Some(walker) = &index_walker {
+                                    if let Ok(mut w) = walker.write() {
+                                        w.on_remove(&path);
+                                    }
+                                }
                                 let _ = tx.send(Msg::Event{ delta: Delta::RemoveNode{ id }}).await;
                             }
                         }
