@@ -19,6 +19,8 @@ use bevy::prelude::*;
 use bevy::render::mesh::PrimitiveTopology;
 use bevy::render::render_asset::RenderAssetUsages;
 
+use spacegraph_core::Node;
+
 use crate::graph::interner::NodeIndex;
 use crate::graph::{GraphState, ViewMode};
 use crate::render::theme;
@@ -34,6 +36,26 @@ const GLYPH_GLOW: f32 = 4.0;
 /// The glyph layer is drawn only in the Standard theme (Minimal stays flat).
 pub fn glyph_layer_active(theme: VisualTheme) -> bool {
     theme == VisualTheme::Standard
+}
+
+/// Gate-ring colour for a node: the per-type base colour, or the alert **severity**
+/// ramp (low = amber, medium = orange, high/critical = red) for alerts. Pure +
+/// unit-tested — the single source of truth the shared materials are built from.
+pub fn ring_color(kind: theme::NodeKind, severity: Option<&str>) -> Color {
+    match (kind, severity) {
+        (theme::NodeKind::Alert, Some(sev)) => theme::alert_severity_color(sev),
+        (theme::NodeKind::Alert, None) => theme::ALERT,
+        (k, _) => k.base_color(),
+    }
+}
+
+/// Alert severity → shared-material index (low / medium / high+).
+fn severity_index(severity: &str) -> usize {
+    match severity {
+        "low" => 0,
+        "medium" => 1,
+        _ => 2, // high / critical / unknown
+    }
 }
 
 /// Whether the 3D per-type silhouette should render for a node at `dist` from the
@@ -63,18 +85,23 @@ pub struct NodeGlyphs {
     pub map: HashMap<NodeIndex, Entity>,
 }
 
-/// Shared gate-glyph resources: one ring mesh + per-kind emissive materials.
+/// Shared gate-glyph resources: one ring mesh + per-kind emissive materials +
+/// the alert severity ramp. All shared/instanced — **no per-node allocation**.
 #[derive(Resource)]
 pub struct NodeGlyphResources {
     pub ring_mesh: Handle<Mesh>,
     pub mat: [Handle<StandardMaterial>; KIND_COUNT],
+    /// Alert severity ramp materials (low / medium / high), shared + instanced.
+    pub alert_mat: [Handle<StandardMaterial>; 3],
 }
 
-/// Concentric ring `LineList` (centre dot + two rings), in the XY plane,
-/// billboarded at runtime.
+/// The gate glyph as a single shared `LineList`: a centre dot, two concentric
+/// gate arcs, and outer **tick-marks** (the "gate" graduations — longer at the
+/// four cardinals). XY plane, billboarded at runtime. One mesh for every node.
 fn ring_mesh() -> Mesh {
     let segs = 48u32;
     let mut pos: Vec<[f32; 3]> = Vec::new();
+    // Concentric gate arcs: centre dot + two rings.
     for &r in &[0.07_f32, 0.34, 0.50] {
         for i in 0..segs {
             let a0 = i as f32 / segs as f32 * TAU;
@@ -83,8 +110,33 @@ fn ring_mesh() -> Mesh {
             pos.push([r * a1.cos(), r * a1.sin(), 0.0]);
         }
     }
+    // Tick-marks radiating from the outer ring — the gate's registration marks
+    // (every 6th is longer, marking the cardinals).
+    let ticks = 24u32;
+    for i in 0..ticks {
+        let a = i as f32 / ticks as f32 * TAU;
+        let (c, s) = (a.cos(), a.sin());
+        let r1 = if i % 6 == 0 { 0.62 } else { 0.56 };
+        pos.push([0.50 * c, 0.50 * s, 0.0]);
+        pos.push([r1 * c, r1 * s, 0.0]);
+    }
     Mesh::new(PrimitiveTopology::LineList, RenderAssetUsages::default())
         .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, pos)
+}
+
+/// An unlit, HDR-emissive glyph material so the ring blooms in the Standard theme.
+fn glyph_material(color: Color) -> StandardMaterial {
+    let c = color.to_linear();
+    StandardMaterial {
+        base_color: color,
+        emissive: LinearRgba::rgb(
+            c.red * GLYPH_GLOW,
+            c.green * GLYPH_GLOW,
+            c.blue * GLYPH_GLOW,
+        ),
+        unlit: true,
+        ..default()
+    }
 }
 
 pub fn setup_node_glyph_resources(
@@ -93,21 +145,17 @@ pub fn setup_node_glyph_resources(
     mut mats: ResMut<Assets<StandardMaterial>>,
 ) {
     let ring_mesh = meshes.add(ring_mesh());
-    let mat = std::array::from_fn(|i| {
-        let kind = theme::NodeKind::ALL[i];
-        let c = kind.base_color().to_linear();
-        mats.add(StandardMaterial {
-            base_color: kind.base_color(),
-            emissive: LinearRgba::rgb(
-                c.red * GLYPH_GLOW,
-                c.green * GLYPH_GLOW,
-                c.blue * GLYPH_GLOW,
-            ),
-            unlit: true,
-            ..default()
-        })
+    let mat =
+        std::array::from_fn(|i| mats.add(glyph_material(theme::NodeKind::ALL[i].base_color())));
+    let alert_mat = std::array::from_fn(|i| {
+        let sev = ["low", "medium", "high"][i];
+        mats.add(glyph_material(theme::alert_severity_color(sev)))
     });
-    commands.insert_resource(NodeGlyphResources { ring_mesh, mat });
+    commands.insert_resource(NodeGlyphResources {
+        ring_mesh,
+        mat,
+        alert_mat,
+    });
 }
 
 /// Keep gate-glyphs in sync with the visible graph and billboard them to the
@@ -166,7 +214,11 @@ pub fn sync_node_glyphs(
         };
         let kind = theme::NodeKind::of(node);
         let pos = st.spatial.positions[idx.slot()];
-        let material = res.mat[kind.index()].clone();
+        // Type colour for most kinds; alerts ramp by severity (shared materials).
+        let material = match node {
+            Node::Alert { severity, .. } => res.alert_mat[severity_index(severity)].clone(),
+            _ => res.mat[kind.index()].clone(),
+        };
 
         if let Some(&e) = glyphs.map.get(&idx) {
             if let Ok((mut tf, mut mat)) = q.get_mut(e) {
@@ -218,6 +270,7 @@ mod tests {
         NodeGlyphResources {
             ring_mesh: Handle::weak_from_u128(9000),
             mat: std::array::from_fn(|i| Handle::weak_from_u128(9100 + i as u128)),
+            alert_mat: std::array::from_fn(|i| Handle::weak_from_u128(9200 + i as u128)),
         }
     }
 
@@ -267,6 +320,59 @@ mod tests {
             5.0,
             FAR_DIST
         ));
+    }
+
+    #[test]
+    fn ring_color_maps_type_and_severity() {
+        use theme::NodeKind;
+        assert_eq!(ring_color(NodeKind::Process, None), theme::PROCESS);
+        // Non-alert kinds ignore severity.
+        assert_eq!(ring_color(NodeKind::File, Some("low")), theme::FILE);
+        // Alert ramps by severity.
+        assert_eq!(ring_color(NodeKind::Alert, Some("low")), theme::ALERT_LOW);
+        assert_eq!(
+            ring_color(NodeKind::Alert, Some("medium")),
+            theme::ALERT_MEDIUM
+        );
+        assert_eq!(ring_color(NodeKind::Alert, Some("high")), theme::ALERT_HIGH);
+        // Unknown severity → high (red); missing severity → base alert red.
+        assert_eq!(
+            ring_color(NodeKind::Alert, Some("weird")),
+            theme::ALERT_HIGH
+        );
+        assert_eq!(ring_color(NodeKind::Alert, None), theme::ALERT);
+        // severity_index agrees with the alert_mat layout.
+        assert_eq!(severity_index("low"), 0);
+        assert_eq!(severity_index("medium"), 1);
+        assert_eq!(severity_index("critical"), 2);
+    }
+
+    #[test]
+    fn glyphs_share_one_ring_mesh() {
+        // Structural perf proxy: every gate-glyph instances the *same* shared ring
+        // mesh handle — no per-node mesh allocation, regardless of node count.
+        let mut app = App::new();
+        let gs = graph_state(90);
+        app.insert_resource(gs)
+            .insert_resource(NodeGlyphs::default())
+            .insert_resource(dummy_resources())
+            .add_systems(Update, sync_node_glyphs);
+        spawn_camera(&mut app);
+        app.update();
+        let shared = app
+            .world()
+            .resource::<NodeGlyphResources>()
+            .ring_mesh
+            .clone();
+        let mut q = app
+            .world_mut()
+            .query_filtered::<&Handle<Mesh>, With<NodeGlyphMarker>>();
+        let mut n = 0;
+        for h in q.iter(app.world()) {
+            assert_eq!(*h, shared, "every glyph must share the one ring mesh");
+            n += 1;
+        }
+        assert!(n > 0, "expected gate-glyphs to be spawned");
     }
 
     #[test]
