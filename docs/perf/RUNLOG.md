@@ -1868,3 +1868,48 @@ Recorded in ADR-0001 + MP-v0.6.0-P1 + memory.
   no MCP tools yet (read-only surface lands in P5) · no scanner/AdminBot.
 
 ---
+
+## v0.6.0 — MCP provider, Phase 2 (move the pure pipeline) — AUTO
+
+Branch: `feat/mcp-provider`. Moved the already-pure D1/D3/D5 cores out of the
+viewer into the headless `spacegraph-graph` crate, with their tests. Behavior-
+preserving relocation — the viewer renders *over* the core via re-exports; no
+logic changed.
+
+### What changed
+
+* **Moved to `spacegraph-graph`** (git-rename, history preserved): `model`
+  (`GraphModel`), `correlation` (D3 campaigns), `coverage` (D5), `posture` (D5),
+  `explain` (path), and the **pure** `rules` engine (D1 — `RuleRegistry`,
+  `Detection`, `Tactic`, ATT&CK tagging, `evaluate_rules`). Their unit tests moved
+  with them (**29 tests now in `spacegraph-graph`**).
+* **`rules.rs` split** (the one knot): the pure engine + its 11 pure tests went to
+  the core; the viewer keeps `graph/rules.rs` as a thin Bevy wrapper —
+  `pub use spacegraph_graph::rules::*` + the `DetectionState` `Resource` + the
+  budgeted `run_detection_rules` `Update` system + the `GraphState`-coupled
+  emission/de-dup/re-arm test.
+* **`Exposure` extracted** (`render::spatial` → `spacegraph_graph::exposure`): the
+  pure socket-reachability classifier (`Exposure`, `exposure_bucket`,
+  `shell_factor`, `label`) is now headless; the `Color` tint stays viewer-side as
+  `render::spatial::exposure_tint`. `render::spatial` re-exports the type so all
+  existing `crate::render::spatial::{Exposure, exposure_bucket}` call sites
+  (layout, state) resolve unchanged. The two exposure tests moved to the core.
+* **Re-export shims**: `graph/mod.rs` re-exports the moved modules under the
+  historical `crate::graph::{model,rules,correlation,coverage,posture,explain}`
+  paths, so the bulk of the viewer (`state.rs`, `query.rs`, …) is untouched.
+* `spacegraph-graph` deps: `spacegraph-core` + `smallvec` only — **no Bevy**.
+
+### Gates
+
+* `cargo fmt --check` OK · `cargo clippy --workspace --all-targets -D warnings`
+  clean · `cargo build --workspace` OK · `cargo test --workspace` = **275 passed**
+  (6 core + **29 spacegraph-graph** + 48 agent + 192 viewer), 0 failed — coverage
+  preserved (relocated, none lost).
+* **Behavior preservation:** pure module relocation behind re-exports; zero logic
+  change → the D0–D5 visual phases are unaffected by construction. A live GPU
+  capture needs a display session (deferred to the P4 milestone / Sam's review).
+* Audited negatives: `PROTOCOL_VERSION` still 4 · `spacegraph-agent` untouched ·
+  no MCP tools yet · `spacegraph-graph` has no Bevy/render dep · no
+  scanner/AdminBot.
+
+---

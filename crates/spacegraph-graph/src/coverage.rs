@@ -6,7 +6,7 @@
 
 use std::collections::HashSet;
 
-use crate::graph::rules::{RuleRegistry, Tactic, TECHNIQUES};
+use crate::rules::{RuleRegistry, Tactic, TECHNIQUES};
 
 /// One technique's coverage status.
 #[derive(Debug, Clone, PartialEq, Eq)]
