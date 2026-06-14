@@ -35,6 +35,11 @@ pub struct SpatialState {
     /// force layout (it still acts as a spring endpoint for neighbours). Plain
     /// graph state — no Bevy types. Indexed by `NodeIndex` slot.
     pub pinned: Vec<Option<Vec3>>,
+    /// Ids of currently-pinned nodes — a compact index mirroring `pinned` so
+    /// consumers (e.g. the focused-node preview set) enumerate pins in O(pins)
+    /// instead of scanning the whole visible set. Kept in sync by `set_pin` /
+    /// `clear_pin` / `release`.
+    pub pinned_ids: HashSet<NodeId>,
 
     /// Layout spring list: model edges resolved to index pairs, rebuilt only on
     /// topology change (`springs_dirty`) — never per frame.
@@ -138,6 +143,7 @@ impl SpatialState {
     pub fn release(&mut self, id: &NodeId) {
         if let Some(idx) = self.interner.release(id) {
             self.clear_slot(idx);
+            self.pinned_ids.remove(id);
         }
     }
 
@@ -1165,6 +1171,7 @@ impl GraphState {
     pub fn set_pin(&mut self, id: &NodeId, pos: Vec3) {
         let idx = self.spatial.intern(id);
         self.spatial.pinned[idx.slot()] = Some(pos);
+        self.spatial.pinned_ids.insert(id.clone());
         self.spatial.set_position(idx, pos);
         self.spatial.layout_settled = false;
         self.spatial.settle_streak = 0;
@@ -1176,6 +1183,7 @@ impl GraphState {
         if let Some(idx) = self.spatial.index_of(id) {
             if let Some(slot) = self.spatial.pinned.get_mut(idx.slot()) {
                 if slot.take().is_some() {
+                    self.spatial.pinned_ids.remove(id);
                     self.spatial.layout_settled = false;
                     self.spatial.settle_streak = 0;
                     self.needs_redraw.store(true, Ordering::Relaxed);
