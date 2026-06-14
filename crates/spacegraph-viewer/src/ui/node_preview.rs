@@ -475,10 +475,17 @@ pub fn node_preview_overlay(
         ))
         .inner_margin(egui::Margin::same(8.0))
         .rounding(2.0);
+    // Focus Mode (v0.5.1): the preview becomes the **centre** subject; otherwise it
+    // docks bottom-right as before.
+    let (anchor, offset) = if st.ui.focus_mode.is_some() {
+        (egui::Align2::CENTER_CENTER, [0.0, 0.0])
+    } else {
+        (egui::Align2::RIGHT_BOTTOM, [-12.0, -12.0])
+    };
     let ctx = contexts.ctx_mut();
     egui::Window::new("◈ PREVIEW")
         .frame(frame)
-        .anchor(egui::Align2::RIGHT_BOTTOM, [-12.0, -12.0])
+        .anchor(anchor, offset)
         .resizable(false)
         .show(ctx, |ui| {
             for (id, view) in set.iter().zip(views) {

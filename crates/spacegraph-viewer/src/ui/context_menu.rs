@@ -174,6 +174,18 @@ pub fn radial_neighbors(st: &GraphState, id: &NodeId) -> Vec<NodeId> {
 #[derive(Resource, Default)]
 pub struct RadialMenu(pub Option<RadialState>);
 
+/// Path dive: re-centre Focus Mode on a neighbour (keyboard graph traversal). The
+/// camera eases onward and the dim/freeze/edge-cull follow the new subject; the
+/// radial re-opens on it. Pure state change (unit-tested).
+pub fn dive_to_neighbor(st: &mut GraphState, radial: &mut RadialMenu, nid: NodeId) {
+    st.reveal(&nid);
+    st.ui.focus = Some(nid.clone());
+    st.ui.selected = Some(nid.clone());
+    st.ui.focus_mode = Some(nid.clone());
+    st.request_jump(nid.clone());
+    radial.0 = Some(RadialState::open(nid));
+}
+
 /// Number of selectable slots in the currently-active ring.
 fn active_ring_len(state: &RadialState, neighbor_count: usize) -> usize {
     match state.active_ring {
@@ -285,15 +297,10 @@ pub fn radial_hud(
             apply_context_action(&mut st, &state.focused, a);
             radial.0 = None;
         }
-        Do::Dive(nid) => {
-            st.reveal(&nid);
-            st.ui.focus = Some(nid.clone());
-            st.ui.selected = Some(nid.clone());
-            st.request_jump(nid.clone());
-            radial.0 = Some(RadialState::open(nid)); // keyboard graph traversal
-        }
+        Do::Dive(nid) => dive_to_neighbor(&mut st, &mut radial, nid),
         Do::Close => {
             radial.0 = None;
+            st.ui.focus_mode = None; // closing the radial exits Focus Mode
             st.needs_redraw.store(true, Ordering::Relaxed);
         }
         Do::None => radial.0 = Some(next),
@@ -612,6 +619,31 @@ mod tests {
         assert_eq!(ns, sorted, "neighbours are sorted (deterministic order)");
         let set: std::collections::HashSet<_> = ns.iter().cloned().collect();
         assert_eq!(set.len(), ns.len(), "neighbours are de-duplicated");
+    }
+
+    #[test]
+    fn path_dive_recentres_focus_on_neighbor() {
+        let (mut st, _id) = state_with_node();
+        let nb = nid("nb");
+        st.model.nodes.insert(nb.clone(), process_node());
+        let idx = st.spatial.intern(&nb);
+        st.spatial.set_position(idx, Vec3::ZERO);
+        let mut radial = RadialMenu(Some(RadialState::open(nid("n"))));
+
+        dive_to_neighbor(&mut st, &mut radial, nb.clone());
+
+        assert_eq!(
+            st.ui.focus_mode.as_ref(),
+            Some(&nb),
+            "path dive re-centres Focus Mode on the neighbour"
+        );
+        assert_eq!(st.ui.focus.as_ref(), Some(&nb));
+        assert_eq!(st.ui.jump_to.as_ref(), Some(&nb), "camera eases onward");
+        assert_eq!(
+            radial.0.as_ref().map(|s| &s.focused),
+            Some(&nb),
+            "the radial re-opens on the neighbour"
+        );
     }
 
     #[test]
