@@ -1803,3 +1803,43 @@ no egress, no wire.
   the visual layer (not a CI gate).
 
 ---
+
+## v0.6.0 — MCP provider, Phase 0 (Reality-Check + crux) — gated, NOT auto-merged
+
+Branch: `feat/mcp-provider`. **Phase-0 checkpoint only** (no tool code yet); P1+ is
+review-gated and never auto-merged (external ESN contract).
+
+### Reality-Check (recorded per MP-v0.6.0 P0)
+
+* Live hub queried read-only (`esn_mcp_server_list`): the orchestrator registers
+  **stdio MCP servers it spawns by `command`** and proxies them as
+  `mcp__<server_id>__<tool>` (e.g. `abrain`, `sequential-thinking`, `memory`,
+  `esn-orchestrator`). Admission = a registry row `{server_id, transport: "stdio",
+  command, args, …}` (`esn_mcp_server_register`). **Matches ROADMAP §2 — no
+  contract mismatch.**
+* Implication: the hub spawns the MCP server as a **separate process** → it cannot
+  directly read the viewer's in-process `GraphState`.
+
+### Crux decision (Sam; recorded in ADR-0001)
+
+* The MCP tool surface needs the viewer's **synthesized** canonical state (D1
+  detections, D3 campaigns, D5 coverage/posture) — agent-consume is insufficient.
+* **Chosen: extract a headless canonical-state core** (`spacegraph-graph`) with no
+  Bevy/GUI deps — `GraphModel` + agent-UDS ingest + the detection/correlation/
+  coverage pipeline + read-only queries. The viewer renders over it; `spacegraph-
+  mcp` (a thin hub-spawned **stdio** binary) hosts it headless and exposes 4
+  read-only tools. **No `spacegraph-core` wire bump** (the MCP schema is its own
+  contract, O-8); **read-only only** (O-7'). Auth posture L1.
+* Alternatives rejected: viewer-tied query-UDS (GUI-bound), snapshot (stale + dup
+  logic), agent-consume (insufficient). See ADR-0001.
+
+### Status / next
+
+* **P0 gate satisfied:** Reality-Check recorded + crux chosen/confirmed. ADR-0001
+  authored; ROADMAP ledger updated.
+* **P1+ (review-gated):** extract the headless core (L–XL — `GraphState`/pipeline
+  are Bevy-coupled today), then `crates/spacegraph-mcp` (4 read-only tools +
+  per-tool contract tests), `INTERFACE_INVENTORY.md` Tier-3 row + `CONSUMERS.md`,
+  live-smoke against the hub, auth path. **Never auto-merged.**
+
+---

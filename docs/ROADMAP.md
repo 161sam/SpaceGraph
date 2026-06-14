@@ -753,7 +753,7 @@ at their phase's master-prompt (with the Reality-Check), per §5.
 
 | ADR | Subject | Status / phase |
 |---|---|---|
-| ADR-0001 | SpaceGraph MCP provider surface | reserved — author at `v0.6.0` |
+| **ADR-0001** | **SpaceGraph MCP provider surface + canonical-state access** | **authored (P0)** — headless-core extraction; implemented at `v0.6.0` (never auto-merged) |
 | ADR-0002 | Actions via AdminBot, not a native channel | reserved — author at `v0.7.0` (+ ADR per onboarded action) |
 | ADR-0003-abrain | ABrain reasoning adapter (MCP vs HTTP) | reserved — author at `v0.8.0` |
 | ADR-0003-oceandata | OceanData history sink + context SPI | reserved — author at `v0.9.0` |
