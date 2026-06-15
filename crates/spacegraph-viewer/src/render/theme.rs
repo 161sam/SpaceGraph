@@ -12,8 +12,10 @@ use spacegraph_core::Node;
 use crate::graph::model::EdgeKindClass;
 
 // ---- Node type base colours (MP-UI-GitS-polish palette) ----
-/// Process — cyan `#2bb3a8` (focus reserves the brighter `#34d6c8`).
-pub const PROCESS: Color = Color::srgb(0.169, 0.702, 0.659);
+/// Process — cyan `#2bb0d0` (followup: shifted bluer from the MP `#2bb3a8` so it
+/// reads clearly cyan and separates from File green at the overview zoom + bloom;
+/// focus reserves the brighter `#34d6c8`, sockets are the deeper blue `#5fa8ff`).
+pub const PROCESS: Color = Color::srgb(0.169, 0.690, 0.816);
 /// File — green `#6fe06f`.
 pub const FILE: Color = Color::srgb(0.435, 0.878, 0.435);
 /// User — amber `#f5b942`.

@@ -194,7 +194,7 @@ pub fn sync_node_glyphs(
                 .spatial
                 .interner
                 .resolve(idx)
-                .map(|id| st.is_visible_rendered(id))
+                .map(|id| st.is_visible_rendered(id) && st.ui.focus_mode.as_ref() != Some(id))
                 .unwrap_or(false);
         if !keep {
             commands.entity(e).despawn_recursive();
@@ -206,7 +206,12 @@ pub fn sync_node_glyphs(
         let Some(idx) = st.spatial.index_of(id) else {
             continue;
         };
-        if !st.spatial.placed[idx.slot()] || !st.is_visible_rendered(id) {
+        // Skip the focus subject so its node region stays the clean reticle + single
+        // indicator ring (the gate-glyph otherwise reads as a busy "eye" on it).
+        if !st.spatial.placed[idx.slot()]
+            || !st.is_visible_rendered(id)
+            || st.ui.focus_mode.as_ref() == Some(id)
+        {
             continue;
         }
         let Some(node) = st.core.model.nodes.get(id) else {

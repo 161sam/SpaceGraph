@@ -32,7 +32,7 @@ pub mod color {
 
     // --- Per-type semantic accents (mirror `render::theme` node colours) ---
     pub const FILE: Color32 = ACCENT_GREEN; // #6fe06f
-    pub const PROCESS: Color32 = ACCENT; // #2bb3a8
+    pub const PROCESS: Color32 = Color32::from_rgb(43, 176, 208); // #2bb0d0 (cyan, distinct from File green)
     pub const SOCKET: Color32 = Color32::from_rgb(95, 168, 255); // #5fa8ff
     pub const USER: Color32 = Color32::from_rgb(245, 185, 66); // #f5b942
     pub const REMOTEHOST: Color32 = Color32::from_rgb(176, 155, 251); // #b09bfb

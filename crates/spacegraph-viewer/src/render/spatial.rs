@@ -316,10 +316,13 @@ pub fn setup_node_render_resources(
 }
 
 /// A visible node qualifies for an orbital ring if it is a hub (degree at least
-/// `ring_min_degree`) or an Alert. Degree uses the prebuilt adjacency (O(1)).
+/// `ring_min_degree`) or an Alert. Degree uses the prebuilt adjacency (O(1)). The
+/// **focus subject** is excluded so the focus treatment stays the clean reticle +
+/// single indicator ring (the orbital ring otherwise dominates the focused hub).
 fn node_qualifies_for_ring(st: &GraphState, id: &spacegraph_core::NodeId) -> bool {
-    node_kind(st, id) == theme::NodeKind::Alert
-        || st.core.model.degree(id) >= st.cfg.ring_min_degree
+    st.ui.focus_mode.as_ref() != Some(id)
+        && (node_kind(st, id) == theme::NodeKind::Alert
+            || st.core.model.degree(id) >= st.cfg.ring_min_degree)
 }
 
 /// Spawn/despawn orbital ring child entities to match qualification. Standard

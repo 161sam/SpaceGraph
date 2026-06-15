@@ -6,7 +6,10 @@
 //! exact same nodes and edges (seeded PRNG, no wall-clock input), so layout
 //! trajectories and perf numbers are comparable across runs.
 
-use spacegraph_core::{id_file, id_process, id_user, Edge, EdgeKind, FileKind, Node, NodeId};
+use spacegraph_core::{
+    id_alert, id_file, id_process, id_remote_host, id_socket, id_user, Edge, EdgeKind, FileKind,
+    Node, NodeId,
+};
 
 /// Scope used for all synthetic node IDs.
 pub const SYNTHETIC_SCOPE: &str = "synthetic";
@@ -41,9 +44,12 @@ impl SplitMix64 {
 
 /// Build a deterministic graph of `n` nodes and ~`2 * n` edges.
 ///
-/// Composition: ~1% users, ~40% processes, remainder files. Each process
-/// `runs_as` a user, `execs` one file, and `opens` a few files — yielding a
-/// connected, edge-dense graph that mirrors real agent output shape.
+/// Composition: ~10% users, ~40% processes, ~5% sockets, ~2.5% remote hosts,
+/// ~2% alerts, remainder files. Each process `runs_as` a user, `execs` one file,
+/// `opens` a few files, and `owns`/`listens_on` sockets that `connect_to` remote
+/// hosts; some entities are `alerts_on`. The network + security minority is what
+/// makes the per-type palette (socket-blue / host-violet / alert-red) visible in
+/// the demo, not just file-green + process-cyan — and it mirrors real agent shape.
 pub fn synthetic_graph(n: usize) -> (Vec<(NodeId, Node)>, Vec<Edge>) {
     if n == 0 {
         return (Vec::new(), Vec::new());
@@ -54,9 +60,16 @@ pub fn synthetic_graph(n: usize) -> (Vec<(NodeId, Node)>, Vec<Edge>) {
     // O(N): with very few users (huge hubs) a hub's neighbourhood holds O(degree)
     // nodes within the cutoff, which no uniform grid can keep linear.
     let num_users = (n / 10).max(1);
-    // Cap processes/users so files never go negative for tiny n.
-    let num_procs = ((n * 2 / 5).max(1)).min(n.saturating_sub(num_users));
-    let num_files = n - num_users - num_procs;
+    // Network + security minority so the per-type palette shows in the demo
+    // overview (blue sockets / violet hosts / red alerts), not just green+cyan.
+    // Carved from the file share; all 0 for tiny n.
+    let num_sockets = n / 20;
+    let num_hosts = n / 40;
+    let num_alerts = n / 50;
+    let reserved = num_users + num_sockets + num_hosts + num_alerts;
+    // Cap processes so files never go negative for tiny n.
+    let num_procs = ((n * 2 / 5).max(1)).min(n.saturating_sub(reserved));
+    let num_files = n.saturating_sub(reserved + num_procs);
 
     let mut nodes: Vec<(NodeId, Node)> = Vec::with_capacity(n);
 
@@ -111,6 +124,66 @@ pub fn synthetic_graph(n: usize) -> (Vec<(NodeId, Node)>, Vec<Edge>) {
         proc_ids.push(id);
     }
 
+    // Sockets: proto/addr/state varied so exposure (loopback/lan/public) + aperture
+    // (LISTEN/ESTABLISHED) read as silhouette; all render socket-blue.
+    let mut socket_ids = Vec::with_capacity(num_sockets);
+    for s in 0..num_sockets {
+        let port = 1024u16.wrapping_add((s % 60000) as u16);
+        let local_addr = match s % 3 {
+            0 => "127.0.0.1",
+            1 => "10.0.0.5",
+            _ => "0.0.0.0",
+        };
+        let state = if s % 2 == 0 { "LISTEN" } else { "ESTABLISHED" };
+        let id = id_socket(SYNTHETIC_SCOPE, "tcp", local_addr, port);
+        nodes.push((
+            id.clone(),
+            Node::Socket {
+                proto: "tcp".to_string(),
+                local_addr: local_addr.to_string(),
+                local_port: port,
+                state: state.to_string(),
+            },
+        ));
+        socket_ids.push(id);
+    }
+
+    // Remote hosts (violet) on the outer shell.
+    let mut host_ids = Vec::with_capacity(num_hosts);
+    for h in 0..num_hosts {
+        let addr = format!("203.0.113.{}", h % 254 + 1);
+        let id = id_remote_host(SYNTHETIC_SCOPE, &addr);
+        nodes.push((
+            id.clone(),
+            Node::RemoteHost {
+                addr,
+                rdns: Some(format!("host{h}.example.net")),
+            },
+        ));
+        host_ids.push(id);
+    }
+
+    // Alerts (red, severity-ramped) correlated to an entity.
+    let mut alert_ids = Vec::with_capacity(num_alerts);
+    for a in 0..num_alerts {
+        let severity = match a % 3 {
+            0 => "low",
+            1 => "medium",
+            _ => "high",
+        };
+        let id = id_alert(SYNTHETIC_SCOPE, &format!("alert{a}"));
+        nodes.push((
+            id.clone(),
+            Node::Alert {
+                source: "suricata".to_string(),
+                signature: format!("ET SCAN synthetic probe {a}"),
+                severity: severity.to_string(),
+                ts: "2026-06-15T00:00:00Z".to_string(),
+            },
+        ));
+        alert_ids.push(id);
+    }
+
     // Target ~2N edges. Each process emits: runs_as (1) + execs (1) + opens (k).
     let target_edges = 2 * n;
     let opens_per_proc = target_edges
@@ -159,6 +232,45 @@ pub fn synthetic_graph(n: usize) -> (Vec<(NodeId, Node)>, Vec<Edge>) {
                 });
             }
         }
+    }
+
+    // Network + security edges so the new nodes are connected (placed + visible):
+    // process →(listens_on|owns_socket)→ socket →(connects_to)→ host; alert →(alerts_on)→ entity.
+    for (s, sock_id) in socket_ids.iter().enumerate() {
+        if !proc_ids.is_empty() {
+            edges.push(Edge {
+                from: proc_ids[s % proc_ids.len()].clone(),
+                to: sock_id.clone(),
+                kind: if s % 2 == 0 {
+                    EdgeKind::ListensOn
+                } else {
+                    EdgeKind::OwnsSocket
+                },
+            });
+        }
+    }
+    for (h, host_id) in host_ids.iter().enumerate() {
+        if !socket_ids.is_empty() {
+            edges.push(Edge {
+                from: socket_ids[h % socket_ids.len()].clone(),
+                to: host_id.clone(),
+                kind: EdgeKind::ConnectsTo,
+            });
+        }
+    }
+    for (a, alert_id) in alert_ids.iter().enumerate() {
+        let target = if !socket_ids.is_empty() {
+            socket_ids[a % socket_ids.len()].clone()
+        } else if !proc_ids.is_empty() {
+            proc_ids[a % proc_ids.len()].clone()
+        } else {
+            continue;
+        };
+        edges.push(Edge {
+            from: alert_id.clone(),
+            to: target,
+            kind: EdgeKind::AlertsOn,
+        });
     }
 
     (nodes, edges)
@@ -215,5 +327,25 @@ mod tests {
             let (nodes, _) = synthetic_graph(n);
             assert_eq!(nodes.len(), n);
         }
+    }
+
+    #[test]
+    fn includes_every_node_kind_for_the_palette() {
+        let (nodes, _) = synthetic_graph(2000);
+        let mut seen = [false; 6];
+        for (_, node) in &nodes {
+            seen[match node {
+                Node::Process { .. } => 0,
+                Node::File { .. } => 1,
+                Node::User { .. } => 2,
+                Node::Socket { .. } => 3,
+                Node::RemoteHost { .. } => 4,
+                Node::Alert { .. } => 5,
+            }] = true;
+        }
+        assert!(
+            seen.iter().all(|&s| s),
+            "the demo seeds every node kind so the per-type palette is visible: {seen:?}"
+        );
     }
 }
