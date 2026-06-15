@@ -25,7 +25,7 @@ markers. Archive-not-delete (the reverted `focus_core` → `legacy/`).
 - [x] **P4** — Edges (curved / per-class / falloff / flow)
 - [x] **P5** — Nodes + colour semantics + label anti-overlap
 - [x] **P6** — Layout spread (de-hairball)
-- [ ] **P7** — Entity-card detail + chrome consistency + close-out
+- [x] **P7** — Entity-card detail + chrome consistency + close-out
 - [ ] **Sam's screenshot review** → merge (review-gated)
 
 ---
@@ -358,4 +358,77 @@ most on **denser / real** graphs. `cfg.radius` / `cfg.y_spread` remain reserved 
 ### Screenshots
 `afterp6-polish-default.png` (more spread + central hub anchor) vs
 `afterp5-polish-default.png` / `before-polish-default.png`.
+
+---
+
+## P7 — Entity-card detail + rail icons + chrome consistency + close-out
+
+### What changed
+- **Tokens reconciled to the MP palette** (`ui/tokens.rs`): BG `#05090c`, SURFACE
+  `#08171c`, LINE `#1d4a4c`, ACCENT `#2bb3a8` + ACCENT_HI `#34d6c8`, TEXT `#cfe9e5` /
+  TEXT_DIM `#88b8b2`, and **per-type accents** FILE/PROCESS/SOCKET/USER/REMOTEHOST +
+  the alert ramp — mirroring `render::theme` so chrome accents match the 3D node
+  palette (one palette, two surfaces). `roles_are_distinct` extended.
+- **Entity card → three blocks** (`ui/entity_card.rs`, rewritten): a header (type
+  silhouette + `◢ ENTITY · kind` + hex-id chip + live dot), **◢ IDENTITY** (the
+  per-kind fields, middle-ellipsis'd), **◢ STATE** (origin · degree + a **segmented
+  meter** · alert severity chip), and **◢ CONNECTIONS · N** (the de-duped,
+  per-class-coloured, **clickable** neighbour list — click re-centres focus — + "+N
+  more"). The header/silhouette/accents are **type-coloured**. Actions trimmed to the
+  **primary** row (Fly-to + Pin); Isolate/Trace/Mark now live **only on the ring** —
+  this resolves the P1-deferred card/ring action **duplication**.
+- **Rail real icons** (`ui/rail.rs`): the monospace glyph placeholders are replaced
+  with **painter-drawn vector icons** (eye · funnel · warning-triangle · hexagon ·
+  gear), an **active left-accent bar** + fill, and a **severity-coloured badge pill**
+  (separate from the icon tint) for the alert/agent counts.
+- **Tidy telemetry** (`ui/hud.rs`): the 8-line debug dump → a **2-line readout**
+  (`FPS n · Nms · mode` / `Nn · Ne · flow`), keeping the `◢ TELEMETRY` header; the
+  verbose per-stream breakdown is no longer dumped.
+- **GitS "screen" chrome** (`ui/gits.rs`): `bracket_response` now also paints a faint
+  **scanline** sheen (new `alpha::SCANLINE`) so the entity card / HUD panels / legend
+  read as lit screens (Standard only; Minimal stays flat).
+- Legend swatches read `render::theme` (retuned in P5) so legend/card/rail/3D stay in
+  lock-step on the one palette.
+
+### Gate
+- `fmt --check` ✓ · `clippy --workspace --all-targets -D warnings` ✓ ·
+  `test --workspace` ✓ **210 viewer**. `build` ✓.
+- Scope: viewer-only (`ui/{tokens,entity_card,rail,hud,gits}`). No core/graph/agent/
+  wire change · Minimal degrades (vector icons + card render flat; scanline/brackets/
+  per-type accents are Standard-gated).
+
+---
+
+## Close-out — for Sam's screenshot review
+
+**Branch `feat/ui-gits-polish` (worktree `/home/dev/sg-ui-polish`) is ready for review —
+NOT auto-merged.** Commits: `7f56ca1` P0 · `274dc49` P1 · `e938dc1` P2 · `8ff0b1f` P3 ·
+`409a7d9` P4 · `9a50148` P5 · `2ad23cf` P6 · P7 (this).
+
+### Before / after screenshot set (`docs/media/gits/`, prefix `before-polish-*` → `afterp7-polish-*`)
+| State | Before | After |
+|---|---|---|
+| Default chrome | `before-polish-default.png` | `afterp7-polish-default.png` |
+| Focus mode | `before-polish-focus.png` (3D-core + floating-label jumble) | `afterp7-polish-focus.png` (segmented ring · clean node · 3-block card · tidy telemetry · real rail) |
+| Hover | `before-polish-hover.png` | `afterp7-polish-hover.png` |
+| Minimal | `before-polish-minimal.png` | `afterp7-polish-minimal.png` |
+| Minimal focus | `before-polish-minimal-focus.png` | `afterp7-polish-minimal-focus.png` |
+| Per-phase | — | `afterp{1..6}-polish-*.png` (incremental) + minimap/edge/node crops |
+
+> Captured offline on `DISPLAY :0` from `--demo-load 2000` (Standard, isolated
+> `XDG_CONFIG_HOME` theme; focus via the gated `SPACEGRAPH_DEMO_FOCUS` hub-autofocus).
+> The capture env renders software-GL → `TIER POTATO`/low FPS — a capture artifact, not
+> the target GPU (where HDR/bloom make the silhouettes, 3D depth and neon read harder).
+
+### Reviewer notes / deferred (all noted, none blocking)
+- **Edge thickness** = HDR brightness, not geometric width (LineList limit); true
+  width = quad-strip topology, deferred. **Animated edge flow** deferred (a per-frame
+  rebuild would break the settled→cheap gate / needs a time-uniform shader) — threat
+  edges get a static dash. Demo has 0 alerts so threat styling isn't in the shots.
+- **Minimap bloom bleed** in the default view = the postfx/bloom pass compositing over
+  the egui layer (a render-graph interaction, not an overlay tweak) — accepted; the
+  radar is clean in Focus Mode (edges culled).
+- **Layout spread** is moderate on the demo (it wasn't a tight hairball); the mechanism
+  (wider bounded-density reach + hub-anchoring) pays off on denser/real graphs.
+- `cfg.radius`/`cfg.y_spread` left as reserved knobs (not wired).
 

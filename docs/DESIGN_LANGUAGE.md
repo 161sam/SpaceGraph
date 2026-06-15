@@ -425,3 +425,52 @@ degrades to the Minimal equivalent.
   or hand-rolled offsets.
 - Chrome floats; the scene stays full-width. No permanent space-reserving dev
   sidebar.
+
+## MP-UI-GitS-polish — focus ring, minimap, edges, nodes, layout, chrome
+
+The polish pass refines the GitS chrome to the approved mockup. The single colour
+source stays `render::theme` (3D scene) mirrored by `ui::tokens` (egui chrome) — both
+on the **MP palette**: Process `#2bb3a8` (focus reserves `#34d6c8`), File `#6fe06f`,
+User `#f5b942`, Socket `#5fa8ff`, RemoteHost `#b09bfb`, Alert `#ff5d5d`; bg `#05090c`,
+panels `#08171c`, border `#1d4a4c`, text `#cfe9e5`/`#88b8b2`. Per-type colours are
+**semantic and show in the default view**, not only on hover.
+
+- **Focus treatment** (`ui/focus.rs`, `ui/reticle.rs`): the 3D focus-core rig is
+  retired (archived to `legacy/render/focus_core.rs`). The focused node shows its own
+  per-type silhouette framed by the reticle corner brackets + **one** thin indicator
+  ring, with a `◀ FOCUS ▶` tag + `kind · 0xHEXID` subtitle. No data floats over the
+  node. Minimal = plain dim.
+- **Segmented action ring** (`ui/context_menu.rs::render_radial`): the 6 actions
+  (fly-to · inspect · trace · isolate · mark · pin) are **arc-segment wedges** evenly
+  at 60° from the top, numbered, with the keyboard-cursor / pointer-hovered wedge
+  highlighted; a faint inner tick gauge. Pure geometry: `segment_center_angle`,
+  `segment_at`. No floating labels.
+- **Minimap** (`ui/minimap.rs`): a live radar — real projected node positions
+  (type-coloured) over stable padded-square bounds, a camera **viewport frustum**, a
+  **focus marker**, and **click-to-fly** (`minimap_project`/`minimap_unproject` pure +
+  inverse). LIVE pill + scale hint + corner brackets.
+- **Edges** (`render/edges.rs`): **curved** (quadratic bézier, per-edge-hash bow so
+  parallels fan), **per-class coloured** (aligned to the node palette), continuous
+  **distance falloff** (`edge_falloff`), **directional gradient**, **weight →
+  brightness** (`weight_brightness`, the LineList thickness proxy), and **threat-red**
+  for alert-incident edges. Settled→cheap rebuild gate intact.
+- **Nodes** (`render/spatial.rs`): the per-type **core silhouette is always on** in
+  Standard (a single mesh, no costlier than the sphere) — type reads from shape on
+  every tier; the wireframe shell stays tier-gated. Capped labels are de-collided
+  (`overlay::decollide_labels`).
+- **Layout** (`graph/layout.rs`): a wider bounded-density repulsion reach de-clumps,
+  and a degree-aware integration **mass** (`node_mass`) anchors hubs while leaves fan
+  (hubs-vs-leaves hierarchy). Still converges + freezes (no idle cost).
+- **Panel-layer** (`ui/overlay.rs`, `ui/rail.rs`): `update_ui_layout` is the content_rect
+  authority (rail + top strip + inspector column reserved); panels anchor via
+  `corner_anchor` / `constrain_to(content_rect)` so no two share a corner. **Middle-
+  ellipsis** (`middle_truncate`) on every long path/label, full value on hover.
+- **Chrome** (`ui/gits.rs`, `ui/entity_card.rs`, `ui/rail.rs`, `ui/hud.rs`): the entity
+  card is a three-block readout (identity / state / connections) with a type glyph,
+  hex-id, live dot, segmented meter and a clickable connection list; the rail has
+  painter-drawn vector icons + active accent bar + severity badge; "screen" panels get
+  a faint **scanline** sheen + corner brackets; telemetry is a tidy 2-line readout.
+- **Binding additions:** every new overlay anchors via `overlay::corner_anchor`/
+  `place_card` + `constrain_to(content_rect)` (never a bare screen corner); long text
+  uses `middle_truncate`; node-anchored labels pass through `decollide_labels`;
+  per-frame animation stays focus-only / visible-only (no idle cost).

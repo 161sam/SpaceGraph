@@ -106,6 +106,9 @@ pub fn hud_overlay(mut contexts: EguiContexts, st: Res<GraphState>, layout: Res<
                             color::TEXT_DIM
                         }),
                 );
+                // Tidy 2-line readout (P7): FPS/frame-time/mode, then the visible
+                // counts + data-flow state. The verbose per-stream breakdown
+                // (raw/agg split, total msgs, last batch) is no longer dumped here.
                 let now = Instant::now();
                 let mut snapshot_seen = false;
                 let mut live_seen = false;
@@ -124,44 +127,44 @@ pub fn hud_overlay(mut contexts: EguiContexts, st: Res<GraphState>, layout: Res<
                         }
                     }
                 }
+                let frame_ms = if st.perf.fps > 0.5 {
+                    1000.0 / st.perf.fps
+                } else {
+                    0.0
+                };
+                let mode = match st.ui.view_mode {
+                    ViewMode::Spatial => "spatial",
+                    ViewMode::Tree => "tree",
+                    ViewMode::Timeline => "timeline",
+                };
+                ui.label(
+                    egui::RichText::new(format!(
+                        "FPS {:.0} · {frame_ms:.0}ms · {mode}",
+                        st.perf.fps
+                    ))
+                    .monospace()
+                    .size(11.0)
+                    .color(color::TEXT),
+                );
+                let flow = if live_seen {
+                    "live"
+                } else if snapshot_seen {
+                    "snapshot"
+                } else {
+                    "idle"
+                };
                 let last_label = last_activity
-                    .map(|ts| format!("{:.1}s ago", now.duration_since(ts).as_secs_f32()))
-                    .unwrap_or_else(|| "—".to_string());
-                ui.label(format!("FPS: {:.0}", st.perf.fps));
-                ui.label(format!(
-                    "Visible: {} nodes / {} edges",
-                    st.perf.visible_nodes, st.perf.visible_edges
-                ));
-                ui.label(format!(
-                    "Edges (raw/agg): {} / {}",
-                    st.perf.visible_raw_edges, st.perf.visible_agg_edges
-                ));
-                ui.label(format!("Event rate: {:.1}/s", st.perf.event_rate));
-                ui.label(format!("Total msgs: {}", st.perf.event_total));
-                if let Some(id) = st.spatial.last_batch_id {
-                    ui.label(format!("Last batch: {}", id));
-                }
-                ui.label(format!(
-                    "Data flow: snapshot: {} | live: {} | last: {}",
-                    if snapshot_seen { "yes" } else { "no" },
-                    if live_seen { "yes" } else { "no" },
-                    last_label
-                ));
-                ui.label(format!(
-                    "Mode: {}",
-                    match st.ui.view_mode {
-                        ViewMode::Spatial => "Spatial",
-                        ViewMode::Tree => "Tree",
-                        ViewMode::Timeline => "Timeline",
-                    }
-                ));
-                if st.snapshot_loaded
-                    && !st.live_events_seen
-                    && !st.core.model.nodes.is_empty()
-                    && !st.cfg.demo_mode
-                {
-                    ui.label("Initial snapshot (no live events yet)");
-                }
+                    .map(|ts| format!(" · {:.0}s", now.duration_since(ts).as_secs_f32()))
+                    .unwrap_or_default();
+                ui.label(
+                    egui::RichText::new(format!(
+                        "{}n · {}e · {flow}{last_label}",
+                        st.perf.visible_nodes, st.perf.visible_edges
+                    ))
+                    .monospace()
+                    .size(11.0)
+                    .color(color::TEXT_DIM),
+                );
             });
         });
 }
