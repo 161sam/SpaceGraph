@@ -445,3 +445,48 @@ test suite); both fixed pre-review:
    threading the viewport through the call site + a new on-screen unit test.
 Re-gate green: fmt/clippy/`test --workspace` (**316 tests**).
 
+---
+
+## Followup — render-vs-claim audit + the real gaps (MP-UI-GitS-polish-followup)
+
+A second review reported the rendered result didn't match the mockup (old radial, big
+focus sphere, flat card, panel overlap, central-cluster layout). **Root cause of the
+"green tests ≠ right pixels" gap: tier detection, not missing code.** This box has a
+real but weak GPU (**Intel HD 520, Vulkan**); `detect_tier` auto-classifies it as
+**POTATO** and `adaptive_quality` steps it down further, so the prior `afterp*` captures
+ran at TIER POTATO — which gates **off** HDR bloom / post-FX / orbital rings / shells.
+Forcing `[quality] tier="high"` **+ `adaptive=false`** renders the real HIGH look.
+
+**F0 audit** (`docs/recon/POLISH_RENDER_AUDIT.md`, commit `1a90916`): at forced-HIGH,
+**8 of 9 reported gaps are already fixed at HEAD** — they are the exact state of `main`
+(the overhaul still has `focus_core`, the float-label radial, the flat card, the overlap,
+the pre-P6 layout). Sam confirmed the reviewed binary was **`main`**. The one genuine
+residual was a "monochrome green" overview, plus the focused node's gate-glyph reading as
+a busy "eye" at HIGH.
+
+**Fixes** (commit `…`):
+- **F1 — clean focus:** the gate-glyph (`render/node_glyph.rs`) and the orbital ring
+  (`render/spatial.rs::node_qualifies_for_ring`) are **suppressed on the focus subject** —
+  the focused node is now the clean reticle + single indicator ring + segmented action
+  ring (the busy "eye" is gone). Respawns on focus exit.
+- **F5a — Process cyan:** `theme::PROCESS` `#2bb3a8`→`#2bb0d0` (+ `tokens::PROCESS`) so
+  Process reads clearly cyan and separates from File green at the overview zoom + bloom.
+- **F5b — demo palette:** `graph/synthetic.rs` now seeds **~5% sockets / ~2.5% remote
+  hosts / ~2% alerts** (deterministic; an all-kinds test) so the blue/violet/red palette
+  manifests in the demo — not just file-green + process-cyan. Total node count unchanged.
+
+**Verified at forced-HIGH** (`docs/media/gits/`): `afterfix-default.png` (full per-type
+palette + spread layout + clean chrome), `afterfix-focus.png` (clean focus + segmented
+ring + 3-block card), `afterfix-minimal-focus.png` (flat degrade). Comparison vs `main`:
+`docs/media/gits/audit/main-HIGH-*` (the float-label radial + the big 3D focus_core sphere
++ flat card) vs the branch.
+
+**Gate:** fmt/clippy/`test --workspace` green (**317 tests**, +1 all-kinds). Scope:
+viewer-only; no core/graph/agent/wire change; Minimal parity preserved.
+
+### Capture note (important for re-verification)
+On this (weak) GPU the auto-tier is POTATO, which hides the HIGH-fidelity look. Re-verify
+with the config forcing **both** `tier="high"` **and** `adaptive=false` (tier alone is
+overridden back down by the adaptive stepper). On a GPU that sustains a higher tier this
+is automatic.
+

@@ -63,3 +63,19 @@ vs. accept the green-family palette as approved.
 3. **Focus gate-glyph** — at HEAD-HIGH the focused node shows the gate-glyph concentric rings
    (a subtle target, *not* the big sphere). Keep, or suppress on the focus subject for the
    mockup's single-thin-ring look?
+
+## Resolution (Sam, 2026-06-15)
+1. **Review binary** = "war wohl main/Overhaul" — confirmed. The branch already resolves
+   the report; a forced-HIGH **main-vs-branch comparison** is captured for the record
+   (`audit/main-HIGH-*` vs `afterfix-*`).
+2. **Monochrome green** → both fixes applied: (a) `theme::PROCESS` shifted `#2bb3a8`→`#2bb0d0`
+   (clearer cyan, separates from File green) + `tokens::PROCESS` matched; (b) the synthetic
+   demo now **seeds ~5% sockets / ~2.5% remote hosts / ~2% alerts** (`graph/synthetic.rs`,
+   deterministic, all-kinds test) so the blue/violet/red palette shows in the overview.
+3. **Focus gate-glyph** → **suppressed on the focus subject** (`render/node_glyph.rs` +
+   the orbital ring in `render/spatial.rs::node_qualifies_for_ring`) — the focused node is
+   now the clean reticle + single indicator ring + segmented action ring (verified
+   `afterfix-focus.png`).
+
+Result (forced HIGH): `afterfix-default.png` shows the full per-type palette + spread
+layout; `afterfix-focus.png` shows the clean focus + segmented ring + 3-block card.
