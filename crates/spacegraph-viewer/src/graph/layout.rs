@@ -540,12 +540,17 @@ impl GraphState {
         self.spatial.visible_mask.clear();
         self.spatial.visible_mask.resize(cap, false);
         self.spatial.active.clear();
+        // Per-slot degree for the degree-aware integration mass (P6). Built here
+        // (only while unsettled — force_step returns early at rest), so it adds no
+        // steady-state cost. Pure function of the model's prebuilt adjacency.
+        let mut node_deg = vec![0usize; cap];
         for id in vis.iter() {
             if let Some(idx) = self.spatial.interner.index_of(id) {
                 let i = idx.slot();
                 if self.spatial.placed[i] {
                     self.spatial.visible_mask[i] = true;
                     self.spatial.active.push(idx);
+                    node_deg[i] = self.core.model.degree(id);
                 }
             }
         }
@@ -674,8 +679,10 @@ impl GraphState {
                 continue;
             }
             let f = self.spatial.forces[i];
+            // Degree-aware mass: hubs accelerate less (anchor), leaves fan freely.
+            let mass = node_mass(node_deg[i]);
             let v = &mut self.spatial.velocities[i];
-            *v = (*v + f * dt) * damping;
+            *v = (*v + f * (dt / mass)) * damping;
             let mut step = *v * dt;
             if step.length() > max_step {
                 step = step.normalize_or_zero() * max_step;
@@ -763,6 +770,14 @@ fn scatter_position(global_index: usize, side: f32, show_3d: bool) -> Vec3 {
     } else {
         Vec3::new(x, 0.0, v * side)
     }
+}
+
+/// Per-node integration mass from its degree (P6): hubs (high degree) are heavier
+/// so they accelerate less and act as **stable anchors** while leaves fan out
+/// around them — the hubs-vs-leaves hierarchy that breaks the central hairball.
+/// Pure, deterministic (a function of degree only — no RNG/clock/order).
+pub fn node_mass(degree: usize) -> f32 {
+    1.0 + 0.35 * (1.0 + degree as f32).ln()
 }
 
 #[cfg(test)]
@@ -914,6 +929,19 @@ mod tests {
         st.progressive_prepare(&vis);
         st.force_step(&vis, 0.016);
         st.apply_tree_layout(&vis);
+    }
+
+    #[test]
+    fn node_mass_anchors_hubs_sublinearly() {
+        assert_eq!(node_mass(0), 1.0, "a leaf has unit mass");
+        assert!(
+            node_mass(20) > node_mass(4) && node_mass(4) > node_mass(0),
+            "monotone in degree (heavier hubs)"
+        );
+        assert!(
+            node_mass(1000) < 4.0,
+            "sublinear (log) so hubs anchor, never freeze"
+        );
     }
 
     #[test]

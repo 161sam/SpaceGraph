@@ -24,7 +24,7 @@ markers. Archive-not-delete (the reverted `focus_core` → `legacy/`).
 - [x] **P3** — Minimap: make it real
 - [x] **P4** — Edges (curved / per-class / falloff / flow)
 - [x] **P5** — Nodes + colour semantics + label anti-overlap
-- [ ] **P6** — Layout spread (de-hairball)
+- [x] **P6** — Layout spread (de-hairball)
 - [ ] **P7** — Entity-card detail + chrome consistency + close-out
 - [ ] **Sam's screenshot review** → merge (review-gated)
 
@@ -312,4 +312,50 @@ origin styles distinctly. P5 surfaces type via shape+colour; it adds no data sou
 ### Screenshots
 `afterp5-polish-default.png` — type-distinct framed silhouettes + icons + the MP
 palette + de-collided labels — vs the uniform disc field in `before-polish-default.png`.
+
+---
+
+## P6 — Layout spread (de-hairball)
+
+### What changed (`graph/layout.rs`, `graph/state.rs`, `ui/hud_panels.rs`)
+- **Wider repulsion reach** to de-clump: `repulsion_radius` 8 → **14** (link_distance
+  6 → 7, so ~2× link). Because `scatter_position` scales its spacing with
+  `repulsion_radius`, the initial cloud grows with the reach → density stays **~1 node
+  per grid cell**, so the candidate count per node stays bounded (no `layout_budget_ms`
+  blow-up) even as the graph spreads. The short cutoff was the contraction cause — a
+  wider reach lets repulsion resist the spring net across a clump.
+- **Degree-aware mass** (`node_mass`, pure + unit-tested): hubs (high degree) get a
+  log-scaled heavier integration mass so they **accelerate less and anchor**, while
+  leaves fan out around them — the **hubs-vs-leaves hierarchy**. The per-slot degree is
+  built only while the layout is unsettled (it returns early at rest), so there's **no
+  steady-state cost**.
+- **Slider fixes** (`ui/hud_panels.rs`): the repulsion slider range was `0..=120` —
+  it couldn't even reach the `400` default (silently clamping user edits); widened to
+  `0..=1000`, and a new **`spread (radius)`** slider (`4..=40`) exposes the de-clump
+  knob.
+
+### Convergence / determinism (the hard contract — all green)
+`force_layout_settles_freezes_and_wakes` ✓ (still converges + freezes + wakes with the
+new reach + mass), `force_step_is_deterministic` ✓, `force_step_keeps_pinned_fixed…` ✓,
+`budget_split_matches_full_step` ✓. The mass is a pure function of model degree (no
+RNG/clock/HashSet-order), so determinism holds. `SETTLE_EPS`/`SETTLE_FRAMES` unchanged —
+the more-spread equilibrium has smaller residual forces, so it settles within budget.
+
+### Honest scope note
+The `--demo-load 2000` graph (≤400 visible) was **not** a *tight* central hairball to
+begin with, so the visible change is **moderate** — a more spread field with a clearer
+central hub anchor. The mechanism (wider bounded-density reach + hub-anchoring) pays off
+most on **denser / real** graphs. `cfg.radius` / `cfg.y_spread` remain reserved knobs
+(not wired this pass — out of P6's converge/spread gate).
+
+### Gate
+- `fmt --check` ✓ · `clippy --workspace --all-targets -D warnings` ✓ ·
+  `test --workspace` ✓ **210 viewer** (+1 `node_mass_anchors_hubs_sublinearly`). `build` ✓.
+- Scope: viewer-only (`graph/layout`, `graph/state` cfg defaults, `ui/hud_panels`). No
+  `spacegraph-graph`/core/agent/wire change · FPS: layout still settles + idles (the
+  degree array is unsettled-only) — **no steady-state regression**.
+
+### Screenshots
+`afterp6-polish-default.png` (more spread + central hub anchor) vs
+`afterp5-polish-default.png` / `before-polish-default.png`.
 

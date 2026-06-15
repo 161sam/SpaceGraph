@@ -545,8 +545,9 @@ pub struct CfgState {
     pub link_distance: f32,
     pub repulsion: f32,
     /// Repulsion cutoff radius / grid cell size. Drives the candidate count per
-    /// node (≈ 27 · (radius / spacing)³); kept at ~1.5 × link_distance so the
-    /// grid pass stays well inside the per-frame budget.
+    /// node (≈ 27 · (radius / spacing)³). The initial scatter scales its spacing
+    /// with this value (≈ 1 node per cell), so a wider reach **de-clumps** the graph
+    /// while keeping the grid candidate count bounded (P6). ~2 × link_distance.
     pub repulsion_radius: f32,
     pub damping: f32,
     pub max_step: f32,
@@ -771,9 +772,9 @@ impl Default for GraphState {
             net: NetState::default(),
             cfg: CfgState {
                 layout_force: true,
-                link_distance: 6.0,
+                link_distance: 7.0,
                 repulsion: 400.0,
-                repulsion_radius: 8.0,
+                repulsion_radius: 14.0,
                 damping: 0.92,
                 max_step: 0.35,
                 layout_budget_ms: 6.0,
