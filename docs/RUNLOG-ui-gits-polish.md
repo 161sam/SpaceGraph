@@ -432,3 +432,16 @@ NOT auto-merged.** Commits: `7f56ca1` P0 · `274dc49` P1 · `e938dc1` P2 · `8ff
   (wider bounded-density reach + hub-anchoring) pays off on denser/real graphs.
 - `cfg.radius`/`cfg.y_spread` left as reserved knobs (not wired).
 
+### Post-build adversarial review (`24f2c02`)
+A 5-dimension adversarial review of the branch diff (each finding independently
+verified) surfaced **2 confirmed-real bugs** (both invisible to the static demo + the
+test suite); both fixed pre-review:
+1. **Stale edge mesh** — `EdgeFingerprint` didn't track the P4 threat/weight inputs, so
+   an alert/weight change while the layout was settled could leave edge colours stale.
+   Fixed by adding a `data_version` (`perf.event_total`) to the fingerprint — O(1), 0
+   for the static demo, stable when idle (keeps the settled→cheap gate).
+2. **Off-screen labels** — `decollide_labels` could nudge a label stack off the bottom
+   of the viewport. Fixed by clamping each label on-screen (mirrors `place_card`) +
+   threading the viewport through the call site + a new on-screen unit test.
+Re-gate green: fmt/clippy/`test --workspace` (**316 tests**).
+
