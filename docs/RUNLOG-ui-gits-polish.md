@@ -22,7 +22,7 @@ markers. Archive-not-delete (the reverted `focus_core` → `legacy/`).
 - [x] **P1** — Revert 3D core + clean focus treatment + segmented action ring
 - [x] **P2** — Complete panel-layer + middle-ellipsis
 - [x] **P3** — Minimap: make it real
-- [ ] **P4** — Edges (curved / per-class / falloff / flow)
+- [x] **P4** — Edges (curved / per-class / falloff / flow)
 - [ ] **P5** — Nodes + colour semantics + label anti-overlap
 - [ ] **P6** — Layout spread (de-hairball)
 - [ ] **P7** — Entity-card detail + chrome consistency + close-out
@@ -227,4 +227,50 @@ culled) it is clean — see `afterp3-polish-focus.png`.
 `afterp3-polish-default.png` (cropped: type-coloured dots at real positions + cyan
 viewport frustum + camera marker + LIVE + scale) and `afterp3-polish-focus.png` (focus
 marker crosshair on the radar) vs the crude scatter in `before-polish-default.png`.
+
+---
+
+## P4 — Edges (curved / per-class / falloff / weight / threat)
+
+### What changed (`render/edges.rs::update_edge_mesh`)
+- **Curved** — each aggregated edge is now an 8-segment quadratic **bézier** (was a
+  straight 2-vertex segment) bowed perpendicular to the chord by a stable per-edge hash
+  (`edge_bow`), so **parallel edges fan** apart and long edges arc — the straight-line
+  hairball reads far better (see the before/after crop).
+- **Continuous opacity falloff** — `edge_falloff` replaces the binary `Dim`/`Full` with
+  a smoothstep from full at `near` down to `far_dim` across `near..far`, then cull —
+  distant/peripheral edges fade out smoothly instead of popping.
+- **Directional gradient** — brighter at `from`, fading toward `to`, so edge direction
+  reads.
+- **Weight → brightness** — `weight_brightness(agg.stats.count)` (log-normalised) makes
+  heavier aggregated edges read brighter — the LineList "thickness" proxy.
+- **Threat edges** — an edge of class `AlertsOn` or touching an `Alert` node renders the
+  red `theme::ALERT`, boosted, with a static dash pattern (the alerted-node set is
+  precomputed once per build). Per-class colours otherwise unchanged (`theme::edge_color`).
+- Pure + unit-tested: `edge_falloff`, `edge_bow`, `weight_brightness`.
+
+### Decisions (Stop-and-Show scope)
+- **Thickness** is encoded as **HDR brightness**, not geometric width — a 1px `LineList`
+  can't vary width; true thickness needs camera-facing **quad strips** (a topology /
+  render-architecture change), deferred per the MP guard.
+- **Animated flow** would need a per-frame mesh rebuild, which **defeats the
+  `EdgeFingerprint`/cam-cell "settled→cheap" perf gate** (an FPS regression — the perf
+  MP's domain), or a time-uniform shader (render-architecture). So threat edges get a
+  **static** dash (the "special" read) and animated flow is deferred. No new per-frame
+  cost; the rebuild gate is intact.
+- The demo graph has **0 alerts**, so the red/threat styling isn't visible in the shots
+  (it's for real alert data); the curve/gradient/falloff/weight ARE visible by default
+  (the demo's `lod_active` is false → `edges_mode = All`).
+
+### Gate
+- `fmt --check` ✓ · `clippy --workspace --all-targets -D warnings` ✓ ·
+  `test --workspace` ✓ **208 viewer** (+3: `edge_falloff_smooth_then_cull`,
+  `weight_brightness_is_monotone_and_clamped`, `edge_bow_is_deterministic…`). `build` ✓.
+- Scope: viewer-only (`render/edges.rs`). No `spacegraph-core`/`spacegraph-graph` change
+  (styling is viewer-side over existing edge data) · Minimal degrades (the `×2.5` HDR
+  boost is Standard-only; Minimal keeps flat per-class lines).
+
+### Screenshots
+`afterp4-polish-default.png` (curved, fanned, gradient'd web) vs `before-polish-default.png`
+(straight spaghetti) — cropped comparison confirms the curve.
 
