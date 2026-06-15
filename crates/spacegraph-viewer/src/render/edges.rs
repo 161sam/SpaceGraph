@@ -161,6 +161,12 @@ struct EdgeFingerprint {
     // cell (drives distance LOD) — v0.5.1 edge-perf inputs.
     focus_mode: Option<NodeId>,
     cam_quant: (i32, i32, i32),
+    // Data version (every ingested message bumps `event_total`): captures alert/edge/
+    // weight changes that drive the P4 styling (threat-red, weight-brightness) but
+    // which the positional/topology fields above don't track — so a threat or weight
+    // change while the layout is settled still forces a rebuild. Constant when idle
+    // (and 0 for the static demo), so it never defeats the settled→cheap gate.
+    data_version: u64,
 }
 
 /// Handle to the shared edge line mesh plus reusable scratch buffers and the
@@ -235,6 +241,7 @@ pub fn update_edge_mesh(
         hovered: st.cfg.fog_of_war.then(|| st.ui.hovered.clone()).flatten(),
         focus_mode: st.ui.focus_mode.clone(),
         cam_quant: cam_pos.map(cam_cell).unwrap_or_default(),
+        data_version: st.perf.event_total,
     };
 
     // While the force layout is moving, node positions change every frame and the

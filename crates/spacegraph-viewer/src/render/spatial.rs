@@ -1302,8 +1302,10 @@ pub fn draw_node_labels(
             egui::pos2(screen.x + 10.0, screen.y - 8.0),
         ));
     }
+    let vp = ctx.screen_rect();
     let resolved = crate::ui::overlay::decollide_labels(
         &items.iter().map(|(_, s, a)| (*a, *s)).collect::<Vec<_>>(),
+        vp,
     );
     for ((label, _, _), p) in items.iter().zip(resolved) {
         painter.text(

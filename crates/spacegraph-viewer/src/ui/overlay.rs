@@ -118,9 +118,10 @@ pub fn middle_truncate(s: &str, max_chars: usize) -> String {
 
 /// Greedily de-collide screen labels: each label keeps its anchor unless it would
 /// overlap an already-placed one, in which case it is nudged straight down until
-/// clear (bounded). Returns the resolved top-left per input, in order. Pure — the
-/// node-label anti-overlap pass.
-pub fn decollide_labels(anchors: &[(Pos2, Vec2)]) -> Vec<Pos2> {
+/// clear (bounded), then **clamped fully inside `vp`** so a long nudge stack can't
+/// push a label off-screen. Returns the resolved top-left per input, in order.
+/// Pure — the node-label anti-overlap pass.
+pub fn decollide_labels(anchors: &[(Pos2, Vec2)], vp: Rect) -> Vec<Pos2> {
     let mut placed: Vec<Rect> = Vec::with_capacity(anchors.len());
     let mut out = Vec::with_capacity(anchors.len());
     for &(anchor, size) in anchors {
@@ -133,6 +134,10 @@ pub fn decollide_labels(anchors: &[(Pos2, Vec2)]) -> Vec<Pos2> {
                 break;
             }
         }
+        // On-screen clamp (mirrors `place_card`). `.max(vp.min)` keeps the range
+        // valid when the viewport is smaller than the label, so `clamp` never panics.
+        p.x = p.x.clamp(vp.min.x, (vp.max.x - size.x).max(vp.min.x));
+        p.y = p.y.clamp(vp.min.y, (vp.max.y - size.y).max(vp.min.y));
         placed.push(Rect::from_min_size(p, size));
         out.push(p);
     }
@@ -316,7 +321,7 @@ mod tests {
     fn decollide_labels_separates_overlapping_keeps_far_apart() {
         let a = pos2(100.0, 100.0);
         let size = vec2(80.0, 16.0);
-        let out = decollide_labels(&[(a, size), (a, size), (a, size)]);
+        let out = decollide_labels(&[(a, size), (a, size), (a, size)], vp());
         assert_eq!(out[0], a, "first keeps its anchor");
         assert!(
             out[1].y > out[0].y && out[2].y > out[1].y,
@@ -329,8 +334,23 @@ mod tests {
             }
         }
         // Far-apart labels are left untouched.
-        let far = decollide_labels(&[(pos2(0.0, 0.0), size), (pos2(500.0, 500.0), size)]);
+        let far = decollide_labels(&[(pos2(0.0, 0.0), size), (pos2(500.0, 500.0), size)], vp());
         assert_eq!(far[1], pos2(500.0, 500.0), "no needless nudging");
+    }
+
+    #[test]
+    fn decollide_labels_stay_on_screen_under_pressure() {
+        // Many labels anchored at the very bottom would stack off-screen without a
+        // clamp; every resolved label must stay inside the viewport.
+        let size = vec2(80.0, 16.0);
+        let anchors: Vec<(Pos2, Vec2)> = (0..12).map(|_| (pos2(60.0, 990.0), size)).collect();
+        let out = decollide_labels(&anchors, vp());
+        for p in &out {
+            assert!(
+                on_screen(rect(*p, size), vp()),
+                "label clamped on-screen: {p:?}"
+            );
+        }
     }
 
     #[test]
