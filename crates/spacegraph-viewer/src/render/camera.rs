@@ -95,6 +95,17 @@ pub fn apply_jump_to(mut st: ResMut<GraphState>, mut cam_q: Query<&mut PanOrbitC
         }
     }
 
+    // Minimap click-to-fly: ease the orbit pivot to a world position (Spatial only,
+    // no selection change — it targets a place, not a node).
+    if let Some(pos) = st.ui.jump_to_pos.take() {
+        if st.ui.view_mode == ViewMode::Spatial {
+            if let Ok(mut pan) = cam_q.get_single_mut() {
+                pan.target_focus = Vec3::new(pos.x, 0.0, pos.z);
+                st.needs_redraw.store(true, Ordering::Relaxed);
+            }
+        }
+    }
+
     let Some(id) = st.ui.jump_to.take() else {
         return;
     };

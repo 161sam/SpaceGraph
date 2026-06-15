@@ -69,6 +69,67 @@ pub fn edge_lod(
     }
 }
 
+/// Continuous distance **falloff** brightness in `[far_dim, 1.0]` — `1.0` up to
+/// `near`, smoothstep down to `far_dim` across `near..far`, then `None` (cull) past
+/// `far`. The smooth replacement for the old binary `Dim`/`Full` so peripheral /
+/// distant edges fade out instead of popping. In Focus Mode only incident edges
+/// draw (at full). Pure — unit-tested.
+pub fn edge_falloff(
+    mid_dist: f32,
+    near: f32,
+    far: f32,
+    far_dim: f32,
+    focus_incident: bool,
+    focus_cull: bool,
+) -> Option<f32> {
+    if focus_cull {
+        return focus_incident.then_some(1.0);
+    }
+    if mid_dist <= near {
+        return Some(1.0);
+    }
+    if mid_dist >= far {
+        return None;
+    }
+    let t = ((mid_dist - near) / (far - near).max(1e-3)).clamp(0.0, 1.0);
+    let s = t * t * (3.0 - 2.0 * t); // smoothstep
+    Some(1.0 - s * (1.0 - far_dim))
+}
+
+/// Stable bow factor in `[-1,1]` for an edge (FNV-1a over the endpoint ids + class),
+/// so parallel edges between the same pair fan out and long edges arc instead of
+/// overlapping as straight clutter. Deterministic — pure.
+pub fn edge_bow(from: &str, to: &str, class_idx: u8) -> f32 {
+    let mut h: u32 = 0x811c_9dc5;
+    for b in from.bytes() {
+        h ^= b as u32;
+        h = h.wrapping_mul(0x0100_0193);
+    }
+    h ^= 0xff;
+    h = h.wrapping_mul(0x0100_0193);
+    for b in to.bytes() {
+        h ^= b as u32;
+        h = h.wrapping_mul(0x0100_0193);
+    }
+    h ^= class_idx as u32;
+    h = h.wrapping_mul(0x0100_0193);
+    (h as f32 / u32::MAX as f32) * 2.0 - 1.0
+}
+
+/// Aggregated-edge **weight** → brightness multiplier in `[1.0, 2.0]` — heavier
+/// edges read brighter (the LineList "thickness" proxy, since 1px lines can't vary
+/// width). Log-normalised + clamped. Pure.
+pub fn weight_brightness(count: u64) -> f32 {
+    let w = (count.max(1) as f32).ln();
+    (1.0 + 0.18 * w).clamp(1.0, 2.0)
+}
+
+/// A point on the quadratic bézier `a → ctrl → b` at parameter `t`.
+fn bezier(a: Vec3, ctrl: Vec3, b: Vec3, t: f32) -> Vec3 {
+    let u = 1.0 - t;
+    a * (u * u) + ctrl * (2.0 * u * t) + b * (t * t)
+}
+
 /// Quantize a camera position into an integer cell for the rebuild fingerprint.
 fn cam_cell(pos: Vec3) -> (i32, i32, i32) {
     (
@@ -100,6 +161,12 @@ struct EdgeFingerprint {
     // cell (drives distance LOD) — v0.5.1 edge-perf inputs.
     focus_mode: Option<NodeId>,
     cam_quant: (i32, i32, i32),
+    // Data version (every ingested message bumps `event_total`): captures alert/edge/
+    // weight changes that drive the P4 styling (threat-red, weight-brightness) but
+    // which the positional/topology fields above don't track — so a threat or weight
+    // change while the layout is settled still forces a rebuild. Constant when idle
+    // (and 0 for the static demo), so it never defeats the settled→cheap gate.
+    data_version: u64,
 }
 
 /// Handle to the shared edge line mesh plus reusable scratch buffers and the
@@ -174,6 +241,7 @@ pub fn update_edge_mesh(
         hovered: st.cfg.fog_of_war.then(|| st.ui.hovered.clone()).flatten(),
         focus_mode: st.ui.focus_mode.clone(),
         cam_quant: cam_pos.map(cam_cell).unwrap_or_default(),
+        data_version: st.perf.event_total,
     };
 
     // While the force layout is moving, node positions change every frame and the
@@ -204,6 +272,18 @@ pub fn update_edge_mesh(
     let dim_factor = st.cfg.edge_lod.far_dim;
 
     if fp.spatial && fp.show && edges_mode != LodEdgesMode::Off {
+        // Threat endpoints: edges touching an Alert node (or of the AlertsOn class)
+        // render red + boosted so threats pop by default. Computed once per build
+        // (empty for benign graphs — e.g. the demo has no alerts).
+        let alerted: HashSet<NodeId> = st
+            .core
+            .model
+            .nodes
+            .iter()
+            .filter(|(_, n)| matches!(theme::NodeKind::of(n), theme::NodeKind::Alert))
+            .map(|(id, _)| id.clone())
+            .collect();
+
         // Focus-only restricts to edges incident to the focus/selection; a full
         // sweep walks the whole visible set.
         let mut sources: Vec<&NodeId> = Vec::new();
@@ -248,31 +328,77 @@ pub fn update_edge_mesh(
                 ) else {
                     continue;
                 };
-                // Edge LOD: cull distant / non-focused edges, dim the mid band.
-                let lod = {
-                    let mid = (a + b) * 0.5;
-                    let mid_dist = cam_pos.map(|cp| mid.distance(cp)).unwrap_or(0.0);
-                    let incident = fp
-                        .focus_mode
-                        .as_ref()
-                        .is_some_and(|f| &edge.from == f || &edge.to == f);
-                    edge_lod(mid_dist, near, far, incident, focus_cull_active)
-                };
-                if lod == EdgeLod::Cull {
+                // Continuous distance falloff (cull distant / non-incident edges).
+                let mid = (a + b) * 0.5;
+                let mid_dist = cam_pos.map(|cp| mid.distance(cp)).unwrap_or(0.0);
+                let incident = fp
+                    .focus_mode
+                    .as_ref()
+                    .is_some_and(|f| &edge.from == f || &edge.to == f);
+                let Some(falloff) =
+                    edge_falloff(mid_dist, near, far, dim_factor, incident, focus_cull_active)
+                else {
                     continue;
+                };
+
+                let class = EdgeKindClass::from_kind(&edge.kind);
+                let threat = class == EdgeKindClass::AlertsOn
+                    || alerted.contains(&edge.from)
+                    || alerted.contains(&edge.to);
+                let base = if threat {
+                    theme::ALERT
+                } else {
+                    theme::edge_color(class)
                 }
-                let bright = if lod == EdgeLod::Dim { dim_factor } else { 1.0 };
-                let c = theme::edge_color(EdgeKindClass::from_kind(&edge.kind)).to_linear();
-                let col = [
-                    c.red * mul * bright,
-                    c.green * mul * bright,
-                    c.blue * mul * bright,
-                    1.0,
-                ];
-                positions.push(a.to_array());
-                positions.push(b.to_array());
-                colors.push(col);
-                colors.push(col);
+                .to_linear();
+                let weight = weight_brightness(
+                    st.core
+                        .model
+                        .agg_edge(&AggEdgeKey::new(edge))
+                        .map(|a| a.stats.count)
+                        .unwrap_or(1),
+                );
+                let boost = if threat { 1.6 } else { 1.0 };
+
+                // Subtle bow so parallel edges fan instead of overlapping; arcs long
+                // edges slightly off the straight chord for a readable web.
+                let bow = edge_bow(&edge.from.0, &edge.to.0, class as u8);
+                let chord = b - a;
+                let len = chord.length();
+                let perp = chord.cross(Vec3::Y);
+                let perp = if perp.length_squared() > 1e-6 {
+                    perp.normalize()
+                } else {
+                    Vec3::X
+                };
+                let ctrl = mid + perp * (len * 0.12 * bow) + Vec3::Y * (len * 0.05 * bow.abs());
+
+                let col_at = |t: f32| -> [f32; 4] {
+                    // Directional gradient (brighter at `from`) × weight × falloff,
+                    // plus a static dash on threat edges (animated flow needs a
+                    // time-uniform shader — deferred, keeps the settled→cheap gate).
+                    let grad = 1.15 - 0.6 * t;
+                    let dash = if threat {
+                        0.6 + 0.4 * (t * 26.0).sin().abs()
+                    } else {
+                        1.0
+                    };
+                    let k = grad * weight * boost * falloff * mul * dash;
+                    [base.red * k, base.green * k, base.blue * k, 1.0]
+                };
+
+                const SEGS: usize = 8;
+                let mut prev = a;
+                for i in 1..=SEGS {
+                    let t0 = (i - 1) as f32 / SEGS as f32;
+                    let t1 = i as f32 / SEGS as f32;
+                    let p = bezier(a, ctrl, b, t1);
+                    positions.push(prev.to_array());
+                    positions.push(p.to_array());
+                    colors.push(col_at(t0));
+                    colors.push(col_at(t1));
+                    prev = p;
+                }
             }
         }
     }
@@ -321,6 +447,42 @@ mod tests {
             edge_lod(300.0, near, far, true, true),
             EdgeLod::Full,
             "an incident edge is never distance-culled in focus mode"
+        );
+    }
+
+    #[test]
+    fn edge_falloff_smooth_then_cull() {
+        let (near, far, dim) = (70.0, 160.0, 0.3);
+        assert_eq!(edge_falloff(10.0, near, far, dim, false, false), Some(1.0));
+        assert_eq!(edge_falloff(70.0, near, far, dim, false, false), Some(1.0));
+        let mid = edge_falloff(115.0, near, far, dim, false, false).unwrap();
+        assert!(mid > dim && mid < 1.0, "smoothstep fade in the band: {mid}");
+        assert_eq!(
+            edge_falloff(200.0, near, far, dim, false, false),
+            None,
+            "culled past far"
+        );
+        assert_eq!(edge_falloff(5.0, near, far, dim, true, true), Some(1.0));
+        assert_eq!(edge_falloff(5.0, near, far, dim, false, true), None);
+    }
+
+    #[test]
+    fn weight_brightness_is_monotone_and_clamped() {
+        assert_eq!(weight_brightness(1), 1.0);
+        assert!(weight_brightness(10) > weight_brightness(1));
+        assert!(weight_brightness(1_000_000) <= 2.0, "clamped");
+        assert!(weight_brightness(0) >= 1.0, "count 0 floored to 1");
+    }
+
+    #[test]
+    fn edge_bow_is_deterministic_in_range_and_fans_parallels() {
+        let a = edge_bow("proc:1", "file:2", 0);
+        assert_eq!(a, edge_bow("proc:1", "file:2", 0), "deterministic");
+        assert!((-1.0..=1.0).contains(&a));
+        assert_ne!(
+            edge_bow("proc:1", "file:2", 0),
+            edge_bow("proc:1", "file:2", 4),
+            "different class → different bow so parallels fan"
         );
     }
 

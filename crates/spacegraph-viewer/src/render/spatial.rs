@@ -316,10 +316,13 @@ pub fn setup_node_render_resources(
 }
 
 /// A visible node qualifies for an orbital ring if it is a hub (degree at least
-/// `ring_min_degree`) or an Alert. Degree uses the prebuilt adjacency (O(1)).
+/// `ring_min_degree`) or an Alert. Degree uses the prebuilt adjacency (O(1)). The
+/// **focus subject** is excluded so the focus treatment stays the clean reticle +
+/// single indicator ring (the orbital ring otherwise dominates the focused hub).
 fn node_qualifies_for_ring(st: &GraphState, id: &spacegraph_core::NodeId) -> bool {
-    node_kind(st, id) == theme::NodeKind::Alert
-        || st.core.model.degree(id) >= st.cfg.ring_min_degree
+    st.ui.focus_mode.as_ref() != Some(id)
+        && (node_kind(st, id) == theme::NodeKind::Alert
+            || st.core.model.degree(id) >= st.cfg.ring_min_degree)
 }
 
 /// Spawn/despawn orbital ring child entities to match qualification. Standard
@@ -422,16 +425,19 @@ fn node_meshes(
 ) -> NodeMeshSet {
     match theme {
         crate::util::config::VisualTheme::Minimal => (res.minimal_mesh.clone(), None),
-        // Standard, but the tier suppresses 3D silhouettes (Potato/Low) → the
-        // gate-glyph is primary; render a cheap flat core, no shell.
-        crate::util::config::VisualTheme::Standard if !silhouette => {
-            (res.minimal_mesh.clone(), None)
-        }
+        // Standard: the per-type **core silhouette is always on** (P5) — it's a single
+        // mesh, no costlier than the sphere, so type reads from shape on every tier.
+        // Only the wireframe **shell** (extra LineList geometry) stays tier-gated by
+        // `silhouette` (off at Potato/Low).
         crate::util::config::VisualTheme::Standard => {
             let i = kind.index();
-            let shell = res.shell_mesh[i]
-                .clone()
-                .map(|m| (m, res.shell_mat[i].clone()));
+            let shell = if silhouette {
+                res.shell_mesh[i]
+                    .clone()
+                    .map(|m| (m, res.shell_mat[i].clone()))
+            } else {
+                None
+            };
             (res.core_mesh[i].clone(), shell)
         }
     }
@@ -1270,7 +1276,15 @@ pub fn draw_node_labels(
         egui::Order::Foreground,
         egui::Id::new("node_labels"),
     ));
+    // Collect the projected label anchors, then de-collide before drawing so the
+    // (capped ≤6) labels never overlap each other (P5 label anti-overlap).
+    let mut items: Vec<(String, egui::Vec2, egui::Pos2)> = Vec::new();
     for id in targets {
+        // In Focus Mode the subject is named by the FOCUS subtitle + entity card;
+        // don't also float its (long) path label across the node (P1 clean focus).
+        if st.ui.focus_mode.as_ref() == Some(&id) {
+            continue;
+        }
         let Some(pos) = st.spatial.position_of(&id) else {
             continue;
         };
@@ -1284,9 +1298,22 @@ pub fn draw_node_labels(
             .get(&id)
             .map(node_label_short)
             .unwrap_or_else(|| id.0.clone());
+        let w = (label.chars().count() as f32 * 7.5 + 6.0).min(280.0);
+        items.push((
+            label,
+            egui::vec2(w, 16.0),
+            egui::pos2(screen.x + 10.0, screen.y - 8.0),
+        ));
+    }
+    let vp = ctx.screen_rect();
+    let resolved = crate::ui::overlay::decollide_labels(
+        &items.iter().map(|(_, s, a)| (*a, *s)).collect::<Vec<_>>(),
+        vp,
+    );
+    for ((label, _, _), p) in items.iter().zip(resolved) {
         painter.text(
-            egui::pos2(screen.x + 10.0, screen.y - 6.0),
-            egui::Align2::LEFT_CENTER,
+            p,
+            egui::Align2::LEFT_TOP,
             label,
             egui::FontId::proportional(13.0),
             egui::Color32::from_rgb(200, 230, 255),
@@ -1629,10 +1656,13 @@ mod tests {
     }
 
     #[test]
-    fn potato_tier_suppresses_silhouette_glyph_primary() {
+    fn potato_tier_keeps_core_silhouette_but_no_shell() {
+        // P5: the per-type core silhouette is always on in Standard (a single mesh,
+        // no costlier than the sphere) — even at Potato; only the wireframe shell
+        // (extra geometry) stays tier-gated off.
         use crate::render::quality::{QualityState, QualityTier};
         let res = dummy_render_resources();
-        for (node, _kind) in all_kind_nodes() {
+        for (node, kind) in all_kind_nodes() {
             let mut app = App::new();
             let mut q = QualityState::default();
             q.base = QualityTier::Potato;
@@ -1646,10 +1676,11 @@ mod tests {
             app.update();
             let (mesh, has_shell) = node_mesh_and_shell(&mut app);
             assert_eq!(
-                mesh, res.minimal_mesh,
-                "Potato suppresses the per-kind silhouette — the gate-glyph is primary"
+                mesh,
+                res.core_mesh[kind.index()],
+                "{kind:?} keeps its per-kind core silhouette at Potato"
             );
-            assert!(!has_shell, "Potato has no shell child (glyph primary)");
+            assert!(!has_shell, "Potato still suppresses the wireframe shell");
         }
     }
 

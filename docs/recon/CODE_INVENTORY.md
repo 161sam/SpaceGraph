@@ -245,4 +245,26 @@ GitS frame); `ui/legend.rs` (GitS frame); `ui/command_palette.rs` (RailState; th
 dead "Toggle left rail" → "Toggle controls panel"); `ui/inspector.rs` (suppressed
 in focus); `app/mod.rs` (rail/panel systems chained; `RailState`; gated
 `SPACEGRAPH_DEMO_FOCUS` screenshot hook). No core/graph/agent/wire change.
-</content>
+
+## MP-UI-GitS-polish
+
+New: `legacy/render/focus_core.rs` (archived P5 3D core). New pure fns (+ tests):
+`ui/overlay.rs` `middle_truncate`/`corner_anchor`/`decollide_labels`;
+`ui/context_menu.rs` `segment_center_angle`/`segment_at` (segmented `render_radial`);
+`ui/minimap.rs` `minimap_bounds`/`minimap_project`/`minimap_unproject` (+ frustum /
+focus-marker / click-to-fly); `render/edges.rs` `edge_falloff`/`edge_bow`/
+`weight_brightness` (+ bézier); `graph/layout.rs` `node_mass`; `util/ids.rs`
+`short_hex_id`; `ui/rail.rs` `inspector_reserves` + `draw_rail_icon`.
+
+Changed: `render/theme.rs` (palette → MP hexes, edge colours aligned, `FOCUS_CORE_*`
+removed); `render/mod.rs` + `app/mod.rs` (focus_core unwired); `ui/focus.rs` (clean
+focus treatment + indicator ring); `ui/tokens.rs` (MP palette + per-type accents +
+`alpha::SCANLINE`); `ui/gits.rs` (scanline sheen in `bracket_response`);
+`ui/entity_card.rs` (3-block card); `ui/rail.rs` (content_rect authority + vector
+icons + badge); `ui/minimap.rs` (real radar); `render/edges.rs` (curved/styled edges);
+`render/spatial.rs` (always-on per-type silhouette + label de-collision + focus-label
+suppress); `graph/layout.rs` + `graph/state.rs` (spread defaults + degree-mass +
+`ui.jump_to_pos`/`request_jump_pos`); `render/camera.rs` (position jump);
+`ui/{node_preview,inspector,tooltips}.rs` (constrain_to + middle-ellipsis);
+`ui/hud.rs` (tidy 2-line telemetry); `ui/hud_panels.rs` (slider ranges + spread
+slider). No `spacegraph-core`/`spacegraph-graph`/agent change; no wire bump.

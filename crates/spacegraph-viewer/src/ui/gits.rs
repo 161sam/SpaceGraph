@@ -70,8 +70,28 @@ pub fn draw_brackets(painter: &egui::Painter, rect: egui::Rect, arm: f32) {
     }
 }
 
-/// Bracket the rect of a just-shown panel (call with the window/area response rect).
-/// No-op under Minimal.
+/// Faint horizontal scanlines over a panel rect — the GitS "screen" texture.
+/// Bounded line count; very low alpha so it reads as a CRT sheen over content.
+fn draw_scanlines(painter: &egui::Painter, rect: egui::Rect) {
+    let col = egui::Color32::from_rgba_unmultiplied(
+        color::ACCENT.r(),
+        color::ACCENT.g(),
+        color::ACCENT.b(),
+        alpha::SCANLINE,
+    );
+    let stroke = egui::Stroke::new(1.0, col);
+    let mut y = rect.top() + 3.0;
+    while y < rect.bottom() {
+        painter.line_segment(
+            [egui::pos2(rect.left(), y), egui::pos2(rect.right(), y)],
+            stroke,
+        );
+        y += 3.0;
+    }
+}
+
+/// Frame the rect of a just-shown "screen" panel with corner brackets + a faint
+/// scanline sheen (call with the window/area response rect). No-op under Minimal.
 pub fn bracket_response(ctx: &egui::Context, rect: egui::Rect, standard: bool) {
     if !standard {
         return;
@@ -82,5 +102,6 @@ pub fn bracket_response(ctx: &egui::Context, rect: egui::Rect, standard: bool) {
             .with(rect.min.x as i32)
             .with(rect.min.y as i32),
     ));
+    draw_scanlines(&painter, rect);
     draw_brackets(&painter, rect, 14.0);
 }

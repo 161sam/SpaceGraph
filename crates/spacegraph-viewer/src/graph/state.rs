@@ -293,6 +293,9 @@ pub struct UiState {
     pub palette_query: String,
     pub search_hits: Vec<NodeId>,
     pub jump_to: Option<NodeId>,
+    /// Click-to-fly target from the minimap: a world position (Y forced to the
+    /// ground plane) the camera pivot eases to. Consumed by `apply_jump_to`.
+    pub jump_to_pos: Option<Vec3>,
     pub fit_to_view: bool,
 
     pub view_mode: ViewMode,
@@ -542,8 +545,9 @@ pub struct CfgState {
     pub link_distance: f32,
     pub repulsion: f32,
     /// Repulsion cutoff radius / grid cell size. Drives the candidate count per
-    /// node (≈ 27 · (radius / spacing)³); kept at ~1.5 × link_distance so the
-    /// grid pass stays well inside the per-frame budget.
+    /// node (≈ 27 · (radius / spacing)³). The initial scatter scales its spacing
+    /// with this value (≈ 1 node per cell), so a wider reach **de-clumps** the graph
+    /// while keeping the grid candidate count bounded (P6). ~2 × link_distance.
     pub repulsion_radius: f32,
     pub damping: f32,
     pub max_step: f32,
@@ -743,6 +747,7 @@ impl Default for GraphState {
                 palette_query: String::new(),
                 search_hits: Vec::new(),
                 jump_to: None,
+                jump_to_pos: None,
                 fit_to_view: false,
                 view_mode: ViewMode::Spatial,
                 tree_collapsed: HashSet::new(),
@@ -767,9 +772,9 @@ impl Default for GraphState {
             net: NetState::default(),
             cfg: CfgState {
                 layout_force: true,
-                link_distance: 6.0,
+                link_distance: 7.0,
                 repulsion: 400.0,
-                repulsion_radius: 8.0,
+                repulsion_radius: 14.0,
                 damping: 0.92,
                 max_step: 0.35,
                 layout_budget_ms: 6.0,
@@ -1743,6 +1748,12 @@ impl GraphState {
 
     pub fn request_jump(&mut self, id: NodeId) {
         self.ui.jump_to = Some(id);
+    }
+
+    /// Request a camera fly-to a world position (minimap click-to-fly). Unlike
+    /// `request_jump` this targets a *place*, not a node, so it sets no selection.
+    pub fn request_jump_pos(&mut self, pos: Vec3) {
+        self.ui.jump_to_pos = Some(pos);
     }
 
     /// Whether any connected stream's agent advertised the `fs_search`

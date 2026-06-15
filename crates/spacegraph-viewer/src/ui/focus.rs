@@ -88,9 +88,8 @@ pub fn focus_overlay(
         return;
     };
     let centre_world = st.spatial.position_of(&focus_id);
-    let label = st.node_label_with_id(&focus_id);
-    let degree = st.core.model.degree(&focus_id);
     let kind = st.core.model.nodes.get(&focus_id).map(theme::NodeKind::of);
+    let hexid = crate::util::ids::short_hex_id(&focus_id);
     let standard = st.cfg.visual_theme == VisualTheme::Standard;
     let dim = (st.cfg.focus.dim.clamp(0.0, 0.95) * 255.0) as u8;
 
@@ -104,6 +103,7 @@ pub fn focus_overlay(
     let Some(ctx) = contexts.try_ctx_mut() else {
         return; // headless / no egui context yet
     };
+    let t = ctx.input(|i| i.time) as f32;
     let screen = ctx.screen_rect();
     let painter = ctx.layer_painter(egui::LayerId::new(
         egui::Order::Background,
@@ -118,62 +118,51 @@ pub fn focus_overlay(
     );
 
     if !standard {
-        return; // Minimal → plain dim + centre (no rings/arcs/DoF)
+        return; // Minimal → plain dim + centre (no rings/labels)
     }
     let c = projected
         .map(|v| egui::pos2(v.x, v.y))
         .unwrap_or_else(|| screen.center());
-    draw_centerpiece(&painter, c, &label, degree, kind);
+
+    // The clean focus treatment (P1): the reticle corner brackets (`ui::reticle`) +
+    // the node's own per-type silhouette frame the node. Here we add exactly ONE
+    // thin indicator ring hugging it (the radial HUD draws the action ring further
+    // out) + the FOCUS tag. Connections/identity moved to the entity card — no
+    // longer floating over the node.
+    let accent = color::ACCENT;
+    let pulse = 0.5 + 0.5 * (t * 2.4).sin();
+    painter.circle_stroke(
+        c,
+        40.0 + 3.0 * pulse,
+        egui::Stroke::new(
+            1.4,
+            egui::Color32::from_rgba_unmultiplied(accent.r(), accent.g(), accent.b(), 170),
+        ),
+    );
+    draw_centerpiece(&painter, c, kind.map(kind_label).unwrap_or("node"), &hexid);
 }
 
-/// The focused-node **labels** (Standard): the radial kind / connections /
-/// identity readout + a FOCUS tag around the node. The *geometry* of the layered
-/// core (rings + wireframe shell + pulsing pip) is now a real depth-3D mesh rig
-/// (`render::focus_core`, P5); this 2D pass only carries the legible labels so it
-/// never double-draws the 3D rings. Static (no per-frame egui animation).
-fn draw_centerpiece(
-    painter: &egui::Painter,
-    c: egui::Pos2,
-    label: &str,
-    degree: usize,
-    kind: Option<theme::NodeKind>,
-) {
-    let accent = color::ACCENT;
-    // Label ring radius: sits just outside the 3D core's screen footprint.
-    let r = 150.0_f32;
-
-    let kind_name = kind.map(kind_label).unwrap_or("node");
-    // Focus tag above the kind.
+/// The focused-node tag (Standard): `◀ FOCUS ▶` + a `kind · hexid` subtitle, just
+/// above the radial action ring. The connection count + full identity moved to the
+/// entity card (P1) — this no longer floats data over the node. Static; the `◀ ▶`
+/// hints the keyboard path-dive. The per-type silhouette is the node's own 3D mesh
+/// (the P5 layered 3D core was reverted — see `legacy/render/focus_core.rs`).
+fn draw_centerpiece(painter: &egui::Painter, c: egui::Pos2, kind_name: &str, hexid: &str) {
+    // Sits just above the action ring's top wedge.
+    let r = crate::ui::context_menu::RING_OUTER_R;
     painter.text(
-        egui::pos2(c.x, c.y - r - 30.0),
+        egui::pos2(c.x, c.y - r - 28.0),
         egui::Align2::CENTER_BOTTOM,
-        "◤ FOCUS ◥",
-        egui::FontId::monospace(11.0),
-        accent,
-    );
-    // Top arc: kind / status.
-    painter.text(
-        egui::pos2(c.x, c.y - r - 14.0),
-        egui::Align2::CENTER_BOTTOM,
-        format!("◢ {kind_name} ◣"),
+        "◀ FOCUS ▶",
         egui::FontId::monospace(12.0),
-        accent,
+        color::ACCENT,
     );
-    // Right arc: connection count.
     painter.text(
-        egui::pos2(c.x + r + 12.0, c.y),
-        egui::Align2::LEFT_CENTER,
-        format!("links {degree}"),
+        egui::pos2(c.x, c.y - r - 13.0),
+        egui::Align2::CENTER_BOTTOM,
+        format!("{kind_name} · {hexid}"),
         egui::FontId::monospace(11.0),
         color::TEXT_DIM,
-    );
-    // Bottom arc: identity (uid/pid/path via the long label).
-    painter.text(
-        egui::pos2(c.x, c.y + r + 14.0),
-        egui::Align2::CENTER_TOP,
-        label.chars().take(40).collect::<String>(),
-        egui::FontId::monospace(11.0),
-        color::TEXT,
     );
 }
 

@@ -5,31 +5,43 @@
 
 use bevy_egui::egui::Color32;
 
-/// Colour roles for the GitS egui chrome (dark, neon-on-black, cyan accent).
+/// Colour roles for the GitS egui chrome — the MP-UI-GitS-polish palette,
+/// reconciled with `render::theme` so chrome accents match the 3D node palette.
 pub mod color {
     use super::Color32;
 
-    /// Deepest background (window/panel base).
-    pub const BG: Color32 = Color32::from_rgb(6, 10, 16);
-    /// Raised surface (panels, group frames).
-    pub const SURFACE: Color32 = Color32::from_rgb(12, 18, 26);
+    /// Deepest background `#05090c` (window/panel base).
+    pub const BG: Color32 = Color32::from_rgb(5, 9, 12);
+    /// Raised surface `#08171c` (panels, group frames).
+    pub const SURFACE: Color32 = Color32::from_rgb(8, 23, 28);
     /// Slightly raised (hovered widgets, headers).
-    pub const SURFACE_HI: Color32 = Color32::from_rgb(20, 30, 42);
-    /// Hairline separators / inactive strokes.
-    pub const LINE: Color32 = Color32::from_rgb(38, 54, 70);
-    /// Primary accent — cyan (active strokes, selection, corner brackets).
-    pub const ACCENT: Color32 = Color32::from_rgb(60, 200, 220);
-    /// Secondary accent — green (ok/connected).
-    pub const ACCENT_GREEN: Color32 = Color32::from_rgb(90, 230, 150);
-    /// Body text.
-    pub const TEXT: Color32 = Color32::from_rgb(200, 224, 235);
-    /// Dimmed/secondary text.
-    pub const TEXT_DIM: Color32 = Color32::from_rgb(120, 145, 160);
+    pub const SURFACE_HI: Color32 = Color32::from_rgb(14, 36, 42);
+    /// Hairline separators / inactive strokes `#1d4a4c`.
+    pub const LINE: Color32 = Color32::from_rgb(29, 74, 76);
+    /// Primary accent — cyan `#2bb3a8` (active strokes, selection, corner brackets,
+    /// Process). Also the focus colour family.
+    pub const ACCENT: Color32 = Color32::from_rgb(43, 179, 168);
+    /// Brighter cyan `#34d6c8` — active / focused / hovered emphasis.
+    pub const ACCENT_HI: Color32 = Color32::from_rgb(52, 214, 200);
+    /// Secondary accent — green `#6fe06f` (ok/connected, File).
+    pub const ACCENT_GREEN: Color32 = Color32::from_rgb(111, 224, 111);
+    /// Bright body text `#cfe9e5`.
+    pub const TEXT: Color32 = Color32::from_rgb(207, 233, 229);
+    /// Dimmed/secondary text `#88b8b2`.
+    pub const TEXT_DIM: Color32 = Color32::from_rgb(136, 184, 178);
 
-    /// Severity ramp (alerts).
-    pub const SEV_LOW: Color32 = Color32::from_rgb(220, 180, 70);
-    pub const SEV_MED: Color32 = Color32::from_rgb(230, 140, 60);
-    pub const SEV_HIGH: Color32 = Color32::from_rgb(235, 80, 80);
+    // --- Per-type semantic accents (mirror `render::theme` node colours) ---
+    pub const FILE: Color32 = ACCENT_GREEN; // #6fe06f
+    pub const PROCESS: Color32 = Color32::from_rgb(43, 176, 208); // #2bb0d0 (cyan, distinct from File green)
+    pub const SOCKET: Color32 = Color32::from_rgb(95, 168, 255); // #5fa8ff
+    pub const USER: Color32 = Color32::from_rgb(245, 185, 66); // #f5b942
+    pub const REMOTEHOST: Color32 = Color32::from_rgb(176, 155, 251); // #b09bfb
+
+    /// Severity ramp (alerts): low = amber, medium = orange, high = red `#ff5d5d`.
+    pub const SEV_LOW: Color32 = USER;
+    pub const SEV_MED: Color32 = Color32::from_rgb(252, 146, 60);
+    pub const SEV_HIGH: Color32 = Color32::from_rgb(255, 93, 93);
+    pub const ALERT: Color32 = SEV_HIGH;
 }
 
 /// Spacing scale (px) — a small 4-based ramp.
@@ -66,6 +78,8 @@ pub mod alpha {
     pub const SCRIM: u8 = 170;
     /// Corner-bracket accent.
     pub const BRACKET: u8 = 150;
+    /// Scanline sheen over a "screen" panel (very faint CRT texture).
+    pub const SCANLINE: u8 = 13;
 }
 
 /// Font-family role names registered in `theme_egui::setup_fonts`.
@@ -91,8 +105,14 @@ mod tests {
             color::SURFACE_HI,
             color::LINE,
             color::ACCENT,
+            color::ACCENT_HI,
             color::ACCENT_GREEN,
             color::TEXT,
+            color::TEXT_DIM,
+            color::SOCKET,
+            color::USER,
+            color::REMOTEHOST,
+            color::SEV_HIGH,
         ];
         for (i, a) in roles.iter().enumerate() {
             for b in &roles[i + 1..] {

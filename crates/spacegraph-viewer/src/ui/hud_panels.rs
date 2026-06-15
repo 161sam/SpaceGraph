@@ -450,7 +450,10 @@ fn technician_controls(ui: &mut egui::Ui, st: &mut GraphState, standard: bool) {
         .add(egui::Slider::new(&mut st.cfg.link_distance, 1.0..=20.0).text("link dist"))
         .changed();
     changed |= ui
-        .add(egui::Slider::new(&mut st.cfg.repulsion, 0.0..=120.0).text("repulsion"))
+        .add(egui::Slider::new(&mut st.cfg.repulsion, 0.0..=1000.0).text("repulsion"))
+        .changed();
+    changed |= ui
+        .add(egui::Slider::new(&mut st.cfg.repulsion_radius, 4.0..=40.0).text("spread (radius)"))
         .changed();
     changed |= ui
         .add(egui::Slider::new(&mut st.cfg.damping, 0.80..=0.999).text("damping"))

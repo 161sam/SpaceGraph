@@ -15,6 +15,7 @@ use crate::graph::model::{edge_class_name, EdgeKindClass};
 use crate::graph::GraphState;
 use crate::render::theme;
 use crate::ui::egui_color;
+use crate::ui::overlay::middle_truncate;
 use crate::util::ids::node_label_short;
 
 /// Deferred mutation requested from inside the egui closure (applied after, to
@@ -113,8 +114,10 @@ pub fn inspector_overlay(mut contexts: EguiContexts, mut st: ResMut<GraphState>)
             // cmdline used as a label) can't force the panel wider than the user
             // dragged it — the blow-up that made the resize snap back.
             ui.add(
-                egui::Label::new(egui::RichText::new(format!("🔍 {title}")).heading())
-                    .wrap_mode(egui::TextWrapMode::Truncate),
+                egui::Label::new(
+                    egui::RichText::new(format!("🔍 {}", middle_truncate(&title, 40))).heading(),
+                )
+                .wrap_mode(egui::TextWrapMode::Truncate),
             )
             .on_hover_text(&title);
             for line in &detail {
@@ -143,7 +146,7 @@ pub fn inspector_overlay(mut contexts: EguiContexts, mut st: ResMut<GraphState>)
                             );
                             if ui
                                 .add(
-                                    egui::Button::new(label)
+                                    egui::Button::new(middle_truncate(label, 34))
                                         .wrap_mode(egui::TextWrapMode::Truncate),
                                 )
                                 .on_hover_text(format!("{label}\n{}", edge_class_name(*class)))

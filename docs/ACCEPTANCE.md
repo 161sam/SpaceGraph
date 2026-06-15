@@ -462,3 +462,33 @@ Maschinell prüfbare Kriterien:
   `test --workspace` grün (196 Viewer-Tests, inkl. 7 neue `ui::overlay`-Tests).
 - [ ] **Visueller Review (Sam):** Before/After-Set gesichtet, GitS-Look bestätigt
   → erst dann Merge.
+
+## MP-UI-GitS-polish — Acceptance
+
+- [x] **Fokus:** P5-3D-Core entfernt (→ `legacy/`); sauberes Treatment (Reticle-
+  Brackets + Eigen-Silhouette + **ein** Indikator-Ring); **6 Aktionen als
+  segmentierter 60°-Ring** (fly-to·inspect·trace·isolate·mark·pin), hover-
+  hervorgehoben, keine schwebenden Labels (`segment_center_angle`/`segment_at`).
+- [x] **Panels:** keine Überlappung (Telemetry/Preview entzerrt; `content_rect`-
+  Autorität reserviert Rail/Top-Strip/Inspector); **Middle-Ellipsis** überall
+  (`middle_truncate`).
+- [x] **Minimap:** live, akkurate Positionen, typ-gefärbt, Viewport-Frustum,
+  Fokus-Marker, klickbar (`minimap_project`/`minimap_unproject`).
+- [x] **Edges:** gekrümmt (Bézier), per-Klasse gefärbt, Distanz-Falloff,
+  Gewicht→Helligkeit, Threat-Rot.
+- [x] **Nodes:** per-Typ-Silhouetten + Farb-Semantik **im Default sichtbar**
+  (always-on Core); Labels entkollidiert (`decollide_labels`).
+- [x] **Layout:** spreizt (weitere bounded-density-Repulsion + degree-aware Masse),
+  konvergiert + idlet (Settle-Test grün), deterministisch.
+- [x] **Entity-Card:** 3 Blöcke (Identity/State/Connections), Typ-Glyph + Hex-ID +
+  Live-Dot + segmentiertes Meter + klickbare Connections; Aktionen entdoppelt
+  (Primary an der Card, Rest am Ring).
+- [x] **Chrome:** Rail-Vektor-Icons + Active-Bar + Severity-Badge; Scanline +
+  Brackets auf Screen-Panels; tidy 2-Zeilen-Telemetry; Token-Palette = MP-Hexes
+  (= `render::theme`).
+- [x] **Minimal-Parität** erhalten; **Scope:** viewer-only, kein core/graph/agent/
+  wire-Change, nichts Offensives; **FPS** nicht regressiert (Animationen focus-/
+  visible-only; Layout idlet).
+- [x] **Gates:** `fmt` · `clippy --workspace --all-targets -D warnings` ·
+  `test --workspace` grün (210 Viewer-Tests).
+- [ ] **Visueller Review (Sam):** Before/After-Set (`*-polish-*`) gesichtet → dann Merge.
