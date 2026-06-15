@@ -1271,6 +1271,11 @@ pub fn draw_node_labels(
         egui::Id::new("node_labels"),
     ));
     for id in targets {
+        // In Focus Mode the subject is named by the FOCUS subtitle + entity card;
+        // don't also float its (long) path label across the node (P1 clean focus).
+        if st.ui.focus_mode.as_ref() == Some(&id) {
+            continue;
+        }
         let Some(pos) = st.spatial.position_of(&id) else {
             continue;
         };

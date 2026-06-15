@@ -47,11 +47,6 @@ pub const RETICLE_HOVER: Color = Color::srgb(0.90, 0.95, 1.0);
 pub const RETICLE_SELECT: Color = Color::srgb(0.25, 0.95, 1.0);
 /// Focused node reticle / bubble (teal).
 pub const RETICLE_FOCUS: Color = Color::srgb(0.20, 1.0, 0.85);
-/// Focus-core (P5) layered 3D core colours — distinct from the reticle so the
-/// core stays separable under the lock-on overlay. Emissive, bloom-eligible.
-pub const FOCUS_CORE_RING: Color = Color::srgb(0.30, 0.95, 1.0); // cyan gyro rings
-pub const FOCUS_CORE_SHELL: Color = Color::srgb(0.25, 1.0, 0.55); // green wire shell
-pub const FOCUS_CORE_INNER: Color = Color::srgb(0.85, 1.0, 1.0); // bright inner pip
 /// Marked node tint (magenta).
 pub const MARKED: Color = Color::srgb(0.95, 0.35, 0.85);
 /// Pinned node marker (dimmed amber).

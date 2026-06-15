@@ -1,3 +1,11 @@
+//! ARCHIVED (MP-UI-GitS-polish, P1): reverted out of the live build. The P5 3D
+//! focus core dominated and occluded the focused node; the polish pass replaced it
+//! with a clean focus treatment (reticle brackets + the node's own per-type
+//! silhouette + one thin indicator ring) and a segmented radial action ring. Kept
+//! here (not deleted) per the archive-not-delete discipline; not compiled (lives
+//! outside any crate). To restore, move back under `render/` and re-wire the three
+//! call sites in `app/mod.rs` + the `render/mod.rs` mod/re-export.
+//!
 //! Focused-node 3D layered core (MP-UI-GitS, P5) — a real depth-tested, emissive
 //! (bloom-eligible) holographic core spawned around the **single** focused node:
 //! three gyroscopic glowing rings (solid tori) on orthogonal planes, a wireframe

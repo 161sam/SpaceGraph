@@ -1,4 +1,16 @@
-use spacegraph_core::Node;
+use spacegraph_core::{Node, NodeId};
+
+/// A stable short hex id for a node — the GitS `0x032D8A40` chip used in the focus
+/// subtitle and panel headers so the eye can correlate a node across surfaces.
+/// Deterministic FNV-1a over the node-id bytes; display-only, never graph truth.
+pub fn short_hex_id(id: &NodeId) -> String {
+    let mut h: u32 = 0x811c_9dc5;
+    for b in id.0.as_bytes() {
+        h ^= *b as u32;
+        h = h.wrapping_mul(0x0100_0193);
+    }
+    format!("0x{h:08X}")
+}
 
 // viewer-side "pretty path" (display only)
 pub fn normalize_display_path(p: &str) -> String {
@@ -100,5 +112,23 @@ pub fn node_label_long(node: &Node) -> Vec<String> {
             format!("source: {source}"),
             format!("ts: {ts}"),
         ],
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn short_hex_id_is_stable_and_distinct() {
+        let a = NodeId("proc:1234".to_string());
+        let b = NodeId("proc:1235".to_string());
+        let id_a = short_hex_id(&a);
+        assert_eq!(id_a, short_hex_id(&a), "deterministic for the same id");
+        assert_ne!(id_a, short_hex_id(&b), "different ids → different chips");
+        assert!(
+            id_a.starts_with("0x") && id_a.len() == 10,
+            "0x + 8 hex digits, got {id_a}"
+        );
     }
 }

@@ -24,14 +24,69 @@ pub enum CtxAct {
     Inspect,
 }
 
+// Ring/menu order follows the MP-UI-GitS-polish mockup exactly: fly-to · inspect ·
+// trace · isolate · mark · pin (clockwise from the top). `command_at`/the keyboard
+// 1–6 mapping read this order directly.
 const ACTIONS: [(CtxAct, &str); 6] = [
     (CtxAct::Focus, "Fly-to"),
-    (CtxAct::Isolate, "Isolate subgraph"),
-    (CtxAct::Trace, "Trace connections"),
-    (CtxAct::TogglePin, "Pin / Unpin"),
-    (CtxAct::ToggleMark, "Mark / Unmark"),
     (CtxAct::Inspect, "Inspect"),
+    (CtxAct::Trace, "Trace connections"),
+    (CtxAct::Isolate, "Isolate subgraph"),
+    (CtxAct::ToggleMark, "Mark / Unmark"),
+    (CtxAct::TogglePin, "Pin / Unpin"),
 ];
+
+/// Short uppercase verb for a segmented action-ring wedge (the focus HUD), distinct
+/// from the descriptive context-menu labels above.
+fn ring_label(act: CtxAct) -> &'static str {
+    match act {
+        CtxAct::Focus => "FLY-TO",
+        CtxAct::Inspect => "INSPECT",
+        CtxAct::Trace => "TRACE",
+        CtxAct::Isolate => "ISOLATE",
+        CtxAct::ToggleMark => "MARK",
+        CtxAct::TogglePin => "PIN",
+    }
+}
+
+// ---- Segmented action-ring geometry (focus HUD, pure + unit-tested) ----
+/// Inner/outer radius of the action-ring band (screen px around the focused node).
+pub const RING_INNER_R: f32 = 46.0;
+pub const RING_OUTER_R: f32 = 80.0;
+/// Fraction of each `1/count` slot left empty as the divider gap between wedges.
+const RING_GAP_FRAC: f32 = 0.16;
+
+/// Centre angle (radians, egui screen space: +x right, +y **down** ⇒ +angle is
+/// clockwise) of action segment `slot` of `count`, with slot 0 centred at the top.
+pub fn segment_center_angle(slot: usize, count: usize) -> f32 {
+    use std::f32::consts::TAU;
+    let count = count.max(1);
+    -TAU / 4.0 + (slot as f32) * (TAU / count as f32)
+}
+
+/// Which action segment a pointer at `p` is over, given the ring centre `c`. Returns
+/// `None` outside the band or inside a divider gap. Pure — the hover/hit math the
+/// segmented ring asserts.
+pub fn segment_at(c: egui::Pos2, p: egui::Pos2, count: usize) -> Option<usize> {
+    use std::f32::consts::TAU;
+    let count = count.max(1);
+    let d = c.distance(p);
+    if !(RING_INNER_R..=RING_OUTER_R).contains(&d) {
+        return None;
+    }
+    let ang = (p.y - c.y).atan2(p.x - c.x);
+    let step = TAU / count as f32;
+    let slot = (((ang - (-TAU / 4.0)) / step)
+        .round()
+        .rem_euclid(count as f32)) as usize;
+    let center = segment_center_angle(slot, count);
+    let mut diff = (ang - center).rem_euclid(TAU);
+    if diff > TAU / 2.0 {
+        diff -= TAU;
+    }
+    let half_drawn = (step / 2.0) * (1.0 - RING_GAP_FRAC);
+    (diff.abs() <= half_drawn).then_some(slot)
+}
 
 /// Apply a context action to graph state. Pure mapping (no egui) — unit-tested.
 pub fn apply_context_action(st: &mut GraphState, id: &NodeId, act: CtxAct) {
@@ -290,7 +345,7 @@ pub fn radial_hud(
     });
 
     if let Some(screen) = screen {
-        render_radial(ctx, screen, &next, &neighbors, &st);
+        render_radial(ctx, screen, &next, &neighbors);
     }
 
     match act {
@@ -308,15 +363,17 @@ pub fn radial_hud(
     }
 }
 
-/// Draw the two concentric rings (egui painter) at the focused node's projected
-/// position, with numbered slots, active-ring/cursor highlight, and a centre
-/// identity label.
+/// Draw the **segmented action ring** (egui painter) around the focused node's
+/// projected position: 6 numbered arc-segment wedges evenly at 60°, the
+/// keyboard-cursor / pointer-hovered wedge highlighted brighter, a faint inner tick
+/// gauge, and — only while the Paths ring is active — faint positional ticks for the
+/// page's neighbours (their names live in the entity card, never floating over the
+/// node). Replaces the old concentric floating-label rings (the overlap bug).
 fn render_radial(
     ctx: &egui::Context,
     screen: bevy::math::Vec2,
     state: &RadialState,
     neighbors: &[NodeId],
-    st: &GraphState,
 ) {
     use std::f32::consts::TAU;
     let painter = ctx.layer_painter(egui::LayerId::new(
@@ -324,108 +381,136 @@ fn render_radial(
         egui::Id::new("radial_hud"),
     ));
     let c = egui::pos2(screen.x, screen.y);
-    let accent = egui::Color32::from_rgba_unmultiplied(
-        color::ACCENT.r(),
-        color::ACCENT.g(),
-        color::ACCENT.b(),
-        160,
-    );
-    let amber = egui::Color32::from_rgb(240, 190, 90);
+    let accent = color::ACCENT;
+    let rgba = |a: u8| egui::Color32::from_rgba_unmultiplied(accent.r(), accent.g(), accent.b(), a);
+    let band_dim = rgba(40);
+    let band_hot = rgba(140);
+    let outline = rgba(190);
     let dim = egui::Color32::from_rgba_unmultiplied(
         color::LINE.r(),
         color::LINE.g(),
         color::LINE.b(),
-        200,
+        170,
     );
-    let inner_r = 58.0_f32;
-    let outer_r = 104.0_f32;
 
-    // Dim backing disc + soft vignette ring so the gate labels read against a busy
-    // graph (the v0.5.1 radial-HUD legibility pass). Drawn first → sits behind.
+    // Backing disc so the wedges + labels read against a busy graph (drawn first).
     painter.circle_filled(
         c,
-        outer_r + 16.0,
-        egui::Color32::from_rgba_unmultiplied(4, 10, 18, 170),
-    );
-    painter.circle_stroke(c, outer_r + 16.0, egui::Stroke::new(1.0, dim));
-
-    painter.circle_stroke(
-        c,
-        inner_r,
-        egui::Stroke::new(
-            if state.active_ring == Ring::Commands {
-                2.5
-            } else {
-                1.0
-            },
-            if state.active_ring == Ring::Commands {
-                accent
-            } else {
-                dim
-            },
-        ),
-    );
-    painter.circle_stroke(
-        c,
-        outer_r,
-        egui::Stroke::new(
-            if state.active_ring == Ring::Paths {
-                2.5
-            } else {
-                1.0
-            },
-            if state.active_ring == Ring::Paths {
-                accent
-            } else {
-                dim
-            },
-        ),
+        RING_OUTER_R + 10.0,
+        egui::Color32::from_rgba_unmultiplied(4, 10, 18, 150),
     );
 
-    // Inner ring: command slots.
-    let cmds = command_count().max(1);
-    for (i, (_, label)) in ACTIONS.iter().enumerate() {
-        let ang = (i as f32 / cmds as f32) * TAU - TAU / 4.0;
-        let p = egui::pos2(c.x + ang.cos() * inner_r, c.y + ang.sin() * inner_r);
-        let hot = state.active_ring == Ring::Commands && state.cursor == i;
-        painter.text(
-            p,
-            egui::Align2::CENTER_CENTER,
-            format!("{} {label}", i + 1),
-            egui::FontId::monospace(11.0),
-            if hot { amber } else { color::TEXT },
+    // Faint inner tick gauge (decorative GitS dial inside the wedge band).
+    let gauge_r = RING_INNER_R - 7.0;
+    for i in 0..24 {
+        let a = (i as f32 / 24.0) * TAU;
+        painter.line_segment(
+            [
+                egui::pos2(
+                    c.x + a.cos() * (gauge_r - 2.0),
+                    c.y + a.sin() * (gauge_r - 2.0),
+                ),
+                egui::pos2(c.x + a.cos() * gauge_r, c.y + a.sin() * gauge_r),
+            ],
+            egui::Stroke::new(1.0, dim),
         );
     }
 
-    // Outer ring: neighbour paths for the current page.
-    let start = state.path_page * PATHS_PER_PAGE;
-    let page: Vec<&NodeId> = neighbors.iter().skip(start).take(PATHS_PER_PAGE).collect();
-    let slots = page.len().max(1);
-    for (i, nid) in page.iter().enumerate() {
-        let ang = (i as f32 / slots as f32) * TAU - TAU / 4.0;
-        let p = egui::pos2(c.x + ang.cos() * outer_r, c.y + ang.sin() * outer_r);
-        let hot = state.active_ring == Ring::Paths && state.cursor == i;
-        let label = st.node_label_with_id(nid);
+    // Inner ring: the 6 command slots as segmented arc wedges (even 60°, gapped).
+    let count = command_count();
+    let step = TAU / count as f32;
+    let half = (step / 2.0) * (1.0 - RING_GAP_FRAC);
+    let mid_r = (RING_INNER_R + RING_OUTER_R) / 2.0;
+    let band_w = RING_OUTER_R - RING_INNER_R - 4.0;
+    let hovered = ctx
+        .pointer_hover_pos()
+        .and_then(|p| segment_at(c, p, count));
+    for (slot, (act, _)) in ACTIONS.iter().enumerate() {
+        let ca = segment_center_angle(slot, count);
+        let hot =
+            (state.active_ring == Ring::Commands && state.cursor == slot) || hovered == Some(slot);
+        arc_band(
+            &painter,
+            c,
+            mid_r,
+            ca - half,
+            ca + half,
+            band_w,
+            if hot { band_hot } else { band_dim },
+        );
+        if hot {
+            arc_band(
+                &painter,
+                c,
+                RING_INNER_R + 2.0,
+                ca - half,
+                ca + half,
+                1.5,
+                outline,
+            );
+            arc_band(
+                &painter,
+                c,
+                RING_OUTER_R - 2.0,
+                ca - half,
+                ca + half,
+                1.5,
+                outline,
+            );
+        }
         painter.text(
-            p,
+            egui::pos2(c.x + ca.cos() * mid_r, c.y + ca.sin() * mid_r),
             egui::Align2::CENTER_CENTER,
-            format!("{} {}", i + 1, label.chars().take(18).collect::<String>()),
-            egui::FontId::monospace(10.0),
-            if hot { amber } else { color::TEXT_DIM },
+            format!("{} {}", slot + 1, ring_label(*act)),
+            egui::FontId::monospace(if hot { 11.0 } else { 10.0 }),
+            if hot {
+                egui::Color32::WHITE
+            } else {
+                color::TEXT
+            },
         );
     }
 
-    // Centre identity readout.
-    painter.text(
-        c,
-        egui::Align2::CENTER_CENTER,
-        st.node_label_with_id(&state.focused)
-            .chars()
-            .take(22)
-            .collect::<String>(),
-        egui::FontId::monospace(11.0),
-        color::ACCENT,
-    );
+    // Outer ring: faint positional ticks for the page's neighbours, only while the
+    // Paths ring is active (names live in the entity card — no floating labels).
+    if state.active_ring == Ring::Paths {
+        let start = state.path_page * PATHS_PER_PAGE;
+        let page = neighbors.iter().skip(start).take(PATHS_PER_PAGE).count();
+        let slots = page.max(1);
+        let pr = RING_OUTER_R + 12.0;
+        for i in 0..page {
+            let a = segment_center_angle(i, slots);
+            let (dx, dy) = (a.cos(), a.sin());
+            let hot = state.cursor == i;
+            painter.line_segment(
+                [
+                    egui::pos2(c.x + dx * pr, c.y + dy * pr),
+                    egui::pos2(c.x + dx * (pr + 9.0), c.y + dy * (pr + 9.0)),
+                ],
+                egui::Stroke::new(if hot { 2.5 } else { 1.0 }, if hot { accent } else { dim }),
+            );
+        }
+    }
+}
+
+/// A thick arc band (the filled-segment look) from `a0` to `a1` at radius `r`.
+fn arc_band(
+    painter: &egui::Painter,
+    c: egui::Pos2,
+    r: f32,
+    a0: f32,
+    a1: f32,
+    width: f32,
+    color: egui::Color32,
+) {
+    let steps = 16;
+    let pts: Vec<egui::Pos2> = (0..=steps)
+        .map(|i| {
+            let a = a0 + (a1 - a0) * (i as f32 / steps as f32);
+            egui::pos2(c.x + a.cos() * r, c.y + a.sin() * r)
+        })
+        .collect();
+    painter.add(egui::Shape::line(pts, egui::Stroke::new(width, color)));
 }
 
 pub fn context_menu_overlay(mut contexts: EguiContexts, mut st: ResMut<GraphState>) {
@@ -584,10 +669,57 @@ mod tests {
 
     #[test]
     fn radial_commands_map_to_actions() {
+        // MP/mockup order: fly-to · inspect · trace · isolate · mark · pin.
         assert_eq!(command_at(0), Some(CtxAct::Focus));
-        assert_eq!(command_at(3), Some(CtxAct::TogglePin));
+        assert_eq!(command_at(1), Some(CtxAct::Inspect));
+        assert_eq!(command_at(2), Some(CtxAct::Trace));
+        assert_eq!(command_at(3), Some(CtxAct::Isolate));
+        assert_eq!(command_at(4), Some(CtxAct::ToggleMark));
+        assert_eq!(command_at(5), Some(CtxAct::TogglePin));
         assert_eq!(command_count(), 6);
         assert_eq!(command_at(99), None);
+    }
+
+    #[test]
+    fn segment_centers_are_evenly_spaced_from_the_top() {
+        use std::f32::consts::TAU;
+        let n = command_count();
+        assert!(
+            (segment_center_angle(0, n) - (-TAU / 4.0)).abs() < 1e-5,
+            "slot 0 sits at the top"
+        );
+        let step = TAU / n as f32;
+        for s in 1..n {
+            let d = segment_center_angle(s, n) - segment_center_angle(s - 1, n);
+            assert!(
+                (d - step).abs() < 1e-5,
+                "slot {s} is one even step from its predecessor"
+            );
+        }
+    }
+
+    #[test]
+    fn segment_at_hits_centres_and_misses_holes_and_gaps() {
+        use std::f32::consts::TAU;
+        let c = egui::pos2(0.0, 0.0);
+        let n = command_count();
+        let mid_r = (RING_INNER_R + RING_OUTER_R) / 2.0;
+        for s in 0..n {
+            let a = segment_center_angle(s, n);
+            let p = egui::pos2(c.x + a.cos() * mid_r, c.y + a.sin() * mid_r);
+            assert_eq!(
+                segment_at(c, p, n),
+                Some(s),
+                "the centre of wedge {s} hits it"
+            );
+        }
+        // Inner hole and beyond the outer radius are not on the ring.
+        assert_eq!(segment_at(c, egui::pos2(1.0, 0.0), n), None);
+        assert_eq!(segment_at(c, egui::pos2(500.0, 0.0), n), None);
+        // The divider gap between two wedges is not clickable.
+        let gap = segment_center_angle(0, n) + (TAU / n as f32) / 2.0;
+        let p = egui::pos2(c.x + gap.cos() * mid_r, c.y + gap.sin() * mid_r);
+        assert_eq!(segment_at(c, p, n), None, "divider gaps are inert");
     }
 
     #[test]
@@ -650,20 +782,18 @@ mod tests {
 
     #[test]
     fn radial_render_does_not_panic() {
-        // Exercise the painter with a real standalone egui context (no bevy_egui).
-        let (st, id) = state_with_node();
-        let state = RadialState::open(id);
-        let neighbors = vec![nid("a"), nid("b")];
-        let ctx = egui::Context::default();
-        let _ = ctx.run(egui::RawInput::default(), |ctx| {
-            render_radial(
-                ctx,
-                bevy::math::Vec2::new(120.0, 120.0),
-                &state,
-                &neighbors,
-                &st,
-            );
-        });
+        // Exercise the painter with a real standalone egui context (no bevy_egui),
+        // covering both the Commands wedge ring and the Paths tick ring.
+        let (_st, id) = state_with_node();
+        let mut state = RadialState::open(id);
+        let neighbors = vec![nid("a"), nid("b"), nid("c")];
+        for ring in [Ring::Commands, Ring::Paths] {
+            state.active_ring = ring;
+            let ctx = egui::Context::default();
+            let _ = ctx.run(egui::RawInput::default(), |ctx| {
+                render_radial(ctx, bevy::math::Vec2::new(120.0, 120.0), &state, &neighbors);
+            });
+        }
     }
 
     #[test]
