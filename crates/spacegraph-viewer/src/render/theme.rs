@@ -11,19 +11,19 @@ use spacegraph_core::Node;
 
 use crate::graph::model::EdgeKindClass;
 
-// ---- Node type base colours ----
-/// Process — cyan.
-pub const PROCESS: Color = Color::srgb(0.20, 0.85, 0.95);
-/// File — green.
-pub const FILE: Color = Color::srgb(0.25, 0.95, 0.45);
-/// User — amber.
-pub const USER: Color = Color::srgb(0.98, 0.75, 0.25);
-/// Socket — blue (network layer).
-pub const SOCKET: Color = Color::srgb(0.30, 0.60, 0.98);
-/// Host / Container / RemoteHost — violet (network layer).
-pub const HOST: Color = Color::srgb(0.70, 0.55, 0.99);
-/// Alert / threat — red.
-pub const ALERT: Color = Color::srgb(0.98, 0.22, 0.25);
+// ---- Node type base colours (MP-UI-GitS-polish palette) ----
+/// Process — cyan `#2bb3a8` (focus reserves the brighter `#34d6c8`).
+pub const PROCESS: Color = Color::srgb(0.169, 0.702, 0.659);
+/// File — green `#6fe06f`.
+pub const FILE: Color = Color::srgb(0.435, 0.878, 0.435);
+/// User — amber `#f5b942`.
+pub const USER: Color = Color::srgb(0.961, 0.725, 0.259);
+/// Socket — blue `#5fa8ff` (network layer).
+pub const SOCKET: Color = Color::srgb(0.373, 0.659, 1.0);
+/// Host / Container / RemoteHost — violet `#b09bfb` (network layer).
+pub const HOST: Color = Color::srgb(0.690, 0.608, 0.984);
+/// Alert / threat — red `#ff5d5d`.
+pub const ALERT: Color = Color::srgb(1.0, 0.365, 0.365);
 /// Alert severity ramp: low = amber, medium = orange, high/critical = red.
 pub const ALERT_LOW: Color = Color::srgb(0.98, 0.75, 0.25);
 pub const ALERT_MEDIUM: Color = Color::srgb(0.99, 0.50, 0.15);
@@ -54,13 +54,14 @@ pub const PINNED: Color = Color::srgb(0.75, 0.6, 0.25);
 /// Hovered edge highlight (bright white-cyan).
 pub const EDGE_HOVER: Color = Color::srgb(0.8, 1.0, 1.0);
 
-// ---- Edge class colours ----
-pub const EDGE_OPENS: Color = Color::srgb(0.25, 0.95, 0.45); // green
-pub const EDGE_EXECS: Color = Color::srgb(0.20, 0.85, 0.95); // cyan
-pub const EDGE_RUNS_AS: Color = Color::srgb(0.98, 0.75, 0.25); // amber
-pub const EDGE_OWNS_SOCKET: Color = Color::srgb(0.30, 0.60, 0.98); // blue
-pub const EDGE_CONNECTS_TO: Color = Color::srgb(0.40, 0.70, 1.0); // bright blue
-pub const EDGE_LISTENS_ON: Color = Color::srgb(0.30, 0.85, 0.85); // teal
+// ---- Edge class colours (aligned to the node palette so an edge reads as its
+// endpoint kind; connects_to/listens_on keep distinct network hues) ----
+pub const EDGE_OPENS: Color = FILE; // green
+pub const EDGE_EXECS: Color = PROCESS; // cyan
+pub const EDGE_RUNS_AS: Color = USER; // amber
+pub const EDGE_OWNS_SOCKET: Color = SOCKET; // blue
+pub const EDGE_CONNECTS_TO: Color = Color::srgb(0.45, 0.72, 1.0); // bright blue
+pub const EDGE_LISTENS_ON: Color = Color::srgb(0.27, 0.78, 0.74); // teal
 
 // ---- Perimeter & exposure (D0, ADR-0012) ----
 /// Aperture tint by port state. Open (LISTEN) glows outward; active

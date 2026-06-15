@@ -116,6 +116,29 @@ pub fn middle_truncate(s: &str, max_chars: usize) -> String {
     format!("{head_s}…{tail_s}")
 }
 
+/// Greedily de-collide screen labels: each label keeps its anchor unless it would
+/// overlap an already-placed one, in which case it is nudged straight down until
+/// clear (bounded). Returns the resolved top-left per input, in order. Pure — the
+/// node-label anti-overlap pass.
+pub fn decollide_labels(anchors: &[(Pos2, Vec2)]) -> Vec<Pos2> {
+    let mut placed: Vec<Rect> = Vec::with_capacity(anchors.len());
+    let mut out = Vec::with_capacity(anchors.len());
+    for &(anchor, size) in anchors {
+        let mut p = anchor;
+        for _ in 0..24 {
+            let r = Rect::from_min_size(p, size);
+            if placed.iter().any(|q| q.intersects(r)) {
+                p.y += size.y + 2.0;
+            } else {
+                break;
+            }
+        }
+        placed.push(Rect::from_min_size(p, size));
+        out.push(p);
+    }
+    out
+}
+
 /// Top-left position for a panel of `size` anchored to a `content` rect corner with
 /// `margin` clearance. The single content_rect-aware corner rule — so floating
 /// panels land in their own zone (rail/inspector-clear) instead of stacking on a
@@ -287,6 +310,27 @@ mod tests {
                 "panel stays inside content_rect: {r:?}"
             );
         }
+    }
+
+    #[test]
+    fn decollide_labels_separates_overlapping_keeps_far_apart() {
+        let a = pos2(100.0, 100.0);
+        let size = vec2(80.0, 16.0);
+        let out = decollide_labels(&[(a, size), (a, size), (a, size)]);
+        assert_eq!(out[0], a, "first keeps its anchor");
+        assert!(
+            out[1].y > out[0].y && out[2].y > out[1].y,
+            "stacked downward"
+        );
+        let rects: Vec<Rect> = out.iter().map(|&p| rect(p, size)).collect();
+        for i in 0..rects.len() {
+            for j in (i + 1)..rects.len() {
+                assert!(!overlaps(rects[i], rects[j]), "labels {i},{j} disjoint");
+            }
+        }
+        // Far-apart labels are left untouched.
+        let far = decollide_labels(&[(pos2(0.0, 0.0), size), (pos2(500.0, 500.0), size)]);
+        assert_eq!(far[1], pos2(500.0, 500.0), "no needless nudging");
     }
 
     #[test]

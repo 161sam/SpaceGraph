@@ -23,7 +23,7 @@ markers. Archive-not-delete (the reverted `focus_core` → `legacy/`).
 - [x] **P2** — Complete panel-layer + middle-ellipsis
 - [x] **P3** — Minimap: make it real
 - [x] **P4** — Edges (curved / per-class / falloff / flow)
-- [ ] **P5** — Nodes + colour semantics + label anti-overlap
+- [x] **P5** — Nodes + colour semantics + label anti-overlap
 - [ ] **P6** — Layout spread (de-hairball)
 - [ ] **P7** — Entity-card detail + chrome consistency + close-out
 - [ ] **Sam's screenshot review** → merge (review-gated)
@@ -273,4 +273,43 @@ marker crosshair on the radar) vs the crude scatter in `before-polish-default.pn
 ### Screenshots
 `afterp4-polish-default.png` (curved, fanned, gradient'd web) vs `before-polish-default.png`
 (straight spaghetti) — cropped comparison confirms the curve.
+
+---
+
+## P5 — Nodes + colour semantics + label anti-overlap
+
+### What changed
+- **Palette retuned to the exact MP hexes** (`render/theme.rs`): Process `#2bb3a8`, File
+  `#6fe06f`, User `#f5b942`, Socket `#5fa8ff`, RemoteHost `#b09bfb`, Alert `#ff5d5d`
+  (focus reserves the brighter `#34d6c8`). Edge-class colours **aligned to the node
+  palette** (`EDGE_OPENS = FILE`, `EDGE_EXECS = PROCESS`, …) so an edge reads as its
+  endpoint kind; `connects_to`/`listens_on` keep distinct network hues.
+- **Per-type silhouette is always-on in Standard** (`render/spatial.rs::node_meshes`):
+  the per-kind **core** mesh (Process octahedron · File hex · User cone · Socket torus ·
+  RemoteHost/Alert sphere) now renders on **every tier** — it's a single mesh, no
+  costlier than the sphere it replaced — so **type reads from shape by default**, even
+  at Potato (the capture tier). Only the wireframe **shell** (extra LineList geometry)
+  stays tier-gated off at Potato/Low. On Medium+/HDR the shapes bloom and read hardest.
+- **Label anti-overlap** (`ui/overlay.rs::decollide_labels`, pure + unit-tested): the
+  capped (≤6) hovered/selected/focus billboard labels are de-collided — each keeps its
+  anchor unless it would overlap an already-placed label, then it nudges straight down
+  until clear. Wired into `render/spatial.rs::draw_node_labels`.
+
+### State/severity/exposure (already encoded by default — no Stop-and-Show)
+The existing vocabulary is already visible without detection and needs no new data:
+alert nodes ramp by **severity** (`alert_severity_color`), sockets encode **exposure**
+as radial shell depth (D0 `exposure_bucket`) + **port-state aperture**, and red-team
+origin styles distinctly. P5 surfaces type via shape+colour; it adds no data source.
+
+### Gate
+- `fmt --check` ✓ · `clippy --workspace --all-targets -D warnings` ✓ ·
+  `test --workspace` ✓ **209 viewer** (+1 `decollide_labels…`; `potato_tier_…` test
+  retargeted to assert the always-on core + still-gated shell). `build` ✓.
+- Scope: viewer-only (`render/theme`, `render/spatial`, `ui/overlay`). No
+  core/graph/agent/wire change · Minimal keeps the flat sphere (parity verified by
+  `minimal_theme_uses_sphere_mesh_and_no_shell`).
+
+### Screenshots
+`afterp5-polish-default.png` — type-distinct framed silhouettes + icons + the MP
+palette + de-collided labels — vs the uniform disc field in `before-polish-default.png`.
 
