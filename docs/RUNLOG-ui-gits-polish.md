@@ -21,7 +21,7 @@ markers. Archive-not-delete (the reverted `focus_core` → `legacy/`).
 - [x] **P0** — Inventory + before-shots
 - [x] **P1** — Revert 3D core + clean focus treatment + segmented action ring
 - [x] **P2** — Complete panel-layer + middle-ellipsis
-- [ ] **P3** — Minimap: make it real
+- [x] **P3** — Minimap: make it real
 - [ ] **P4** — Edges (curved / per-class / falloff / flow)
 - [ ] **P5** — Nodes + colour semantics + label anti-overlap
 - [ ] **P6** — Layout spread (de-hairball)
@@ -183,4 +183,48 @@ worktree is clean `main`). Baseline fmt/clippy/test recorded at this commit.
 `afterp2-polish-focus.png` — telemetry alone bottom-left (preview gone), entity-card
 path middle-ellipsis'd `/synthetic/dir005/fi…/file000322.dat`, no panel overlaps — vs
 `afterp1-polish-focus.png` (preview still colliding bottom-left). Default/minimal parity.
+
+---
+
+## P3 — Minimap: make it real
+
+### What changed (`ui/minimap.rs`, rewritten)
+- **Accurate, stable positions**: dots are the **real projected** node XZ (was already
+  type-coloured via `NodeKind::base_color`), now over **padded, squared, full-set
+  bounds** (pure `minimap_bounds`) so the radar no longer rubber-bands as nodes move or
+  fog toggles. Projection is the pure, unit-tested `minimap_project` / `minimap_unproject`
+  (roundtrip-tested).
+- **Viewport frustum**: the camera's 4 viewport corners are ray-cast onto the ground
+  plane `Y=0` (`ground_hit`, reusing the picking ray pattern) and drawn as a cyan quad —
+  it tracks the camera live. A near-horizontal view (a corner ray that misses the plane)
+  falls back to a camera→pivot heading line.
+- **Focus marker**: the focused / selected node is marked with a distinct cyan ring +
+  crosshair at its projected position; a white ring marks the camera.
+- **Click-to-fly**: the painter now `Sense::click()`s; a click maps back through
+  `minimap_unproject` to a world XZ and drives the camera via a new **position-keyed
+  jump** — `GraphState::request_jump_pos` → `ui.jump_to_pos` → `apply_jump_to`
+  (`render/camera.rs`) eases the orbit pivot there (no selection change, Spatial only).
+  Distinct from the NodeId `request_jump`.
+- **Chrome**: a `● LIVE` pill, corner brackets (Standard), a world-span scale hint
+  (`⟷ N`), `order(layer::PANEL)`, and an opaque radar background.
+
+### Known interaction (accepted, not chased)
+In the **default** view the bright neon scene edges' **bloom glow composites over the
+egui minimap** (the postfx/bloom pass runs over the egui layer) — it bleeds even at full
+opacity, so it is not fixable by an overlay tweak (it would need a render-graph change —
+out of scope per the MP Stop-and-Show). The radar stays readable; in Focus Mode (edges
+culled) it is clean — see `afterp3-polish-focus.png`.
+
+### Gate
+- `fmt --check` ✓ · `clippy --workspace --all-targets -D warnings` ✓ ·
+  `test --workspace` ✓ **205 viewer** (+2: `bounds_are_square_padded_and_stable`,
+  `project_unproject_roundtrip`). `build` ✓.
+- Scope: viewer-only (`ui/minimap`, `graph/state` viewer UI field `jump_to_pos`,
+  `render/camera`). No `spacegraph-graph`/core/agent/wire change · Minimal parity (LIVE
+  pill/brackets are Standard-gated; dots/frustum/markers/click work in both).
+
+### Screenshots
+`afterp3-polish-default.png` (cropped: type-coloured dots at real positions + cyan
+viewport frustum + camera marker + LIVE + scale) and `afterp3-polish-focus.png` (focus
+marker crosshair on the radar) vs the crude scatter in `before-polish-default.png`.
 

@@ -293,6 +293,9 @@ pub struct UiState {
     pub palette_query: String,
     pub search_hits: Vec<NodeId>,
     pub jump_to: Option<NodeId>,
+    /// Click-to-fly target from the minimap: a world position (Y forced to the
+    /// ground plane) the camera pivot eases to. Consumed by `apply_jump_to`.
+    pub jump_to_pos: Option<Vec3>,
     pub fit_to_view: bool,
 
     pub view_mode: ViewMode,
@@ -743,6 +746,7 @@ impl Default for GraphState {
                 palette_query: String::new(),
                 search_hits: Vec::new(),
                 jump_to: None,
+                jump_to_pos: None,
                 fit_to_view: false,
                 view_mode: ViewMode::Spatial,
                 tree_collapsed: HashSet::new(),
@@ -1743,6 +1747,12 @@ impl GraphState {
 
     pub fn request_jump(&mut self, id: NodeId) {
         self.ui.jump_to = Some(id);
+    }
+
+    /// Request a camera fly-to a world position (minimap click-to-fly). Unlike
+    /// `request_jump` this targets a *place*, not a node, so it sets no selection.
+    pub fn request_jump_pos(&mut self, pos: Vec3) {
+        self.ui.jump_to_pos = Some(pos);
     }
 
     /// Whether any connected stream's agent advertised the `fs_search`
