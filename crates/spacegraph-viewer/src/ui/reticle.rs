@@ -85,6 +85,16 @@ pub fn reticle_overlay(
 
     // Distance-faded micro-tags on the nearest nodes (capped).
     if st.cfg.micro_tags {
+        // When the radial HUD is open (Focus Mode), keep its action ring clear:
+        // drop any micro-tag whose anchor lands inside the ring footprint around the
+        // focused subject (those neighbours are named in the entity card, not floated
+        // across the ring). `focus_mode` is set only when the radial is shown.
+        let ring_guard = st
+            .ui
+            .focus_mode
+            .as_ref()
+            .and_then(|fid| st.spatial.position_of(fid))
+            .and_then(&project);
         let cam = cam_tf.translation();
         let nodes: Vec<(NodeId, Vec3)> = st
             .spatial
@@ -102,6 +112,11 @@ pub fn reticle_overlay(
             let Some(c) = project(pos) else {
                 continue;
             };
+            if let Some(rc) = ring_guard {
+                if rc.distance(c) <= crate::ui::context_menu::RING_OUTER_R + 12.0 {
+                    continue; // inside the radial ring footprint — keep it unobstructed
+                }
+            }
             let a = (alpha * 180.0) as u8;
             painter.text(
                 egui::pos2(c.x + 8.0, c.y),

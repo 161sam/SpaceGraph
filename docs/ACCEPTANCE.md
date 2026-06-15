@@ -199,7 +199,9 @@ verwaist) und Determinismus (`force_step`/`visible_set_capped` deterministisch);
 alle v0.5.0-Zusätze sind render/UI oder reine Prädikate → determinismus-exempt.
 
 - **WP-0 Quality-Tiers** — ✓ `detect_tier` (Pi V3D/llvmpipe → Potato, discrete →
-  High, GL-iGPU → Low), adaptive State-Machine (3 s ab / 10 s auf + Margin →
+  High, integrierte GPU → **Medium** als Default, nur GL-Backend → Low — Sam-
+  Entscheid MP-UI-followup-tier-default; Intel HD 520/Vulkan → Medium), adaptive
+  State-Machine (3 s ab / 10 s auf + Margin →
   keine Oszillation, nie unter Potato, Cap bei Base), `effective_gates` (Minimal →
   günstigster Pfad), `take_dirty` (genau eine Rekonfiguration pro Wechsel),
   `[quality]`-Config-Roundtrip.

@@ -202,20 +202,13 @@ pub fn detect_tier(name: &str, kind: AdapterKind, backend: &str) -> QualityTier 
     match kind {
         AdapterKind::Discrete => QualityTier::High,
         AdapterKind::Integrated => {
-            // GL-backend or weak-iGPU name → Low; otherwise Medium.
-            let weak = [
-                "hd graphics",
-                "uhd graphics 6",
-                "gma",
-                "vega 3",
-                "vega 6",
-                "radeon hd",
-                "mali",
-                "adreno",
-            ]
-            .iter()
-            .any(|m| n.contains(m));
-            if is_gl || weak {
+            // Integrated GPUs default to Medium. Only a GL backend (no Vulkan/Metal —
+            // an old or limited driver) stays Low; a modern Vulkan/Metal iGPU (incl.
+            // Intel HD/UHD) gets Medium. Truly-incapable hardware (software / Pi) is
+            // already classified Potato by `potato_name` above, so it is unaffected.
+            // Medium enables rings/silhouettes/postfx — adaptive quality steps it back
+            // down on heavy scenes (the default is Medium + adaptive on).
+            if is_gl {
                 QualityTier::Low
             } else {
                 QualityTier::Medium
@@ -482,14 +475,16 @@ mod tests {
             detect_tier("Intel Iris Xe", AdapterKind::Integrated, "Vulkan"),
             QualityTier::Medium
         );
-        // Weak iGPU by name on Vulkan → Low.
+        // Named iGPU (Intel HD 520, this box) on a modern Vulkan backend → Medium
+        // (MP-UI-followup-tier-default: integrated defaults to Medium; only a GL
+        // backend stays Low).
         assert_eq!(
             detect_tier(
                 "Intel(R) HD Graphics 520",
                 AdapterKind::Integrated,
                 "Vulkan"
             ),
-            QualityTier::Low
+            QualityTier::Medium
         );
         // CPU / unknown → Potato.
         assert_eq!(
