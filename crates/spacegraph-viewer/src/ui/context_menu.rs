@@ -5,13 +5,14 @@
 //! `CtxAct` enum and applied through `apply_context_action` (unit-tested) to
 //! avoid borrowing `GraphState` mutably while the egui closure is live.
 
-use bevy::prelude::{Camera, GlobalTransform, Query, ResMut, Resource};
+use bevy::prelude::{Camera, GlobalTransform, Query, Res, ResMut, Resource};
 use bevy_egui::{egui, EguiContexts};
 use spacegraph_core::NodeId;
 use std::sync::atomic::Ordering;
 
 use crate::graph::GraphState;
 use crate::ui::tokens::color;
+use crate::ui::UiLayout;
 
 /// A context-menu action. Mapping to state changes is `apply_context_action`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -513,7 +514,11 @@ fn arc_band(
     painter.add(egui::Shape::line(pts, egui::Stroke::new(width, color)));
 }
 
-pub fn context_menu_overlay(mut contexts: EguiContexts, mut st: ResMut<GraphState>) {
+pub fn context_menu_overlay(
+    mut contexts: EguiContexts,
+    mut st: ResMut<GraphState>,
+    layout: Res<UiLayout>,
+) {
     let Some((id, pos)) = st.ui.context_menu.clone() else {
         return;
     };
@@ -523,10 +528,18 @@ pub fn context_menu_overlay(mut contexts: EguiContexts, mut st: ResMut<GraphStat
     let pinned = st.is_pinned(&id);
     let marked = st.ui.marked.contains(&id);
     let ctx = contexts.ctx_mut();
+    // Clamp the menu into the content rect so a click near an edge doesn't push it
+    // off-screen / under the rail or inspector (P2).
+    let content = if layout.content_rect.width() > 0.0 && layout.content_rect.height() > 0.0 {
+        layout.content_rect
+    } else {
+        ctx.screen_rect()
+    };
 
     let area = egui::Area::new(egui::Id::new("context_menu"))
         .fixed_pos(egui::pos2(pos.x, pos.y))
         .order(egui::Order::Foreground)
+        .constrain_to(content)
         .show(ctx, |ui| {
             egui::Frame::popup(ui.style()).show(ui, |ui| {
                 ui.set_max_width(180.0);

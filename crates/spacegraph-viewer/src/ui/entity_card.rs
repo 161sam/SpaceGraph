@@ -4,7 +4,7 @@
 //! clear of the centered node, the minimap and the focus preview) via the P1
 //! layer model, so it never overlaps the node. Minimal → a plain flat card.
 
-use bevy::prelude::ResMut;
+use bevy::prelude::{Res, ResMut};
 use bevy_egui::{egui, EguiContexts};
 use std::sync::atomic::Ordering;
 
@@ -12,8 +12,9 @@ use crate::graph::{namespace, GraphState};
 use crate::render::theme::NodeKind;
 use crate::ui::context_menu::{apply_context_action, CtxAct};
 use crate::ui::gits;
-use crate::ui::overlay::layer;
+use crate::ui::overlay::{layer, middle_truncate};
 use crate::ui::tokens::color;
+use crate::ui::UiLayout;
 use crate::util::config::VisualTheme;
 
 enum CardAct {
@@ -24,7 +25,11 @@ enum CardAct {
 }
 
 /// Draw the focus entity card (only while Focus Mode is active).
-pub fn entity_card_overlay(mut contexts: EguiContexts, mut st: ResMut<GraphState>) {
+pub fn entity_card_overlay(
+    mut contexts: EguiContexts,
+    mut st: ResMut<GraphState>,
+    layout: Res<UiLayout>,
+) {
     let Some(id) = st.ui.focus_mode.clone() else {
         return;
     };
@@ -42,10 +47,16 @@ pub fn entity_card_overlay(mut contexts: EguiContexts, mut st: ResMut<GraphState
     let Some(ctx) = contexts.try_ctx_mut() else {
         return;
     };
+    let content = if layout.content_rect.width() > 0.0 && layout.content_rect.height() > 0.0 {
+        layout.content_rect
+    } else {
+        ctx.screen_rect()
+    };
     let mut act: Option<CardAct> = None;
     let resp = egui::Window::new("entity_card")
         .order(layer::PANEL)
         .anchor(egui::Align2::RIGHT_BOTTOM, [-14.0, -14.0])
+        .constrain_to(content)
         .frame(gits::panel_frame(standard))
         .resizable(false)
         .collapsible(false)
@@ -71,9 +82,15 @@ pub fn entity_card_overlay(mut contexts: EguiContexts, mut st: ResMut<GraphState
             });
             ui.separator();
             for line in &fields {
+                // Middle-ellipsis so a long path keeps its load-bearing basename
+                // (right-truncate would drop it); full value on hover.
                 ui.add(
-                    egui::Label::new(egui::RichText::new(line).monospace().size(11.0))
-                        .wrap_mode(egui::TextWrapMode::Truncate),
+                    egui::Label::new(
+                        egui::RichText::new(middle_truncate(line, 42))
+                            .monospace()
+                            .size(11.0),
+                    )
+                    .wrap_mode(egui::TextWrapMode::Truncate),
                 )
                 .on_hover_text(line);
             }

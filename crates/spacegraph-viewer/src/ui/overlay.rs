@@ -10,7 +10,7 @@
 //! `Background < Middle < Foreground`; assigning each overlay a class in
 //! [`layer`] removes the same-tier ambiguity that let those surfaces stack.
 
-use bevy_egui::egui::{Pos2, Rect, Vec2};
+use bevy_egui::egui::{Align, Align2, Pos2, Rect, Vec2};
 
 /// Canonical egui draw-order per overlay class — the single z-order authority.
 pub mod layer {
@@ -92,6 +92,46 @@ pub fn estimate_text_size(lines: &[String]) -> Vec2 {
 /// menu. Pure.
 pub fn hover_readout_suppressed(focus_mode: bool, context_menu_open: bool) -> bool {
     focus_mode || context_menu_open
+}
+
+/// Middle-ellipsis truncation for long paths/labels: keep the head and the tail,
+/// elide the middle with `…`, never exceeding `max_chars` (the `…` counts). The
+/// tail is favoured (`≥` the head) so the load-bearing basename survives. Operates
+/// on `char`s, never byte slices — paths carry multibyte / `⚠` prefixes, so this is
+/// char-boundary safe. Pure — unit-tested.
+pub fn middle_truncate(s: &str, max_chars: usize) -> String {
+    let chars: Vec<char> = s.chars().collect();
+    let n = chars.len();
+    if n <= max_chars {
+        return s.to_string();
+    }
+    if max_chars <= 1 {
+        return "…".to_string();
+    }
+    let keep = max_chars - 1; // room for the ellipsis
+    let tail = keep.div_ceil(2); // tail (basename) gets the extra char
+    let head = keep - tail;
+    let head_s: String = chars[..head].iter().collect();
+    let tail_s: String = chars[n - tail..].iter().collect();
+    format!("{head_s}…{tail_s}")
+}
+
+/// Top-left position for a panel of `size` anchored to a `content` rect corner with
+/// `margin` clearance. The single content_rect-aware corner rule — so floating
+/// panels land in their own zone (rail/inspector-clear) instead of stacking on a
+/// shared screen corner. Pure — the placement math the panel-layer asserts.
+pub fn corner_anchor(content: Rect, align: Align2, size: Vec2, margin: Vec2) -> Pos2 {
+    let x = match align.x() {
+        Align::Min => content.min.x + margin.x,
+        Align::Center => content.center().x - size.x * 0.5,
+        Align::Max => content.max.x - size.x - margin.x,
+    };
+    let y = match align.y() {
+        Align::Min => content.min.y + margin.y,
+        Align::Center => content.center().y - size.y * 0.5,
+        Align::Max => content.max.y - size.y - margin.y,
+    };
+    Pos2::new(x, y)
 }
 
 #[cfg(test)]
@@ -205,5 +245,67 @@ mod tests {
             "open context menu suppresses"
         );
         assert!(!hover_readout_suppressed(false, false), "shown when idle");
+    }
+
+    #[test]
+    fn middle_truncate_keeps_head_tail_and_respects_max() {
+        // Short strings pass through untouched.
+        assert_eq!(middle_truncate("short.log", 20), "short.log");
+        // Long path: middle elided, never longer than max, basename tail survives.
+        let p = "/synthetic/dir005/file000322.dat";
+        let t = middle_truncate(p, 24);
+        assert!(t.chars().count() <= 24, "respects max_chars: {t:?}");
+        assert!(t.contains('…'), "has an ellipsis: {t:?}");
+        assert!(t.starts_with("/synthetic"), "keeps the head: {t:?}");
+        assert!(t.ends_with(".dat"), "keeps the basename tail: {t:?}");
+        // Degenerate budgets never panic / never slice mid-char.
+        assert_eq!(middle_truncate("⚠ alert/✓/path", 1), "…");
+        let multibyte = middle_truncate("⚠/réseau/socket/établi:8080", 10);
+        assert!(multibyte.chars().count() <= 10);
+    }
+
+    #[test]
+    fn corner_panels_do_not_overlap() {
+        // content_rect with the rail (left) + top strip reserved, inspector closed.
+        let content = Rect::from_min_max(pos2(66.0, 28.0), pos2(1600.0, 1000.0));
+        let ar = |a, size, m| rect(corner_anchor(content, a, size, m), size);
+        let minimap = ar(Align2::RIGHT_TOP, vec2(160.0, 180.0), vec2(12.0, 12.0));
+        let card = ar(Align2::RIGHT_BOTTOM, vec2(290.0, 320.0), vec2(14.0, 14.0));
+        let telemetry = ar(Align2::LEFT_BOTTOM, vec2(230.0, 96.0), vec2(10.0, 10.0));
+        assert!(
+            !overlaps(minimap, card),
+            "minimap (top) clears the card (bottom)"
+        );
+        assert!(
+            !overlaps(card, telemetry),
+            "card (right) clears telemetry (left)"
+        );
+        assert!(!overlaps(minimap, telemetry), "minimap clears telemetry");
+        for r in [minimap, card, telemetry] {
+            assert!(
+                on_screen(r, content),
+                "panel stays inside content_rect: {r:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn corner_anchor_clears_a_reserved_inspector_column() {
+        // When content_rect's right edge is pulled in by the inspector, the
+        // right-anchored card moves left with it (never under the inspector).
+        let full = Rect::from_min_max(pos2(66.0, 28.0), pos2(1600.0, 1000.0));
+        let narrowed = Rect::from_min_max(pos2(66.0, 28.0), pos2(1280.0, 1000.0));
+        let size = vec2(290.0, 320.0);
+        let m = vec2(14.0, 14.0);
+        let wide = corner_anchor(full, Align2::RIGHT_BOTTOM, size, m);
+        let tight = corner_anchor(narrowed, Align2::RIGHT_BOTTOM, size, m);
+        assert!(
+            tight.x < wide.x,
+            "card shifts left to clear the inspector column"
+        );
+        assert!(
+            tight.x + size.x <= narrowed.max.x,
+            "card stays within content_rect"
+        );
     }
 }

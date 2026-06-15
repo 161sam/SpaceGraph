@@ -20,7 +20,7 @@ markers. Archive-not-delete (the reverted `focus_core` → `legacy/`).
 ## Phase status
 - [x] **P0** — Inventory + before-shots
 - [x] **P1** — Revert 3D core + clean focus treatment + segmented action ring
-- [ ] **P2** — Complete panel-layer + middle-ellipsis
+- [x] **P2** — Complete panel-layer + middle-ellipsis
 - [ ] **P3** — Minimap: make it real
 - [ ] **P4** — Edges (curved / per-class / falloff / flow)
 - [ ] **P5** — Nodes + colour semantics + label anti-overlap
@@ -136,4 +136,51 @@ worktree is clean `main`). Baseline fmt/clippy/test recorded at this commit.
 `afterp1-polish-focus.png` (segmented ring + clean node treatment + FOCUS tag) vs
 `before-polish-focus.png` (the 3D-core + floating-label jumble);
 `afterp1-polish-minimal-focus.png` (flat degrade); default/hover/minimal for parity.
+
+---
+
+## P2 — Complete panel-layer + middle-ellipsis
+
+### What changed
+- **`content_rect` is now the full layout authority** (`ui/rail.rs::update_ui_layout`):
+  screen minus the rail (left), the top status strip, **and the docked inspector
+  column** (right, when it will render — new pure `inspector_reserves`, tested). Every
+  floating panel constrains to it instead of a bare screen corner.
+- **Telemetry/preview collision fixed** (`ui/node_preview.rs`): the preview is
+  **suppressed in Focus Mode** (the entity card is the sole focus-detail surface, per
+  the mockup) — so telemetry owns bottom-left alone. Outside focus it docks
+  `RIGHT_BOTTOM` **constrained to `content_rect`** (clears the inspector). The old
+  focus-mode `LEFT_BOTTOM` special-case is gone.
+- **Right-column panels are content_rect-aware**: the **minimap** (`ui/minimap.rs`) now
+  positions via the tested `overlay::corner_anchor(RIGHT_TOP)` + `order(layer::PANEL)`;
+  the **entity card** (`ui/entity_card.rs`) gained `.constrain_to(content_rect)`; the
+  **context menu** (`ui/context_menu.rs`) is clamped to `content_rect` so an edge click
+  doesn't push it off-screen.
+- **Middle-ellipsis truncation everywhere** (new pure `overlay::middle_truncate`, char-
+  boundary safe, tail-favoured so the basename survives — unit-tested): applied to the
+  **entity-card fields**, the **hover tooltip** (`ui/tooltips.rs`, now width-capped +
+  full-on-hover), and the **inspector** title + **connection rows** (was right-truncate,
+  dropping the basename). Full value always on hover.
+- New pure `overlay::corner_anchor` (content_rect-aware corner placement) underpins the
+  zone model; the placement assertions (`corner_panels_do_not_overlap`,
+  `corner_anchor_clears_a_reserved_inspector_column`) prove minimap/card/telemetry zones
+  stay disjoint and the right column shifts left to clear the inspector.
+
+### Decisions recorded
+- **Telemetry vs preview** (the MP's flagged Stop-and-Show): resolved per the mockup —
+  **no preview panel in Focus Mode** (the entity card carries the detail); telemetry
+  owns bottom-left; the hover-peek preview stays bottom-right outside focus.
+
+### Gate
+- `fmt --check` ✓ · `clippy --workspace --all-targets -D warnings` ✓ ·
+  `test --workspace` ✓ **203 viewer** (+4: `middle_truncate_keeps_head_tail_and_respects_max`,
+  `corner_panels_do_not_overlap`, `corner_anchor_clears_a_reserved_inspector_column`,
+  `inspector_reserves_only_when_visible`). `build` ✓.
+- Scope: viewer-only (`ui/{overlay,rail,minimap,node_preview,entity_card,tooltips,
+  inspector,context_menu}`). No core/graph/agent/wire change · Minimal parity preserved.
+
+### Screenshots
+`afterp2-polish-focus.png` — telemetry alone bottom-left (preview gone), entity-card
+path middle-ellipsis'd `/synthetic/dir005/fi…/file000322.dat`, no panel overlaps — vs
+`afterp1-polish-focus.png` (preview still colliding bottom-left). Default/minimal parity.
 

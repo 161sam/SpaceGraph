@@ -44,18 +44,40 @@ const SECTIONS: [(RailSection, &str, &str); 5] = [
     (RailSection::Settings, "⚙", "CFG"),
 ];
 
-/// Publish the layout: the slim rail reserves the left edge; the content rect is
-/// the rest of the screen (the floating chrome doesn't otherwise shrink it).
-/// Runs before the panels so they read a fresh `content_rect`.
-pub fn update_ui_layout(mut contexts: EguiContexts, mut layout: ResMut<UiLayout>) {
+/// True when the docked right inspector will render this frame, so `content_rect`
+/// must reserve its column (mirrors `inspector_overlay`'s gate). Pure — tested.
+pub fn inspector_reserves(st: &GraphState) -> bool {
+    st.ui.inspector_open
+        && st.ui.focus_mode.is_none()
+        && st.cfg.shell.right_open
+        && (st.ui.selected.is_some() || st.ui.focus.is_some())
+}
+
+/// Publish the layout authority (P2): `content_rect` is the screen minus the slim
+/// rail (left), the top status strip, and the docked inspector column (right, when
+/// it will render) — so every floating panel that constrains to `content_rect`
+/// clears them instead of stacking on a shared screen corner. Runs before the
+/// panels so they read a fresh rect.
+pub fn update_ui_layout(
+    mut contexts: EguiContexts,
+    mut layout: ResMut<UiLayout>,
+    st: Res<GraphState>,
+) {
     let Some(ctx) = contexts.try_ctx_mut() else {
         return;
     };
     let screen = ctx.screen_rect();
     let rail_right = (screen.min.x + RAIL_WIDTH).min(screen.max.x);
+    let top = (screen.min.y + TOP_OFFSET).min(screen.max.y);
+    let inspector_w = if inspector_reserves(&st) {
+        st.cfg.shell.right_width
+    } else {
+        0.0
+    };
+    let right = (screen.max.x - inspector_w).max(rail_right);
     layout.panel_rect = egui::Rect::from_min_max(screen.min, egui::pos2(rail_right, screen.max.y));
     layout.content_rect =
-        egui::Rect::from_min_max(egui::pos2(rail_right, screen.min.y), screen.max);
+        egui::Rect::from_min_max(egui::pos2(rail_right, top), egui::pos2(right, screen.max.y));
 }
 
 /// Draw the rail and toggle the active HUD panel section.
@@ -117,4 +139,34 @@ fn rail_button(
             .selected(active),
     )
     .on_hover_text(label)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use spacegraph_core::NodeId;
+
+    #[test]
+    fn inspector_reserves_only_when_visible() {
+        let mut st = GraphState::default();
+        st.ui.inspector_open = true;
+        st.cfg.shell.right_open = true;
+        assert!(
+            !inspector_reserves(&st),
+            "no selection → nothing to inspect"
+        );
+        st.ui.selected = Some(NodeId("n".into()));
+        assert!(
+            inspector_reserves(&st),
+            "selection + open → reserves a column"
+        );
+        st.ui.focus_mode = Some(NodeId("n".into()));
+        assert!(
+            !inspector_reserves(&st),
+            "focus mode suppresses the inspector (the card is the surface)"
+        );
+        st.ui.focus_mode = None;
+        st.cfg.shell.right_open = false;
+        assert!(!inspector_reserves(&st), "right_open=false → no reserve");
+    }
 }

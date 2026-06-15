@@ -29,6 +29,8 @@ use crate::graph::{GraphState, ViewMode};
 use crate::render::capability::{resolve_detail, DetailCapability, EffectiveDetail};
 use crate::render::node_icon::{file_subtype, IconId};
 use crate::ui::egui_color;
+use crate::ui::overlay::layer;
+use crate::ui::UiLayout;
 use crate::util::config::VisualTheme;
 use crate::util::ids::{node_label_long, node_label_short};
 
@@ -432,10 +434,17 @@ enum PreviewView {
 pub fn node_preview_overlay(
     mut contexts: EguiContexts,
     st: Res<GraphState>,
+    layout: Res<UiLayout>,
     cap: Res<DetailCapability>,
     preview: Res<PreviewState>,
     expand: Res<crate::render::PreviewExpand>,
 ) {
+    // P2: in Focus Mode the entity card is the sole focus-detail surface — no
+    // separate preview panel (it used to dock bottom-left, colliding with the
+    // telemetry readout; the mockup shows no preview panel in focus).
+    if st.ui.focus_mode.is_some() {
+        return;
+    }
     let eff = resolve_detail(&st.cfg.node_detail, *cap);
     if !preview_enabled(&st) || eff.max_preview_panels == 0 {
         return;
@@ -475,18 +484,19 @@ pub fn node_preview_overlay(
         ))
         .inner_margin(egui::Margin::same(8.0))
         .rounding(2.0);
-    // P1 (MP-UI-GitS): the focus-mode preview no longer sits CENTER_CENTER on the
-    // node (that caused the radial/centerpiece/preview pile-up). It docks to a
-    // screen corner, clear of the focused node; P3 reframes it as the entity card.
-    let (anchor, offset) = if st.ui.focus_mode.is_some() {
-        (egui::Align2::LEFT_BOTTOM, [12.0, -12.0])
-    } else {
-        (egui::Align2::RIGHT_BOTTOM, [-12.0, -12.0])
-    };
+    // P2: the preview docks bottom-right, constrained to the content rect so it
+    // clears the inspector column (focus-mode is handled above — no panel there).
     let ctx = contexts.ctx_mut();
+    let content = if layout.content_rect.width() > 0.0 && layout.content_rect.height() > 0.0 {
+        layout.content_rect
+    } else {
+        ctx.screen_rect()
+    };
     egui::Window::new("◈ PREVIEW")
         .frame(frame)
-        .anchor(anchor, offset)
+        .order(layer::PANEL)
+        .anchor(egui::Align2::RIGHT_BOTTOM, [-12.0, -12.0])
+        .constrain_to(content)
         .resizable(false)
         .show(ctx, |ui| {
             for (id, view) in set.iter().zip(views) {

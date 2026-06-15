@@ -6,6 +6,8 @@ use bevy_egui::{egui, EguiContexts};
 
 use crate::graph::{GraphState, ViewMode};
 use crate::render::theme::NodeKind;
+use crate::ui::overlay::{corner_anchor, layer};
+use crate::ui::UiLayout;
 
 const MINIMAP_SIZE: f32 = 160.0;
 const MAX_DOTS: usize = 800;
@@ -22,14 +24,29 @@ fn to_egui(c: Color) -> egui::Color32 {
 pub fn minimap(
     mut contexts: EguiContexts,
     st: Res<GraphState>,
+    layout: Res<UiLayout>,
     cam_q: Query<&Transform, With<Camera>>,
 ) {
     if st.ui.view_mode != ViewMode::Spatial {
         return;
     }
     let ctx = contexts.ctx_mut();
+    // Anchor top-right within the content rect (clears the rail, top strip and the
+    // inspector column) via the shared corner rule — no longer the bare screen edge.
+    let content = if layout.content_rect.width() > 0.0 && layout.content_rect.height() > 0.0 {
+        layout.content_rect
+    } else {
+        ctx.screen_rect()
+    };
+    let pos = corner_anchor(
+        content,
+        egui::Align2::RIGHT_TOP,
+        egui::vec2(MINIMAP_SIZE, MINIMAP_SIZE),
+        egui::vec2(12.0, 12.0),
+    );
     egui::Area::new("minimap".into())
-        .anchor(egui::Align2::RIGHT_TOP, egui::vec2(-12.0, 12.0))
+        .order(layer::PANEL)
+        .fixed_pos(pos)
         .show(ctx, |ui| {
             let (resp, painter) =
                 ui.allocate_painter(egui::vec2(MINIMAP_SIZE, MINIMAP_SIZE), egui::Sense::hover());
